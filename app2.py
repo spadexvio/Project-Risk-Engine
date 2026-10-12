@@ -4,7 +4,7 @@ import numpy as np
 import yfinance as yf
 import datetime
 import plotly.express as px
-#import IPython.lib.deepreload # or built-in importlib
+import IPython.lib.deepreload # or built-in importlib
 
 # Automatically reload imported local modules on every Streamlit run
 import importlib
