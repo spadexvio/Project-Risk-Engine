@@ -496,7 +496,7 @@ elif st.session_state['page'] == 'analytics':
     # Exchange Specific Configuration with robust benchmark symbols & fallbacks
     exchange_config = {
         'NSE': {'symbol': '^NSEI', 'fallback': 'NIFTYBEES.NS', 'name': 'Nifty 50 Index', 'suffix': '.NS', 'default_curr': 'INR'},
-        'BSE': {'symbol': '^BSESN', 'fallback': 'SETF.NS', 'name': 'SENSEX Index', 'suffix': '.BO', 'default_curr': 'INR'},
+        'BSE': {'symbol': '^BSESN', 'fallback': 'SETF.NS', 'name': 'SENSEX Index', 'suffix': '.NS', 'default_curr': 'INR'},
         'JSE': {'symbol': '^JN00.JO', 'fallback': 'STX40.JO', 'name': 'JSE Top 40 Index', 'suffix': '.JO', 'default_curr': 'ZAR'}
     }
     
