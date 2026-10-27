@@ -9,4 +9,3 @@ scipy
 matplotlib
 statsmodels
 IPython
-io
