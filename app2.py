@@ -1353,7 +1353,7 @@ elif st.session_state['page'] == 'analytics':
 
 # 4. Render in Streamlit
                 st.plotly_chart(fig, use_container_width=True, key="portfolio_vs_market_chart")
-                fig_bytes = pio.to_image(fig_risk, format='png', width=700, height=450)
+                fig_bytes = pio.to_image(fig, format='png', width=700, height=450)
 
 # --- STATISTICAL RISK CALCULATIONS ---
 
