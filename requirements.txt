@@ -9,4 +9,4 @@ scipy
 matplotlib
 statsmodels
 IPython
-kaleido==0.2.1
+kaleido>=1.0.0
