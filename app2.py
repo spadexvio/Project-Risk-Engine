@@ -17,7 +17,7 @@ importlib.reload(erk)
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="QuantRisk Engine",
+    page_title="WIRATOR",
     page_icon="🛡️",
     layout="wide"
 )
