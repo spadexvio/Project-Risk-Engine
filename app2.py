@@ -7,6 +7,8 @@ import io
 import plotly.io as pio
 import plotly.express as px
 import IPython.lib.deepreload # or built-in importlib
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 # Automatically reload imported local modules on every Streamlit run
 import importlib
@@ -2454,32 +2456,65 @@ elif st.session_state['page'] == 'analytics':
             user_message = st.text_area("Your Message / Suggestion")
         
             submitted = st.form_submit_button("Submit Feedback")
-        
-            if submitted:
-              if user_message.strip():
-                # You can save this to a local CSV/JSON file or log it
-                feedback_entry = {
-                    "Timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "Email": user_email if user_email else "Anonymous",
-                    "Type": feedback_type,
-                    "Exchange": (
-                      exchange if "exchange" in globals() else "NSE"
-                      ),  # Records current active exchange
-                    "Message": user_message,
-                }
-        
-                # Save locally to a feedback log file
-                feedback_file = "user_feedback.csv"
+
+          if submitted:
+            if user_message.strip():
                 try:
-                  df_fb = pd.read_csv(feedback_file)
-                  df_fb = pd.concat([df_fb, pd.DataFrame([feedback_entry])], ignore_index=True)
-                except FileNotFoundError:
-                  df_fb = pd.DataFrame([feedback_entry])
-        
-                df_fb.to_csv(feedback_file, index=False)
-                st.success("Thank you! Your feedback has been recorded.")
-              else:
+                    # 1. Setup credentials from Streamlit Secrets
+                    scope = [
+                        "https://spreadsheets.google.com/feeds",
+                        "https://www.googleapis.com/auth/drive"
+                    ]
+                    creds_dict = dict(st.secrets["gcp_service_account"])
+                    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+                    client = gspread.authorize(creds)
+
+                    # 2. Open Google Sheet by name
+                    sheet = client.open("QuantRisk Feedback").sheet1
+
+                    # 3. Build exact row payload matching your entries
+                    row_data = [
+                        pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),    # Timestamp
+                        user_email if user_email else "Anonymous",           # Email
+                        feedback_type,                                       # Type
+                        exchange if "exchange" in globals() else "NSE",       # Exchange
+                        user_message                                         # Message
+                    ]
+
+                    # 4. Append row directly to Google Sheet
+                    sheet.append_row(row_data)
+                    st.success("Thank you! Your feedback has been recorded.")
+
+                except Exception as e:
+                    st.error(f"Failed to record feedback: {e}")
+            else:
                 st.warning("Please enter a message before submitting.")
+        
+            # if submitted:
+            #   if user_message.strip():
+            #     # You can save this to a local CSV/JSON file or log it
+            #     feedback_entry = {
+            #         "Timestamp": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+            #         "Email": user_email if user_email else "Anonymous",
+            #         "Type": feedback_type,
+            #         "Exchange": (
+            #           exchange if "exchange" in globals() else "NSE"
+            #           ),  # Records current active exchange
+            #         "Message": user_message,
+            #     }
+        
+            #     # Save locally to a feedback log file
+            #     feedback_file = "user_feedback.csv"
+            #     try:
+            #       df_fb = pd.read_csv(feedback_file)
+            #       df_fb = pd.concat([df_fb, pd.DataFrame([feedback_entry])], ignore_index=True)
+            #     except FileNotFoundError:
+            #       df_fb = pd.DataFrame([feedback_entry])
+        
+            #     df_fb.to_csv(feedback_file, index=False)
+            #     st.success("Thank you! Your feedback has been recorded.")
+            #   else:
+            #     st.warning("Please enter a message before submitting.")
 
     # else:
     #     st.info(f"👈 Please upload a {exchange} portfolio CSV file from the left sidebar to generate the risk audit.")
