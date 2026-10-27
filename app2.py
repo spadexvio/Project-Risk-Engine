@@ -1200,7 +1200,7 @@ elif st.session_state['page'] == 'analytics':
                                 holdings_df = sub_df.reset_index(drop=True)
                                 st.success("Portfolio CSV loaded successfully!")
                 except Exception as e:
-                st.warning(f"Could not parse custom CSV format ({e}). Using default fallback portfolio.")
+                    st.warning(f"Could not parse custom CSV format ({e}). Using default fallback portfolio.")
             else:
                 holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
 
