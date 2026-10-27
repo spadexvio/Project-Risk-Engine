@@ -1164,33 +1164,29 @@ elif st.session_state['page'] == 'analytics':
             if uploaded_file is not None:
                 #raw_df = pd.read_csv(uploaded_file)
                 st.info("File uploaded")
-                uploaded_file.seek(0)
-                
-                # Robust reading with encoding fallback for cloud environments
+                bytes_data = uploaded_file.read()
+                safe_buffer = io.BytesIO(bytes_data)
+            
                 try:
-                    raw_df = pd.read_csv(uploaded_file, encoding='utf-8')
-                except UnicodeDecodeError:
-                    uploaded_file.seek(0)
-                    raw_df = pd.read_csv(uploaded_file, encoding='latin1')
+                    raw_df = pd.read_csv(safe_buffer)
                 
-                # Guard clause: Check if dataframe is empty
-                if raw_df is None or raw_df.empty or len(raw_df) == 0:
-                    st.error("The uploaded CSV file appears to be empty. Please check the file format.")
-                    st.stop()  # Halts execution cleanly to prevent downstream index errors
-                raw_df.columns = raw_df.columns.str.strip()
-    
-                # Normalize column mapping
-                ticker_col = 'Instrument' if 'Instrument' in raw_df.columns else ('Symbol' if 'Symbol' in raw_df.columns else raw_df.columns[0])
-                qty_col = 'Qty.' if 'Qty.' in raw_df.columns else ('Quantity' if 'Quantity' in raw_df.columns else raw_df.columns[1])
-    
-                # Strip existing suffixes if re-uploading
-                cleaned_tickers = raw_df[ticker_col].astype(str).str.replace(r'\.(NS|BO|JO)$', '', regex=True).str.strip()
-                
-                # Prepare clean Dataframe for editing
-                holdings_df = pd.DataFrame({
-                    'Ticker': cleaned_tickers,
-                    'Quantity': raw_df[qty_col].astype(int)
-                })
+                    if raw_df is None or raw_df.empty:
+                      st.error("The uploaded CSV file is empty.")
+                      st.stop()
+                    raw_df.columns = raw_df.columns.str.strip()
+        
+                    # Normalize column mapping
+                    ticker_col = 'Instrument' if 'Instrument' in raw_df.columns else ('Symbol' if 'Symbol' in raw_df.columns else raw_df.columns[0])
+                    qty_col = 'Qty.' if 'Qty.' in raw_df.columns else ('Quantity' if 'Quantity' in raw_df.columns else raw_df.columns[1])
+        
+                    # Strip existing suffixes if re-uploading
+                    cleaned_tickers = raw_df[ticker_col].astype(str).str.replace(r'\.(NS|BO|JO)$', '', regex=True).str.strip()
+                    
+                    # Prepare clean Dataframe for editing
+                    holdings_df = pd.DataFrame({
+                        'Ticker': cleaned_tickers,
+                        'Quantity': raw_df[qty_col].astype(int)
+                    })
             else:
                 holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
 
