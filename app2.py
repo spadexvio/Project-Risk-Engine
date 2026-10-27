@@ -161,11 +161,11 @@ if st.session_state['page'] == 'landing':
     """
     <div class="hero-container">
         <div style="font-size: 4rem; margin-bottom: 0.5rem;">🛡️</div>
-        <h1 class="hero-title">QuantRisk Engine</h1>
+        <h1 class="hero-title">WIRATOR</h1>
         <div class="hero-subtitle">Institutional Portfolio Risk Audit & Monte Carlo Stress Testing</div>
         <div class="slogan-badge">Analyze. Build. Perform.</div>
         <p class="hero-description">
-            <b>QuantRisk Engine</b> is an open-access quantitative risk intelligence portal built specifically for emerging markets. 
+            <b>Wirator</b> is an open-access quantitative risk intelligence portal built specifically for emerging markets. 
             It transforms raw broker transaction data into audit-ready <b>Value at Risk (VaR)</b>, <b>Conditional VaR (CVaR)</b>, 
             and <b>10,000-Path Monte Carlo Stress Simulations</b> tailored to local benchmarks and currencies.
         </p>
@@ -1787,7 +1787,7 @@ elif st.session_state['page'] == 'analytics':
                 
                     # 1. Masthead Header
                     header_data = [
-                        [Paragraph("QuantRisk Engine — Portfolio Audit", title_style)],
+                        [Paragraph("WIRATOR — Portfolio Audit", title_style)],
                         [
                             Paragraph(
                                 "Comprehensive Asset Allocation, Risk Performance &amp; Monte Carlo Projections",
