@@ -2470,7 +2470,7 @@ elif st.session_state['page'] == 'analytics':
                     client = gspread.authorize(creds)
 
                     # 2. Open Google Sheet by name
-                    sheet = client.open("QuantRisk Feedback").sheet1
+                    sheet = client.open("Wirator User Feedback").sheet1
 
                     # 3. Build exact row payload matching your entries
                     row_data = [
