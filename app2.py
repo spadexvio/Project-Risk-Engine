@@ -1188,6 +1188,8 @@ elif st.session_state['page'] == 'analytics':
                         'Ticker': cleaned_tickers,
                         'Quantity': raw_df[qty_col].astype(int)
                     })
+                except Exception as e:
+                    st.error(f"Error reading CSV portfolio file: {e}")
             else:
                 holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
 
