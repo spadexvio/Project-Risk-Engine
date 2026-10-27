@@ -1163,6 +1163,7 @@ elif st.session_state['page'] == 'analytics':
         try:
             if uploaded_file is not None:
                 #raw_df = pd.read_csv(uploaded_file)
+                st.info("File uploaded")
                 uploaded_file.seek(0)
                 
                 # Robust reading with encoding fallback for cloud environments
