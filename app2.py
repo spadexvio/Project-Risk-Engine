@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 import datetime
 import io
+import plotly.io as pio
 import plotly.express as px
 import IPython.lib.deepreload # or built-in importlib
 
@@ -1352,6 +1353,7 @@ elif st.session_state['page'] == 'analytics':
 
 # 4. Render in Streamlit
                 st.plotly_chart(fig, use_container_width=True, key="portfolio_vs_market_chart")
+                fig_bytes = pio.to_image(fig_risk, format='png', width=700, height=450)
 
 # --- STATISTICAL RISK CALCULATIONS ---
 
@@ -1606,7 +1608,8 @@ elif st.session_state['page'] == 'analytics':
                         use_container_width=True,
                         key="risk_contribution_bar_plot",
                     )
-                
+                fig_weights_bytes = pio.to_image(fig_weights, format='png', width=700, height=450)
+                fig_risk_bytes = pio.to_image(fig_risk, format='png', width=700, height=450)
 
                 # # --- MONTE CARLO RISK STRESS RESULTS (METRICS ONLY) ---
                 # st.markdown("---")
