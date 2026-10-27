@@ -1168,36 +1168,39 @@ elif st.session_state['page'] == 'analytics':
                     uploaded_file.seek(0)
                     bytes_data = uploaded_file.read()
                     
-                    if not bytes_data:
-                        st.error("The uploaded CSV file is empty.")
-                        holdings_df = pd.DataFrame({'Ticker': [''], 'Quantity': [0]})
-                    else:
+                    if bytes_data:
                         safe_buffer = io.BytesIO(bytes_data)
-                        raw_df = pd.read_csv(safe_buffer)
                         
-                        if raw_df is None or raw_df.empty or len(raw_df) == 0:
-                            st.error("The uploaded CSV file contains no data rows.")
-                            holdings_df = pd.DataFrame({'Ticker': [''], 'Quantity': [0]})
-                        else:
+                        # Try reading normally, skip bad lines/empty rows automatically
+                        raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
+                        
+                        # Drop completely empty rows or columns
+                        raw_df = raw_df.dropna(how='all').dropna(axis=1, how='all')
+                        
+                        if not raw_df.empty and len(raw_df.columns) > 0:
                             raw_df.columns = raw_df.columns.astype(str).str.strip()
     
-                            # Flexible column detection across different broker CSV formats
-                            possible_ticker_cols = ['Instrument', 'Symbol', 'Ticker', 'Stock', 'Security', 'Company']
-                            possible_qty_cols = ['Qty.', 'Quantity', 'Qty', 'Shares', 'Volume']
+                            # Smart header search
+                            possible_ticker_cols = ['Instrument', 'Symbol', 'Ticker', 'Stock', 'Security', 'Company', 'Scrip']
+                            possible_qty_cols = ['Qty.', 'Quantity', 'Qty', 'Shares', 'Volume', 'Units']
     
                             ticker_col = next((col for col in possible_ticker_cols if col in raw_df.columns), raw_df.columns[0])
                             qty_col = next((col for col in possible_qty_cols if col in raw_df.columns), (raw_df.columns[1] if len(raw_df.columns) > 1 else raw_df.columns[0]))
                             
-                            # Clean and extract data safely
-                            cleaned_tickers = raw_df[ticker_col].astype(str).str.replace(r'\.(NS|BO)$', '', regex=True).str.strip()
-                            quantities = pd.to_numeric(raw_df[qty_col], errors='coerce').fillna(1).astype(int)
+                            # Clean data and ensure no NaN or out-of-bounds indices
+                            sub_df = raw_df[[ticker_col, qty_col]].copy()
+                            sub_df.columns = ['Ticker', 'Quantity']
                             
-                            holdings_df = pd.DataFrame({
-                                'Ticker': cleaned_tickers,
-                                'Quantity': quantities
-                            })
+                            sub_df['Ticker'] = sub_df['Ticker'].astype(str).str.replace(r'\.(NS|BO)$', '', regex=True).str.strip()
+                            sub_df['Quantity'] = pd.to_numeric(sub_df['Quantity'], errors='coerce').fillna(1).astype(int)
+                            
+                            # Filter out invalid rows
+                            sub_df = sub_df[sub_df['Ticker'] != 'nan']
+                            if not sub_df.empty:
+                                holdings_df = sub_df.reset_index(drop=True)
+                                st.success("Portfolio CSV loaded successfully!")
                 except Exception as e:
-                    st.error(f"Error reading CSV portfolio file: {e}")
+                st.warning(f"Could not parse custom CSV format ({e}). Using default fallback portfolio.")
             else:
                 holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
 
