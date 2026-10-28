@@ -4,7 +4,7 @@ base = "light"
 
 # Your institutional theme colors
 primaryColor = "#1A2B4C"
-backgroundColor = "#E2F0D9"
+backgroundColor = "#EAF2EC"
 secondaryBackgroundColor = "#E2E8F0"
 textColor = "#1A2B4C"
 font = "sans serif"
