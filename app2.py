@@ -953,7 +953,7 @@ elif st.session_state['page'] == 'analytics':
                     "ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"
                 ]
             }
-        }
+        },
         "JSE": {
             "JSE Mining & Resources": {
                 "indices": ["^J210.JO"],
