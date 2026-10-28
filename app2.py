@@ -1357,7 +1357,7 @@ elif st.session_state['page'] == 'analytics':
             for stk in sector_stocks
             if stk in stock_returns_dict
         ]
-        sector_stocks_perf["Ticker"] = sector_stocks_perf["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
+        #sector_stocks_perf["Ticker"] = sector_stocks_perf["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
         sector_drill_df = pd.DataFrame(sector_stocks_perf).sort_values(
             by="Return (%)", ascending=False
         )
