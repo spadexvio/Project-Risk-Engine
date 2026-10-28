@@ -16,6 +16,10 @@ import quant_risk_kit as erk
 importlib.reload(erk)
 
 # --- PAGE CONFIGURATION ---
+st.markdown(
+    '<meta name="color-scheme" content="light dark">', 
+    unsafe_allow_html=True
+)
 st.set_page_config(
     page_title="WIRATOR",
     page_icon="🛡️",
