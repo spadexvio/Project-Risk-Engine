@@ -1,18 +1,10 @@
 [theme]
-# Keeps mobile browsers from breaking the UI
+# Forces the app base to light mode so mobile browsers don't invert dropdowns/popovers
 base = "light"
 
-# Deep institutional navy for primary accents, buttons, and headers
+# Your institutional theme colors
 primaryColor = "#1A2B4C"
-
-# Soft, warm parchment / cream background (easy on the eyes)
 backgroundColor = "#FAF8ED"
-
-# Subtle soft contrast tone for sidebars and container cards
-secondaryBackgroundColor = "#F2EFE9"
-
-# Deep navy-black for high-contrast, readable text that never strains the eyes
-textColor = "#111827"
-
-# Clean professional font
+secondaryBackgroundColor = "#E2E8F0"
+textColor = "#1A2B4C"
 font = "sans serif"
