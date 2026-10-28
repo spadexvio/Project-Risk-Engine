@@ -754,6 +754,7 @@ elif st.session_state['page'] == 'analytics':
                     yaxis_title=None,
                     xaxis=dict(fixedrange=True),
                     yaxis=dict(range=[y_min, y_max], fixedrange=True),
+                    dragmode=False,
                     hovermode="x unified",
                     plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)"
