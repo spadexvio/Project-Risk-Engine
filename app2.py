@@ -613,19 +613,15 @@ elif st.session_state['page'] == 'analytics':
     div[data-testid="stPlotlyChart"] > div {
         width: 100% !important;
     }
-    /* 1. Reduce top padding of the sidebar to pull content up */
-    [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-        padding-top: 0.1rem !important; /* Reduces large top gap above "1. Configuration" */
+    /* Forcefully reduce sidebar vertical padding and element gaps */
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
     }
     
-    /* 2. Tighten vertical spacing between sidebar widgets */
-    [data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div {
-        margin-bottom: -6px !important; /* Pulls elements closer together vertically */
-    }
-    
-    /* 3. Make sidebar inputs slightly more compact */
-    [data-testid="stSidebar"] div[data-baseweb="input"] {
-        min-height: 36px !important;
+    /* Tighten spacing specifically for sidebar widget wrappers */
+    section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
+        gap: 0.4rem !important;
     }
     </style>
     """,
