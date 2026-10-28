@@ -38,18 +38,13 @@ def navigate_to(page_name, exchange=None):
 
 st.markdown("""
 <style>
-    /* Completely collapse top spacing and hide header/decoration elements */
+    /* Paint the top header and decoration bar to match your theme */
     header[data-testid="stHeader"], 
     div[data-testid="stDecoration"] {
-        display: none !important;
-        visibility: hidden !important;
-        height: 0 !important;
-    }
-
-    /* Pull the main container up to eliminate any remaining blank strip at the top */
-    .block-container {
-        padding-top: 0rem !important;
-        margin-top: -1.5rem !important;
+        background-color: #FAF8ED !important;
+        background: #FAF8ED !important;
+        border-bottom: none !important;
+        box-shadow: none !important;
     }
 </style>
 """, unsafe_allow_html=True)
