@@ -193,26 +193,6 @@ if st.session_state['page'] == 'landing':
         unsafe_allow_html=True,
     )
     
-    # Exchange Selector Buttons
-    #btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
-    # btn_col1, btn_col2, btn_col3 = st.columns(3, gap="medium")
-    
-    # with btn_col1:
-    #     if st.button("🇮🇳 National Stock Exchange (NSE)", use_container_width=True):
-    #         navigate_to('analytics', exchange='NSE')
-    #         st.rerun()
-
-    # with btn_col2:
-    #     if st.button("🇮🇳 Bombay Stock Exchange (BSE)", use_container_width=True):
-    #         navigate_to('analytics', exchange='BSE')
-    #         st.rerun()
-
-    # with btn_col3:
-    #     if st.button("🇿🇦 Johannesburg Stock Exchange (JSE)", use_container_width=True):
-    #         navigate_to('analytics', exchange='JSE')
-    #         st.rerun()
-            
-    # btn1_col1, btn1_col2, btn1_col3 = st.columns(3, gap="medium")
     # Exchange Selector Buttons — Row 1 (Emerging & US Anchors)
     r1_col1, r1_col2, r1_col3 = st.columns(3, gap="medium")
     
@@ -535,7 +515,10 @@ elif st.session_state['page'] == 'analytics':
     exchange_config = {
         'NSE': {'symbol': '^NSEI', 'fallback': 'NIFTYBEES.NS', 'name': 'Nifty 50 Index', 'suffix': '.NS', 'default_curr': 'INR'},
         'BSE': {'symbol': '^BSESN', 'fallback': 'SETF.NS', 'name': 'SENSEX Index', 'suffix': '.NS', 'default_curr': 'INR'},
-        'JSE': {'symbol': '^JN00.JO', 'fallback': 'STX40.JO', 'name': 'JSE Top 40 Index', 'suffix': '.JO', 'default_curr': 'ZAR'}
+        'JSE': {'symbol': '^JN00.JO', 'fallback': 'STX40.JO', 'name': 'JSE Top 40 Index', 'suffix': '.JO', 'default_curr': 'ZAR'},
+        'US':  {'symbol': '^GSPC', 'fallback': 'SPY', 'name': 'S&P 500 Index', 'suffix': '', 'default_curr': 'USD'},
+        'UK':  {'symbol': '^FTSE', 'fallback': 'ISF.L', 'name': 'FTSE 100 Index', 'suffix': '.L', 'default_curr': 'GBP'},
+        'EU':  {'symbol': '^STOXX', 'fallback': 'EXS1.DE', 'name': 'STOXX Europe 600', 'suffix': '.DE', 'default_curr': 'EUR'}
     }
     
     current_cfg = exchange_config.get(exchange, exchange_config['NSE'])
@@ -905,6 +888,72 @@ elif st.session_state['page'] == 'analytics':
                 ],
             },
         },
+        "US": {
+            "Technology": {
+                "indices": ["^NDX", "^GSPC"],
+                "stocks": [
+                    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL"
+                ]
+            },
+            "Financials": {
+                "indices": ["^IXFN", "^GSPC"],
+                "stocks": [
+                    "JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW"
+                ]
+            },
+            "Healthcare": {
+                "indices": ["^IXHC", "^GSPC"],
+                "stocks": [
+                    "UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR"
+                ]
+            },
+            "Energy & Industrials": {
+                "indices": ["^IXID", "^GSPC"],
+                "stocks": [
+                    "XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE"
+                ]
+            }
+        },
+        "UK": {
+            "Energy & Commodities": {
+                "indices": ["^FTSE"],
+                "stocks": [
+                    "SHEL.L", "BP.L", "GLEN.L", "RIO.L", "AAL.L", "ANTO.L"
+                ]
+            },
+            "Banking & Finance": {
+                "indices": ["^FTSE"],
+                "stocks": [
+                    "HSBA.L", "LLOY.L", "BARC.L", "NWG.L", "NWG.L", "PRU.L"
+                ]
+            },
+            "Healthcare & Consumer": {
+                "indices": ["^FTSE"],
+                "stocks": [
+                    "AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"
+                ]
+            }
+        },
+        "EU": {
+            "Technology & Industrials": {
+                "indices": ["^STOXX", "^GDAXI"],
+                "stocks": [
+                    "ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "IFX.DE", "AD.AS"
+                ]
+            },
+            "Luxury & Consumer Goods": {
+                "indices": ["^STOXX", "^FCHI"],
+                "stocks": [
+                    "MC.PA", "OR.PA", "RMS.PA", "KER.PA", "ABI.BR", "HEIA.AS"
+                ]
+            },
+            "Financials & Automakers": {
+                "indices": ["^STOXX", "^GDAXI"],
+                "stocks": [
+                    "ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"
+                ]
+            }
+        }
         "JSE": {
             "JSE Mining & Resources": {
                 "indices": ["^J210.JO"],
@@ -1415,10 +1464,16 @@ elif st.session_state['page'] == 'analytics':
                 cvar_amount = abs(cvar_pct) * initial_capital
 
                 # Sharpe Ratio (6.5% baseline RFR)
-                if exchange =="JSE":
-                    rfr_daily = 0.0725/252
-                else:
-                    rfr_daily = 0.065 / 252
+                rfr_dict = {
+                    'NSE': 0.065,  # India baseline ~6.5%
+                    'BSE': 0.065,  # India baseline ~6.5%
+                    'US':  0.045,  # US baseline ~4.5%
+                    'UK':  0.045,  # UK baseline ~4.5%
+                    'EU':  0.030,  # Eurozone baseline ~3.0%
+                    'JSE': 0.0725  # South Africa baseline ~7.25%
+                }
+                rfr_annual = rfr_dict.get(exchange, 0.05)
+                rfr_daily = rfr_annual / 252
                 #sharpe = ((portfolio_daily_returns.mean() - rfr_daily) / portfolio_daily_returns.std()) * np.sqrt(252)
                 if len(active_tickers) == 1:
                   sharpe = (
@@ -2214,7 +2269,7 @@ elif st.session_state['page'] == 'analytics':
                 st.header("🛡️ TAX Liabilities & Optimization")
 
           # 1. Base Summary Table (Static / Current Upload View)
-                if exchange == "JSE":
+                if exchange in ["US", "UK", "EU", "JSE"]:
                   st.info("ℹ️ Tax audit optimization is currently available only in India.")
                 else:
                     if flag==1:  #No CSV is uploaded, stocks added on the portal
