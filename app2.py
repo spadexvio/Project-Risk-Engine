@@ -2658,7 +2658,9 @@ elif st.session_state['page'] == 'analytics':
                             hide_index=True,
                             use_container_width=True,
                             )
-
+            if exchange == "BSE":
+                st.caption(
+                "Note: Market data sourced via NSE primary liquid feeds for dual-listed equities to ensure consistent pricing data availability and zero downtime across exchange views."
         except Exception as e:
             st.error(f"Error reading CSV portfolio file: {str(e)}")
 
