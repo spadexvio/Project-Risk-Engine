@@ -1356,7 +1356,7 @@ elif st.session_state['page'] == 'analytics':
                     color="Return (%)",
                     color_continuous_scale="Viridis",
                 )
-                fig_sector_drill.update_layout(yaxis={"categoryorder": "total ascending"})
+                fig_sector_drill.update_layout(yaxis={"categoryorder": "total ascending"}, dragmode=False)
                 st.plotly_chart(fig_sector_drill, use_container_width=True)
         else:
             st.info(f"No price data available for stocks in {selected_sector}.")
@@ -1550,6 +1550,7 @@ elif st.session_state['page'] == 'analytics':
                     hovermode="x unified",
                     xaxis_title="Date",
                     yaxis_title="Return",
+                    dragmode=False,
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 )
                 
@@ -1563,6 +1564,7 @@ elif st.session_state['page'] == 'analytics':
                 hovermode="x unified",
                 xaxis_title="Date",
                 yaxis_title="Return",
+                dragmode=False
                 )
 
 # 4. Render in Streamlit
@@ -1802,6 +1804,7 @@ elif st.session_state['page'] == 'analytics':
                         yaxis_tickformat=".2%",
                         showlegend=False,
                         hovermode="x unified",
+                        dragmode=False
                     )
                     st.plotly_chart(
                         fig_weights,
@@ -1822,6 +1825,7 @@ elif st.session_state['page'] == 'analytics':
                         yaxis_tickformat=".2%",
                         showlegend=False,
                         hovermode="x unified",
+                        dragmode=False
                     )
                     st.plotly_chart(
                         fig_risk,
