@@ -36,19 +36,6 @@ def navigate_to(page_name, exchange=None):
     st.session_state['page'] = page_name
     st.session_state['exchange'] = exchange
 
-st.markdown("""
-<style>
-    /* Paint the top header and decoration bar to match your theme */
-    header[data-testid="stHeader"], 
-    div[data-testid="stDecoration"] {
-        background-color: #FAF8ED !important;
-        background: #FAF8ED !important;
-        border-bottom: none !important;
-        box-shadow: none !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # ==============================================================================
 # 1. LANDING PAGE (Centered Logo, Description, Exchange Selection & Auth Wall)
 # ==============================================================================
