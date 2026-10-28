@@ -550,6 +550,38 @@ elif st.session_state['page'] == 'analytics':
         color: #1A2B4C !important;
         -webkit-text-fill-color: #1A2B4C !important;
     }
+    /* ========================================================= */
+    /* FIX FOR MOBILE SELECTBOX DROPDOWN POPUPS (THE "BLACK BOX") */
+    /* ========================================================= */
+    div[data-baseweb="popover"], 
+    div[data-baseweb="menu"], 
+    ul[role="listbox"] {
+        background-color: #FAFAED !important;
+        border: 1px solid #1A2B4C !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    /* Individual dropdown options text and background */
+    li[role="option"], 
+    div[role="option"], 
+    div[data-baseweb="option"],
+    li[role="option"] *, 
+    div[role="option"] * {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        font-weight: 600 !important;
+    }
+
+    /* Hover state for dropdown options */
+    li[role="option"]:hover, 
+    div[role="option"]:hover, 
+    div[data-baseweb="option"]:hover {
+        background-color: #1A2B4C !important;
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
