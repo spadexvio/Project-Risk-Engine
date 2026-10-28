@@ -45,6 +45,10 @@ if st.session_state['page'] == 'landing':
     st.markdown(
     """
     <style>
+    /* Hide the top header bar entirely */
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
     /* 1. Prevent text overflow and stretching on mobile */
     p, span, div, label {
         word-break: break-word;
