@@ -39,8 +39,8 @@ def navigate_to(page_name, exchange=None):
 CHART_CONFIG = {
     'displayModeBar': False,
     'modeBarButtonsToRemove': [
-        'zoom2d', 'pan2d', 'select2d', 'lasso2d', 
-        'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d'
+        '2d', 'pan2d', 'select2d', 'lasso2d', 
+        'In2d', 'Out2d', 'autoScale2d', 'resetScale2d'
     ],
     'toImageButtonOptions': {
         'format': 'png', 
@@ -318,7 +318,7 @@ elif st.session_state['page'] == 'analytics':
     /* 1. GLOBAL APP & TYPOGRAPHY                              */
     /* ========================================================= */
     html {
-        zoom: 100% !important;
+        zoom: 98% !important;
     }
     
     .stApp {
