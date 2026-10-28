@@ -1284,6 +1284,7 @@ elif st.session_state['page'] == 'analytics':
             orientation="h",
             title=f"Top 10 Stocks - {timeframe}",
         )
+        fig_top_stocks.update_layout(dragmode=False)
         st.plotly_chart(fig_top_stocks, use_container_width=True)
     
     with st_col2:
@@ -1304,6 +1305,7 @@ elif st.session_state['page'] == 'analytics':
             orientation="h",
             title=f"Worst 10 Stocks - {timeframe}",
         )
+        fig_worst_stocks.update_layout(dragmode=False)
         st.plotly_chart(fig_worst_stocks, use_container_width=True)
 
 # ==============================================================================
