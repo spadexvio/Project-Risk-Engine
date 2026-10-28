@@ -239,9 +239,10 @@ if st.session_state['page'] == 'landing':
         <div class="hero-subtitle">Institutional Portfolio Risk Audit & Monte Carlo Stress Testing</div>
         <div class="slogan-badge">Analyze. Build. Perform.</div>
         <p class="hero-description">
-            <b>Wirator</b> is an open-access quantitative risk intelligence portal built specifically for emerging markets. 
-            It transforms raw broker transaction data into audit-ready <b>Value at Risk (VaR)</b>, <b>Conditional VaR (CVaR)</b>, 
-            and <b>10,000-Path Monte Carlo Stress Simulations</b> tailored to local benchmarks and currencies.
+            <b>WIRATOR</b> is an open-access quantitative risk engine for cross-border and emerging markets. 
+            It converts portfolio holdings into audit-ready <b>Value at Risk (VaR)</b>, <b>Conditional VaR (CVaR)</b>, 
+            <b>Sharpe Style Factor Attribution</b>, and <b>10,000-Path Monte Carlo Stress Simulations</b> 
+            tailored to global indices and native currencies.
         </p>
     </div>
     """,
