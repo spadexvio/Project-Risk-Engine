@@ -45,12 +45,6 @@ if st.session_state['page'] == 'landing':
     st.markdown(
     """
     <style>
-    .stApp {
-        background-color: #FAF8ED !important;
-        color: #1A2B4C !important;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        zoom: 75% !important; /* Forces default page zoom to 75% */
-    }
     /* 1. Prevent text overflow and stretching on mobile */
     p, span, div, label {
         word-break: break-word;
@@ -311,7 +305,10 @@ elif st.session_state['page'] == 'analytics':
         background-color: #FAF8ED !important;
         color: #1A2B4C !important;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        zoom: 75% !important; /* Forces default page zoom to 75% */
+        transform: scale(0.75);
+        transform-origin: top center;
+        width: 133.33%;
+        margin-bottom: -25%; /* Pulls up the layout to remove excess whitespace */
     }
 
     h1, h2, h3, h4, h5, h6 {
