@@ -314,9 +314,9 @@ elif st.session_state['page'] == 'analytics':
     # Mobile/Desktop Quick Action prompt right below the header
     st.markdown(
         """
-        <div style="display: flex; align-items: center; justify-content: space-between; background-color: #E2F0D9; padding: 8px 14px; border-radius: 6px; margin-bottom: 12px; border: 1px solid rgba(30, 86, 49, 0.2);">
+        <div style="display: flex; align-items: center; justify-content: space-between; background-color: #FAF8ED; padding: 8px 14px; border-radius: 6px; margin-bottom: 12px; border: 1px solid rgba(30, 86, 49, 0.2);">
             <span style="color: #1A2B4C; font-size: 0.85rem; font-weight: 600;">
-                ⚙️ Looking for Settings, Currency & CSV Upload? Tap <b>»</b> in the top-left corner.
+                ⚙️<b>»</b> Inputs
             </span>
         </div>
         """,
