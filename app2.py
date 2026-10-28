@@ -110,7 +110,7 @@ if st.session_state['page'] == 'landing':
         }
         .block-container {
             padding-top: 1rem !important;
-            padding-bottom: 2rem !important;
+            padding-bottom: 0.5rem !important;
             padding-left: 0.8rem !important;
             padding-right: 0.8rem !important;
         }
