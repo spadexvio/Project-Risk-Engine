@@ -318,7 +318,7 @@ elif st.session_state['page'] == 'analytics':
     /* 1. GLOBAL APP & TYPOGRAPHY                              */
     /* ========================================================= */
     html {
-        zoom: 75% !important;
+        zoom: 85% !important;
     }
     
     .stApp {
