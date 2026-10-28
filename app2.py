@@ -36,6 +36,15 @@ def navigate_to(page_name, exchange=None):
     st.session_state['page'] = page_name
     st.session_state['exchange'] = exchange
 
+st.markdown("""
+<style>
+    /* Globally hide Streamlit top header and toolbar across all pages */
+    header[data-testid="stHeader"], [data-testid="stHeader"] {
+        display: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ==============================================================================
 # 1. LANDING PAGE (Centered Logo, Description, Exchange Selection & Auth Wall)
 # ==============================================================================
@@ -45,10 +54,6 @@ if st.session_state['page'] == 'landing':
     st.markdown(
     """
     <style>
-    /* Hide the top header bar entirely */
-    header[data-testid="stHeader"] {
-        display: none !important;
-    }
     /* 1. Prevent text overflow and stretching on mobile */
     p, span, div, label {
         word-break: break-word;
