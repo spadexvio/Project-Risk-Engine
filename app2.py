@@ -301,14 +301,19 @@ elif st.session_state['page'] == 'analytics':
     /* ========================================================= */
     /* 1. GLOBAL APP & TYPOGRAPHY                              */
     /* ========================================================= */
+    html {
+        zoom: 75% !important;
+    }
+    
     .stApp {
         background-color: #FAF8ED !important;
         color: #1A2B4C !important;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        transform: scale(0.75);
-        transform-origin: top center;
-        width: 133.33%;
-        margin-bottom: -25%; /* Pulls up the layout to remove excess whitespace */
+    }
+    .stApp {
+        background-color: #FAF8ED !important;
+        color: #1A2B4C !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
 
     h1, h2, h3, h4, h5, h6 {
