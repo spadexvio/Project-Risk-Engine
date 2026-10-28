@@ -41,6 +41,29 @@ if st.session_state['page'] == 'landing':
     st.markdown(
     """
     <style>
+    /* 1. Prevent text overflow and stretching on mobile */
+    p, span, div, label {
+        word-break: break-word;
+    }
+
+    /* 2. Force input text colors to remain visible (fix blue text blending into dark/black backgrounds) */
+    input, textarea, select {
+        color: #111827 !important;
+        background-color: #ffffff !important;
+    }
+
+    /* 3. Mobile screen adjustments */
+    @media (max-width: 768px) {
+        .stButton button {
+            width: 100% !important;
+        }
+        /* Ensure columns stack gracefully on mobile */
+        [data-testid="column"] {
+            width: 100% !important;
+            flex: 100% !important;
+            min-width: 100% !important;
+        }
+    }
     /* Main Background: Sophisticated Dark Midnight Blue */
     .stApp {
         background-color: #1A2B4C;
