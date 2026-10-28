@@ -37,7 +37,7 @@ def navigate_to(page_name, exchange=None):
     st.session_state['exchange'] = exchange
 
 CHART_CONFIG = {
-    'displayModeBar': True,
+    'displayModeBar': False,
     'modeBarButtonsToRemove': [
         'zoom2d', 'pan2d', 'select2d', 'lasso2d', 
         'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d'
@@ -1216,6 +1216,7 @@ elif st.session_state['page'] == 'analytics':
             color="Growth (%)",
             color_continuous_scale="Greens",
         )
+        fig_top_sec.update_layout(dragmode=False)
         st.plotly_chart(fig_top_sec, use_container_width=True)
     
     with col2:
@@ -1237,6 +1238,7 @@ elif st.session_state['page'] == 'analytics':
             color="Growth (%)",
             color_continuous_scale="Reds_r",
         )
+        fig_worst_sec.update_layout(dragmode=False)
         st.plotly_chart(fig_worst_sec, use_container_width=True)
     
     # 7. TOP 10 BEST & WORST INDIVIDUAL STOCKS ANALYSIS
