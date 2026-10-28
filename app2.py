@@ -38,9 +38,18 @@ def navigate_to(page_name, exchange=None):
 
 st.markdown("""
 <style>
-    /* Globally hide Streamlit top header and toolbar across all pages */
-    header[data-testid="stHeader"], [data-testid="stHeader"] {
+    /* Completely hide Streamlit header, decoration bar, and toolbar */
+    header[data-testid="stHeader"], 
+    div[data-testid="stDecoration"], 
+    [data-testid="stStatusWidget"] {
         display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+    }
+
+    /* Reduce top padding so content flows seamlessly to the top */
+    .block-container {
+        padding-top: 1rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
