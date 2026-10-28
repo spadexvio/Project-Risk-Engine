@@ -760,7 +760,7 @@ elif st.session_state['page'] == 'analytics':
                     paper_bgcolor="rgba(0,0,0,0)"
                 )
                 
-                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG})
+                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
             else:
                 st.warning("Market benchmark data temporarily unavailable.")
         except Exception as e:
@@ -804,7 +804,7 @@ elif st.session_state['page'] == 'analytics':
 # ==============================================================================
 
     st.markdown("---")
-    st.write("Scroll down to add/edit the stocks")
+    st.info("Scroll down to add/edit the stocks")
     st.header(f"📊 {exchange} Sector Performance & Stock Drill-Down Analysis")
     
     # 1. Exchange-Specific Sector Configurations
