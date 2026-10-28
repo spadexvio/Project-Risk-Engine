@@ -1,0 +1,10 @@
+[theme]
+# Forces the app base to light mode so mobile browsers don't invert dropdowns/popovers
+base = "light"
+
+# Your institutional theme colors
+primaryColor = "#1A2B4C"
+backgroundColor = "#FAF8ED"
+secondaryBackgroundColor = "#E2E8F0"
+textColor = "#1A2B4C"
+font = "sans serif"
