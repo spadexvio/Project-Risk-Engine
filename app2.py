@@ -605,6 +605,10 @@ elif st.session_state['page'] == 'analytics':
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
     }
+    /* Force Plotly charts to expand to full container width */
+    .stPlotlyChart, .stPlotlyChart > div, .js-plotly-plot {
+        width: 100% !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
