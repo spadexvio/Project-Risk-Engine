@@ -47,7 +47,13 @@ if st.session_state['page'] == 'landing':
     }
 
     /* 2. Force input text colors to remain visible (fix blue text blending into dark/black backgrounds) */
-    input, textarea, select {
+    input, textarea, select, div[data-baseweb="select"] > div {
+        color: #111827 !important;
+        background-color: #ffffff !important;
+        -webkit-text-fill-color: #111827 !important;
+    }
+
+    li[role="option"] {
         color: #111827 !important;
         background-color: #ffffff !important;
     }
@@ -63,7 +69,33 @@ if st.session_state['page'] == 'landing':
             flex: 100% !important;
             min-width: 100% !important;
         }
+        /* Scale down heavy desktop typography for phones */
+        .hero-title {
+            font-size: 2.5rem !important;
+        }
+        .hero-subtitle {
+            font-size: 1.1rem !important;
+            white-space: normal !important;
+            letter-spacing: 1px !important;
+        }
+        .slogan-badge {
+            font-size: 1.8rem !important;
+            white-space: normal !important;
+            letter-spacing: 1px !important;
+        }
+        .hero-description {
+            font-size: 1.1rem !important;
+            line-height: 1.5 !important;
+            padding: 0 0.5rem;
+        }
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 2rem !important;
+            padding-left: 0.8rem !important;
+            padding-right: 0.8rem !important;
+        }
     }
+
     /* Main Background: Sophisticated Dark Midnight Blue */
     .stApp {
         background-color: #1A2B4C;
@@ -176,7 +208,6 @@ if st.session_state['page'] == 'landing':
     """,
     unsafe_allow_html=True,
 )
-
 # ------------------------------------------------------------------------------
 # HERO SECTION
 # ------------------------------------------------------------------------------
