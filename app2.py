@@ -195,23 +195,59 @@ if st.session_state['page'] == 'landing':
     
     # Exchange Selector Buttons
     #btn_col1, btn_col2, btn_col3 = st.columns([1, 1, 1])
-    btn_col1, btn_col2, btn_col3 = st.columns(3, gap="medium")
+    # btn_col1, btn_col2, btn_col3 = st.columns(3, gap="medium")
     
-    with btn_col1:
+    # with btn_col1:
+    #     if st.button("🇮🇳 National Stock Exchange (NSE)", use_container_width=True):
+    #         navigate_to('analytics', exchange='NSE')
+    #         st.rerun()
+
+    # with btn_col2:
+    #     if st.button("🇮🇳 Bombay Stock Exchange (BSE)", use_container_width=True):
+    #         navigate_to('analytics', exchange='BSE')
+    #         st.rerun()
+
+    # with btn_col3:
+    #     if st.button("🇿🇦 Johannesburg Stock Exchange (JSE)", use_container_width=True):
+    #         navigate_to('analytics', exchange='JSE')
+    #         st.rerun()
+            
+    # btn1_col1, btn1_col2, btn1_col3 = st.columns(3, gap="medium")
+    # Exchange Selector Buttons — Row 1 (Emerging & US Anchors)
+    r1_col1, r1_col2, r1_col3 = st.columns(3, gap="medium")
+    
+    with r1_col1:
         if st.button("🇮🇳 National Stock Exchange (NSE)", use_container_width=True):
             navigate_to('analytics', exchange='NSE')
             st.rerun()
-
-    with btn_col2:
+    
+    with r1_col2:
         if st.button("🇮🇳 Bombay Stock Exchange (BSE)", use_container_width=True):
             navigate_to('analytics', exchange='BSE')
             st.rerun()
-
-    with btn_col3:
+    
+    with r1_col3:
+        if st.button("🇺🇸 US Markets (S&P 500 / Nasdaq)", use_container_width=True):
+            navigate_to('analytics', exchange='US')
+            st.rerun()
+    
+    # Exchange Selector Buttons — Row 2 (UK, Europe & Africa)
+    r2_col1, r2_col2, r2_col3 = st.columns(3, gap="medium")
+    
+    with r2_col1:
+        if st.button("🇬🇧 London Stock Exchange (FTSE 100)", use_container_width=True):
+            navigate_to('analytics', exchange='UK')
+            st.rerun()
+    
+    with r2_col2:
+        if st.button("🇪🇺 European Markets (STOXX 600)", use_container_width=True):
+            navigate_to('analytics', exchange='EU')
+            st.rerun()
+    
+    with r2_col3:
         if st.button("🇿🇦 Johannesburg Stock Exchange (JSE)", use_container_width=True):
             navigate_to('analytics', exchange='JSE')
             st.rerun()
-
 # ==============================================================================
 # 2. ANALYTICS & AUDIT PAGE (Selected Exchange Workspace)
 # ==============================================================================
