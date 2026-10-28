@@ -38,18 +38,18 @@ def navigate_to(page_name, exchange=None):
 
 st.markdown("""
 <style>
-    /* Completely hide Streamlit header, decoration bar, and toolbar */
+    /* Completely collapse top spacing and hide header/decoration elements */
     header[data-testid="stHeader"], 
-    div[data-testid="stDecoration"], 
-    [data-testid="stStatusWidget"] {
+    div[data-testid="stDecoration"] {
         display: none !important;
         visibility: hidden !important;
         height: 0 !important;
     }
 
-    /* Reduce top padding so content flows seamlessly to the top */
+    /* Pull the main container up to eliminate any remaining blank strip at the top */
     .block-container {
-        padding-top: 1rem !important;
+        padding-top: 0rem !important;
+        margin-top: -1.5rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
