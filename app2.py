@@ -322,12 +322,7 @@ elif st.session_state['page'] == 'analytics':
     }
     
     .stApp {
-        background-color: #FAF8ED !important;
-        color: #1A2B4C !important;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-    .stApp {
-        background-color: #FAF8ED !important;
+        background-color: #E2F0D9 !important;
         color: #1A2B4C !important;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
