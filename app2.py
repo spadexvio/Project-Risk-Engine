@@ -804,6 +804,7 @@ elif st.session_state['page'] == 'analytics':
 # ==============================================================================
 
     st.markdown("---")
+    st.info("Scroll down to add/edit the stocks")
     st.header(f"📊 {exchange} Sector Performance & Stock Drill-Down Analysis")
     
     # 1. Exchange-Specific Sector Configurations
