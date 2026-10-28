@@ -36,6 +36,22 @@ def navigate_to(page_name, exchange=None):
     st.session_state['page'] = page_name
     st.session_state['exchange'] = exchange
 
+CHART_CONFIG = {
+    'displayModeBar': True,
+    'modeBarButtonsToRemove': [
+        'zoom2d', 'pan2d', 'select2d', 'lasso2d', 
+        'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d'
+    ],
+    'toImageButtonOptions': {
+        'format': 'png', 
+        'filename': 'wirator_risk_audit',
+        'height': 600,
+        'width': 1000,
+        'scale': 2
+    },
+    'displaylogo': False
+}
+
 # ==============================================================================
 # 1. LANDING PAGE (Centered Logo, Description, Exchange Selection & Auth Wall)
 # ==============================================================================
@@ -736,13 +752,14 @@ elif st.session_state['page'] == 'analytics':
                     margin=dict(l=10, r=10, t=10, b=10),
                     xaxis_title=None,
                     yaxis_title=None,
-                    yaxis=dict(range=[y_min, y_max]),
+                    xaxis=dict(fixedrange=True),
+                    yaxis=dict(range=[y_min, y_max], fixedrange=True),
                     hovermode="x unified",
                     plot_bgcolor="rgba(0,0,0,0)",
                     paper_bgcolor="rgba(0,0,0,0)"
                 )
                 
-                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG})
             else:
                 st.warning("Market benchmark data temporarily unavailable.")
         except Exception as e:
