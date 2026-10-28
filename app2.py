@@ -615,7 +615,7 @@ elif st.session_state['page'] == 'analytics':
     }
     /* Forcefully reduce sidebar vertical padding and element gaps */
     section[data-testid="stSidebar"] .block-container {
-        padding-top: 1rem !important;
+        padding-top: 0.5rem !important;
         padding-bottom: 1rem !important;
     }
     
