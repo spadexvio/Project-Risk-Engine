@@ -1361,7 +1361,7 @@ elif st.session_state['page'] == 'analytics':
         sector_drill_df = pd.DataFrame(sector_stocks_perf).sort_values(
             by="Return (%)", ascending=False
         )
-        
+        sector_drill_df["Ticker"] = sector_drill_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
         if not sector_drill_df.empty:
             sd_col1, sd_col2 = st.columns([1, 1.5], gap="large")
     
