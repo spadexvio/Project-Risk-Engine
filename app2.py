@@ -316,7 +316,7 @@ elif st.session_state['page'] == 'analytics':
         """
         <div style="display: flex; align-items: center; justify-content: space-between; background-color: #FAF8ED; padding: 8px 14px; border-radius: 6px; margin-bottom: 12px; border: 1px solid rgba(30, 86, 49, 0.2);">
             <span style="color: #1A2B4C; font-size: 0.85rem; font-weight: 600;">
-                ⚙️<b>»</b> Inputs
+                <b>»</b> Inputs/Configuration
             </span>
         </div>
         """,
