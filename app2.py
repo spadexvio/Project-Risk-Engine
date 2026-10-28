@@ -615,7 +615,7 @@ elif st.session_state['page'] == 'analytics':
     }
     /* 1. Reduce top padding of the sidebar to pull content up */
     [data-testid="stSidebar"] [data-testid="stSidebarUserContent"] {
-        padding-top: 1rem !important; /* Reduces large top gap above "1. Configuration" */
+        padding-top: 0.1rem !important; /* Reduces large top gap above "1. Configuration" */
     }
     
     /* 2. Tighten vertical spacing between sidebar widgets */
