@@ -1473,7 +1473,7 @@ elif st.session_state['page'] == 'analytics':
                             return pd.DataFrame(columns=['Ticker', 'Quantity'])
                             
                         safe_buffer = io.BytesIO(bytes_data)
-                         = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
+                        raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
                         raw_df = raw_df.dropna(how='all').dropna(how='all', axis=1)
                         
                         if raw_df.empty:
