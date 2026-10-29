@@ -2627,14 +2627,14 @@ elif st.session_state['page'] == 'analytics':
                         if 'Holding_Days' not in df_base.columns:
                             df_base['Holding_Days'] = time_horizon_days
         
-                        df_base['Tax_Category'] = np.where(
-                        df_base['Holding_Days'] >= 365, 'LTCG', 'STCG'
-                        )
-                        df_base['Tax_Liability'] = np.where(
-                        df_base['Tax_Category'] == 'LTCG',
-                        np.maximum(0, df_base['PnL_Val']) * 0.125,
-                        np.maximum(0, df_base['PnL_Val']) * 0.20,
-                        )
+                        # df_base['Tax_Category'] = np.where(
+                        # df_base['Holding_Days'] >= 365, 'LTCG', 'STCG'
+                        # )
+                        # df_base['Tax_Liability'] = np.where(
+                        # df_base['Tax_Category'] == 'LTCG',
+                        # np.maximum(0, df_base['PnL_Val']) * 0.125,
+                        # np.maximum(0, df_base['PnL_Val']) * 0.20,
+                        # )
         
                   # # Display initial static view table
                   #       st.dataframe(
