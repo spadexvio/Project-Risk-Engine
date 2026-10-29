@@ -9,6 +9,8 @@ import plotly.express as px
 import IPython.lib.deepreload # or built-in importlib
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import os
+import json
 
 # Automatically reload imported local modules on every Streamlit run
 import importlib
@@ -1458,43 +1460,101 @@ elif st.session_state['page'] == 'analytics':
     if uploaded_file is not None or flag == 1:
         try:
             if uploaded_file is not None:
-                try:
-                    uploaded_file.seek(0)
-                    bytes_data = uploaded_file.read()
-                    
-                    if bytes_data:
+                def parse_uploaded_portfolio(uploaded_file, selected_workspace):
+                    """
+                    Parses portfolio CSVs, filters out 'INF' non-equities, 
+                    matches partially masked ISINs prefix-wise, and outputs base stock symbols & quantities.
+                    """
+                    try:
+                        uploaded_file.seek(0)
+                        bytes_data = uploaded_file.read()
+                        
+                        if not bytes_data:
+                            return pd.DataFrame(columns=['Ticker', 'Quantity'])
+                            
                         safe_buffer = io.BytesIO(bytes_data)
-                        
-                        # Try reading normally, skip bad lines/empty rows automatically
                         raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
+                        raw_df = raw_df.dropna(how='all').dropna(how='all', axis=1)
                         
-                        # Drop completely empty rows or columns
-                        raw_df = raw_df.dropna(how='all').dropna(axis=1, how='all')
-                        
-                        if not raw_df.empty and len(raw_df.columns) > 0:
-                            raw_df.columns = raw_df.columns.astype(str).str.strip()
-    
-                            # Smart header search
-                            possible_ticker_cols = ['Instrument', 'Symbol', 'Ticker', 'Stock', 'Security', 'Company', 'Scrip', 'Stock Symbol']
-                            possible_qty_cols = ['Qty.', 'Quantity', 'Qty', 'Shares', 'Volume', 'Units']
-    
-                            ticker_col = next((col for col in possible_ticker_cols if col in raw_df.columns), raw_df.columns[0])
-                            qty_col = next((col for col in possible_qty_cols if col in raw_df.columns), (raw_df.columns[1] if len(raw_df.columns) > 1 else raw_df.columns[0]))
+                        if raw_df.empty:
+                            return pd.DataFrame(columns=['Ticker', 'Quantity'])
+                
+                        # Normalize column headers
+                        raw_df.columns = raw_df.columns.astype(str).str.strip()
+                
+                        # Identify key columns flexibly
+                        possible_id_cols = ['ISIN No', 'ISIN', 'ISIN NUMBER', 'ISIN Code', 'Isin', 'ISIN_NO', 'CIK']
+                        possible_ticker_cols = ['Stock Symbol', 'Symbol', 'Ticker', 'Stock', 'Security', 'Company', 'Scrip']
+                        possible_qty_cols = ['Qty', 'Quantity', 'qty', 'Shares', 'Volume', 'Units', 'Holdings']
+                
+                        id_col = next((col for col in possible_id_cols if col in raw_df.columns), None)
+                        ticker_col = next((col for col in possible_ticker_cols if col in raw_df.columns), raw_df.columns[0])
+                        qty_col = next((col for col in possible_qty_cols if col in raw_df.columns), raw_df.columns[1] if len(raw_df.columns) > 1 else raw_df.columns[0])
+                
+                        # Map workspaces to JSON files
+                        workspace_json_mapping = {
+                            "National Stock Exchange (NSE)": "nse_isin_map.json",
+                            "Bombay Stock Exchange (BSE)": "bse_isin_map.json",
+                            "US Markets (S&P 500 / Nasdaq)": "sp500_cik_map.json"
+                        }
+                
+                        id_map = {}
+                        if selected_workspace in workspace_json_mapping:
+                            json_file = workspace_json_mapping[selected_workspace]
+                            if os.path.exists(json_file):
+                                with open(json_file, 'r') as f:
+                                    id_map = json.load(f)
+                
+                        parsed_rows = []
+                        for _, row in raw_df.iterrows():
+                            raw_id = str(row[id_col]).strip().upper() if id_col and pd.notna(row[id_col]) else ""
+                            raw_ticker = str(row[ticker_col]).strip().upper().replace('#', '') if pd.notna(row[ticker_col]) else ""
                             
-                            # Clean data and ensure no NaN or out-of-bounds indices
-                            sub_df = raw_df[[ticker_col, qty_col]].copy()
-                            sub_df.columns = ['Ticker', 'Quantity']
-                            
-                            sub_df['Ticker'] = sub_df['Ticker'].astype(str).str.replace(r'\.(NS|BO)$', '', regex=True).str.strip()
-                            sub_df['Quantity'] = pd.to_numeric(sub_df['Quantity'], errors='coerce').fillna(1).astype(int)
-                            
-                            # Filter out invalid rows
-                            sub_df = sub_df[sub_df['Ticker'] != 'nan']
-                            if not sub_df.empty:
-                                holdings_df = sub_df.reset_index(drop=True)
-                                st.success("Portfolio CSV loaded successfully!")
-                except Exception as e:
-                    st.warning(f"Could not parse custom CSV format ({e}). Using default fallback portfolio.")
+                            # --- GUARD 1: Ignore INF (Mutual Funds/ETFs) ---
+                            if raw_id.startswith('INF') or raw_ticker.startswith('INF'):
+                                continue
+                
+                            try:
+                                qty = float(row[qty_col])
+                            except (ValueError, TypeError):
+                                qty = 1.0
+                
+                            base_symbol = ""
+                
+                            # --- GUARD 2: Prefix / Partial ISIN Matching for masked codes (e.g. INE171A01XXX) ---
+                            matched = False
+                            if raw_id and id_map:
+                                # Clean out trailing X's or asterisks used for masking
+                                clean_id = raw_id.split('X')[0].replace('*', '').strip()
+                                
+                                # Direct match first
+                                if raw_id in id_map:
+                                    base_symbol = id_map[raw_id]
+                                    matched = True
+                                else:
+                                    # Prefix search against JSON keys
+                                    for full_key, sym in id_map.items():
+                                        if full_key.startswith(clean_id) and len(clean_id) >= 8:
+                                            base_symbol = sym
+                                            matched = True
+                                            break
+                
+                            # 3. Fallback to raw ticker symbol if ISIN lookup didn't trigger
+                            if not matched:
+                                base_symbol = raw_ticker
+                
+                            if base_symbol and base_symbol != 'NAN':
+                                parsed_rows.append({'Ticker': base_symbol, 'Quantity': int(qty)})
+                
+                        holdings_df = pd.DataFrame(parsed_rows)
+                        if not holdings_df.empty:
+                            st.success("Portfolio successfully loaded via Partial-ISIN Engine (INF filtered)!")
+                            return holdings_df
+                
+                    except Exception as e:
+                        st.warning(f"Could not parse custom CSV format: {e}. Using fallback portfolio.")
+                
+                    return pd.DataFrame(columns=['Ticker', 'Quantity'])
             else:
                 holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
 
