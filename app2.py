@@ -1475,7 +1475,7 @@ elif st.session_state['page'] == 'analytics':
                             raw_df.columns = raw_df.columns.astype(str).str.strip()
     
                             # Smart header search
-                            possible_ticker_cols = ['Instrument', 'Symbol', 'Ticker', 'Stock', 'Security', 'Company', 'Scrip']
+                            possible_ticker_cols = ['Instrument', 'Symbol', 'Ticker', 'Stock', 'Security', 'Company', 'Scrip', 'Stock Symbol']
                             possible_qty_cols = ['Qty.', 'Quantity', 'Qty', 'Shares', 'Volume', 'Units']
     
                             ticker_col = next((col for col in possible_ticker_cols if col in raw_df.columns), raw_df.columns[0])
