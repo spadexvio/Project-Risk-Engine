@@ -2615,80 +2615,80 @@ elif st.session_state['page'] == 'analytics':
                         #cleaned_tickers = df_base[ticker_col].astype(str).str.replace(r'\.(NS|BO|JO)$', '', regex=True).str.strip()
         
                   # Calculate initial P&L if not explicitly present
-                        if 'P&L' in df_base.columns:
-                            df_base['PnL_Val'] = df_base['P&L']
-                        elif 'Latest Price' in df_base.columns:
-                            df_base['PnL_Val'] = (
-                            df_base['Latest Price'] - df_base[cost_col]
-                            ) * df_base[qty_col]
-                        else:
-                            df_base['PnL_Val'] = 0.0
+                  #       if 'P&L' in df_base.columns:
+                  #           df_base['PnL_Val'] = df_base['P&L']
+                  #       elif 'Latest Price' in df_base.columns:
+                  #           df_base['PnL_Val'] = (
+                  #           df_base['Latest Price'] - df_base[cost_col]
+                  #           ) * df_base[qty_col]
+                  #       else:
+                  #           df_base['PnL_Val'] = 0.0
         
-                        if 'Holding_Days' not in df_base.columns:
-                            df_base['Holding_Days'] = time_horizon_days
+                  #       if 'Holding_Days' not in df_base.columns:
+                  #           df_base['Holding_Days'] = time_horizon_days
         
-                        df_base['Tax_Category'] = np.where(
-                        df_base['Holding_Days'] >= 365, 'LTCG', 'STCG'
-                        )
-                        df_base['Tax_Liability'] = np.where(
-                        df_base['Tax_Category'] == 'LTCG',
-                        np.maximum(0, df_base['PnL_Val']) * 0.125,
-                        np.maximum(0, df_base['PnL_Val']) * 0.20,
-                        )
+                  #       df_base['Tax_Category'] = np.where(
+                  #       df_base['Holding_Days'] >= 365, 'LTCG', 'STCG'
+                  #       )
+                  #       df_base['Tax_Liability'] = np.where(
+                  #       df_base['Tax_Category'] == 'LTCG',
+                  #       np.maximum(0, df_base['PnL_Val']) * 0.125,
+                  #       np.maximum(0, df_base['PnL_Val']) * 0.20,
+                  #       )
         
-                  # Display initial static view table
-                        st.dataframe(
-                        df_base[
-                          [
-                              ticker_col,
-                              'PnL_Val',
-                              'Holding_Days',
-                              'Tax_Category',
-                              'Tax_Liability',
-                          ]
-                        ],
-                        column_config={
-                        ticker_col: st.column_config.TextColumn("Instrument"),
-                          "PnL_Val": st.column_config.NumberColumn(
-                              "P&L", format="₹%.2f"
-                        ),
-                          "Holding_Days": st.column_config.NumberColumn(
-                              "Holding_Days"
-                        ),
-                          "Tax_Category": st.column_config.TextColumn("Tax_Category"),
-                          "Tax_Liability": st.column_config.NumberColumn(
-                              "Tax_Liability", format="₹%.2f"
-                        ),
-                        },
-                        hide_index=True,
-                        use_container_width=True,
-                        )
+                  # # Display initial static view table
+                  #       st.dataframe(
+                  #       df_base[
+                  #         [
+                  #             ticker_col,
+                  #             'PnL_Val',
+                  #             'Holding_Days',
+                  #             'Tax_Category',
+                  #             'Tax_Liability',
+                  #         ]
+                  #       ],
+                  #       column_config={
+                  #       ticker_col: st.column_config.TextColumn("Instrument"),
+                  #         "PnL_Val": st.column_config.NumberColumn(
+                  #             "P&L", format="₹%.2f"
+                  #       ),
+                  #         "Holding_Days": st.column_config.NumberColumn(
+                  #             "Holding_Days"
+                  #       ),
+                  #         "Tax_Category": st.column_config.TextColumn("Tax_Category"),
+                  #         "Tax_Liability": st.column_config.NumberColumn(
+                  #             "Tax_Liability", format="₹%.2f"
+                  #       ),
+                  #       },
+                  #       hide_index=True,
+                  #       use_container_width=True,
+                  #       )
         
-                        total_base_tax = df_base['Tax_Liability'].sum()
-                        total_book_profit = df_base['P&L'].sum()
+                  #       total_base_tax = df_base['Tax_Liability'].sum()
+                  #       total_book_profit = df_base['P&L'].sum()
         
-                        res4_col1, res4_col2, res4_col3 = st.columns(3)
+                  #       res4_col1, res4_col2, res4_col3 = st.columns(3)
         
-                        res4_col1.metric(
-                            label="Total Book Profit", 
-                            #value=f"{abs(total_profit):.2f}", 
-                            value=f"{currency} {total_book_profit:,.2f}", 
-                            #delta_color="inverse"
-                            )
+                  #       res4_col1.metric(
+                  #           label="Total Book Profit", 
+                  #           #value=f"{abs(total_profit):.2f}", 
+                  #           value=f"{currency} {total_book_profit:,.2f}", 
+                  #           #delta_color="inverse"
+                  #           )
                         
-                        res4_col2.metric(
-                            label="Total Book Tax", 
-                            #value=f"{abs(modified_tax):.2f}", 
-                            value=f"{currency} {total_base_tax:,.2f}", 
-                            #delta_color="inverse"
-                            )
+                  #       res4_col2.metric(
+                  #           label="Total Book Tax", 
+                  #           #value=f"{abs(modified_tax):.2f}", 
+                  #           value=f"{currency} {total_base_tax:,.2f}", 
+                  #           #delta_color="inverse"
+                  #           )
                         
-                        res4_col3.metric(
-                            label="Tax Share", 
-                            #value=f"{abs(modified_tax):.2f}", 
-                            value=f"{total_base_tax/total_book_profit*100:,.2f} %", 
-                            #delta_color="inverse"
-                            )
+                  #       res4_col3.metric(
+                  #           label="Tax Share", 
+                  #           #value=f"{abs(modified_tax):.2f}", 
+                  #           value=f"{total_base_tax/total_book_profit*100:,.2f} %", 
+                  #           #delta_color="inverse"
+                  #           )
                             
         
                   # -------------------------------------------------------------------
