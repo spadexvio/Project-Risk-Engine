@@ -2709,7 +2709,7 @@ elif st.session_state['page'] == 'analytics':
                         'Qty': (
                          df_base[qty_col] if qty_col in df_base.columns else 1
                           ),
-                        'Holding_Days': df_base['Holding_Days',
+                        'Holding_Days': df_base['Holding_Days'],
                         })
         
                   # Render st.data_editor with num_rows="dynamic" to enable row additions
