@@ -1452,8 +1452,43 @@ elif st.session_state['page'] == 'analytics':
 
 
             # Re-format Tickers with exchange suffix for Yahoo Finance
-            # Re-format user tickers for display/mapping
-            edited_df['yf_ticker'] = edited_df['Ticker'].astype(str).str.strip() + current_cfg['suffix']
+            # edited_df['yf_ticker'] = edited_df['Ticker'].astype(str).str.strip() + current_cfg['suffix']
+            # active_tickers = edited_df['yf_ticker'].tolist()
+
+            # Re-format Tickers with exchange suffix for Yahoo Finance
+            all_eu_suffixes = ['.AS', '.DE', '.PA', '.MI', '.MC', '.SW', '.ST', '.BR']
+            
+            resolved_tickers = []
+            for raw_ticker in edited_df['Ticker'].astype(str).str.strip():
+                raw_ticker_upper = raw_ticker.upper()
+                
+                # If it's the EU workspace and doesn't already have a recognized suffix
+                if current_cfg.get('name') == 'STOXX Europe 600' and not any(raw_ticker_upper.endswith(sfx) for sfx in all_eu_suffixes):
+                    found_valid = False
+                    for sfx in all_eu_suffixes:
+                        test_symbol = f"{raw_ticker_upper}{sfx}"
+                        try:
+                            # Quick lightweight check to see if data exists for this suffix
+                            test_data = yf.download(test_symbol, period="5d", progress=False)
+                            if not test_data.empty:
+                                resolved_tickers.append(test_symbol)
+                                found_valid = True
+                                break
+                        except Exception:
+                            continue
+                            
+                    # If none of the suffixes worked, fallback to appending the default or raw
+                    if not found_valid:
+                        resolved_tickers.append(f"{raw_ticker_upper}{current_cfg.get('suffix', '')}")
+                else:
+                    # For US, UK, BSE, NSE, or already suffixed tickers
+                    if any(raw_ticker_upper.endswith(sfx) for sfx in all_eu_suffixes) or current_cfg.get('name') != 'STOXX Europe 600':
+                        sfx_to_add = "" if any(raw_ticker_upper.endswith(sfx) for sfx in all_eu_suffixes) else current_cfg.get('suffix', '')
+                        resolved_tickers.append(f"{raw_ticker_upper}{sfx_to_add}")
+                    else:
+                        resolved_tickers.append(raw_ticker_upper)
+            
+            edited_df['yf_ticker'] = resolved_tickers
             active_tickers = edited_df['yf_ticker'].tolist()
 
             if len(active_tickers) > 0 and edited_df['Quantity'].sum() > 0:
