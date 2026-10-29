@@ -1034,25 +1034,49 @@ elif st.session_state['page'] == 'analytics':
             "Technology": {
                 "indices": ["^NDX", "^GSPC"],
                 "stocks": [
-                    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL"
+                    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL", "CRM", "ADBE"
                 ]
             },
             "Financials": {
                 "indices": ["^IXFN", "^GSPC"],
                 "stocks": [
-                    "JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW"
+                    "JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW", "V", "MA"
                 ]
             },
             "Healthcare": {
                 "indices": ["^IXHC", "^GSPC"],
                 "stocks": [
-                    "UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR"
+                    "UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR", "ISRG", "BMY"
+                ]
+            },
+            "Consumer Discretionary & Retail": {
+                "indices": ["^GSPC"],
+                "stocks": [
+                    "HD", "MCD", "NKE", "SBUX", "TJX", "LOW", "BKNG", "TGT", "CMG"
+                ]
+            },
+            "Consumer Staples": {
+                "indices": ["^GSPC"],
+                "stocks": [
+                    "WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "CL"
+                ]
+            },
+            "Communication Services & Media": {
+                "indices": ["^GSPC"],
+                "stocks": [
+                    "NFLX", "DIS", "CMCSA", "VZ", "T", "TMUS", "EA"
                 ]
             },
             "Energy & Industrials": {
                 "indices": ["^IXID", "^GSPC"],
                 "stocks": [
-                    "XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE"
+                    "XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE", "COP", "SLB"
+                ]
+            },
+            "Utilities & Real Estate": {
+                "indices": ["^GSPC"],
+                "stocks": [
+                    "NEE", "DUK", "SO", "PLD", "AMT", "EQIX", "SPG"
                 ]
             }
         },
@@ -1075,6 +1099,24 @@ elif st.session_state['page'] == 'analytics':
                     "AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"
                 ]
             }
+            "Consumer Goods & Retail": {
+                "indices": ["^FTSE"],
+                "stocks": [
+                    "ULVR.L", "BATS.L", "DGE.L", "ABF.L", "TSCO.L"
+                ]
+            },
+            "Technology & Telecoms": {
+                "indices": ["^FTSE"],
+                "stocks": [
+                    "REL.L", "SGE.L", "VOD.L", "AAF.L"
+                ]
+            },
+            "Aerospace, Industrials & Defense": {
+                "indices": ["^FTSE"],
+                "stocks": [
+                    "BA.L", "RR.L", "CRH.L", "SMIN.L"
+                ]
+            }
         },
         "EU": {
             "Technology & Industrials": {
@@ -1093,6 +1135,24 @@ elif st.session_state['page'] == 'analytics':
                 "indices": ["^STOXX", "^GDAXI"],
                 "stocks": [
                     "ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"
+                ]
+            },
+            "Healthcare & Pharmaceuticals": {
+                "indices": ["^STOXX", "^SSMI"],
+                "stocks": [
+                    "NOVN.SW", "ROG.SW", "NESN.SW", "SAN.PA", "BAYN.DE", "MRK.DE"
+                ]
+            },
+            "Energy & Utilities": {
+                "indices": ["^STOXX", "^FCHI"],
+                "stocks": [
+                    "TTE.PA", "ENI.MI", "IBE.MC", "ENEL.MI", "RWE.DE", "EOAN.DE"
+                ]
+            },
+            "Telecoms & Infrastructure": {
+                "indices": ["^STOXX", "^GDAXI"],
+                "stocks": [
+                    "DTE.DE", "ORA.PA", "TEF.MC", "VOD.L", "NOKIA.HE"
                 ]
             }
         },
