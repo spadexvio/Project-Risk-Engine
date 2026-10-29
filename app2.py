@@ -306,7 +306,7 @@ if st.session_state['page'] == 'landing':
             navigate_to('analytics', exchange='JSE')
             st.rerun()
 # ==============================================================================
-# 2. ANALYTICS & AUDIT PAGE (Selected Exchange Workspace)
+# 2. ANALYTICS & AUDIT PAGE ( Exchange Workspace)
 # ==============================================================================
 elif st.session_state['page'] == 'analytics':
     exchange = st.session_state['exchange']
@@ -1493,9 +1493,9 @@ elif st.session_state['page'] == 'analytics':
                 
                         # Map workspaces to JSON files
                         workspace_json_mapping = {
-                            "National Stock Exchange (NSE)": "nse_isin_map.json",
-                            "Bombay Stock Exchange (BSE)": "bse_isin_map.json",
-                            "US Markets (S&P 500 / Nasdaq)": "sp500_cik_map.json"
+                            "NSE": "nse_isin_map.json",
+                            "BSE": "bse_isin_map.json",
+                            "US": "sp500_cik_map.json"
                         }
                 
                         id_map = {}
@@ -1553,8 +1553,8 @@ elif st.session_state['page'] == 'analytics':
                 
                     except Exception as e:
                         st.warning(f"Could not parse custom CSV format: {e}. Using fallback portfolio.")
-                
-                    return pd.DataFrame(columns=['Ticker', 'Quantity'])
+                holdings_df = parse_uploaded_portfolio(uploaded_file, exchange)
+                 #return pd.DataFrame(columns=['Ticker', 'Quantity'])
             else:
                 holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
 
