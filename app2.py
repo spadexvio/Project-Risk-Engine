@@ -1460,7 +1460,7 @@ elif st.session_state['page'] == 'analytics':
     if uploaded_file is not None or flag == 1:
         try:
             if uploaded_file is not None:
-                def parse_uploaded_portfolio(uploaded_file, selected_workspace):
+                #def parse_uploaded_portfolio(uploaded_file, selected_workspace):
                     """
                     Parses portfolio CSVs, filters out 'INF' non-equities, 
                     matches partially masked ISINs prefix-wise, and outputs base stock symbols & quantities.
@@ -1473,7 +1473,7 @@ elif st.session_state['page'] == 'analytics':
                             return pd.DataFrame(columns=['Ticker', 'Quantity'])
                             
                         safe_buffer = io.BytesIO(bytes_data)
-                        raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
+                         = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
                         raw_df = raw_df.dropna(how='all').dropna(how='all', axis=1)
                         
                         if raw_df.empty:
@@ -1548,12 +1548,12 @@ elif st.session_state['page'] == 'analytics':
                 
                         holdings_df = pd.DataFrame(parsed_rows)
                         if not holdings_df.empty:
-                            st.success("Portfolio successfully loaded via Partial-ISIN Engine (INF filtered)!")
+                            st.success("Portfolio successfully loaded!")
                             return holdings_df
                 
                     except Exception as e:
                         st.warning(f"Could not parse custom CSV format: {e}. Using fallback portfolio.")
-                holdings_df = parse_uploaded_portfolio(uploaded_file, exchange)
+                #holdings_df = parse_uploaded_portfolio(uploaded_file, exchange)
                  #return pd.DataFrame(columns=['Ticker', 'Quantity'])
             else:
                 holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
