@@ -2615,26 +2615,26 @@ elif st.session_state['page'] == 'analytics':
                         #cleaned_tickers = df_base[ticker_col].astype(str).str.replace(r'\.(NS|BO|JO)$', '', regex=True).str.strip()
         
                   # Calculate initial P&L if not explicitly present
-                  #       if 'P&L' in df_base.columns:
-                  #           df_base['PnL_Val'] = df_base['P&L']
-                  #       elif 'Latest Price' in df_base.columns:
-                  #           df_base['PnL_Val'] = (
-                  #           df_base['Latest Price'] - df_base[cost_col]
-                  #           ) * df_base[qty_col]
-                  #       else:
-                  #           df_base['PnL_Val'] = 0.0
+                        # if 'P&L' in df_base.columns:
+                        #     df_base['PnL_Val'] = df_base['P&L']
+                        # elif 'Latest Price' in df_base.columns:
+                        #     df_base['PnL_Val'] = (
+                        #     df_base['Latest Price'] - df_base[cost_col]
+                        #     ) * df_base[qty_col]
+                        # else:
+                        #     df_base['PnL_Val'] = 0.0
         
-                  #       if 'Holding_Days' not in df_base.columns:
-                  #           df_base['Holding_Days'] = time_horizon_days
+                        if 'Holding_Days' not in df_base.columns:
+                            df_base['Holding_Days'] = time_horizon_days
         
-                  #       df_base['Tax_Category'] = np.where(
-                  #       df_base['Holding_Days'] >= 365, 'LTCG', 'STCG'
-                  #       )
-                  #       df_base['Tax_Liability'] = np.where(
-                  #       df_base['Tax_Category'] == 'LTCG',
-                  #       np.maximum(0, df_base['PnL_Val']) * 0.125,
-                  #       np.maximum(0, df_base['PnL_Val']) * 0.20,
-                  #       )
+                        df_base['Tax_Category'] = np.where(
+                        df_base['Holding_Days'] >= 365, 'LTCG', 'STCG'
+                        )
+                        df_base['Tax_Liability'] = np.where(
+                        df_base['Tax_Category'] == 'LTCG',
+                        np.maximum(0, df_base['PnL_Val']) * 0.125,
+                        np.maximum(0, df_base['PnL_Val']) * 0.20,
+                        )
         
                   # # Display initial static view table
                   #       st.dataframe(
@@ -2709,7 +2709,7 @@ elif st.session_state['page'] == 'analytics':
                         'Qty': (
                          df_base[qty_col] if qty_col in df_base.columns else 1
                           ),
-                        'Holding_Days': df_base['Holding_Days'],
+                        'Holding_Days': df_base['Holding_Days',
                         })
         
                   # Render st.data_editor with num_rows="dynamic" to enable row additions
