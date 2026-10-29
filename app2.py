@@ -2443,7 +2443,7 @@ elif st.session_state['page'] == 'analytics':
                     st.sidebar.download_button(
                         label="Download PDF Report",
                         data=st.session_state.pdf_data,
-                        file_name="QuantRisk_Portfolio_Audit.pdf",
+                        file_name="Wirator_Portfolio_Audit.pdf",
                         mime="application/pdf",
                         type = "primary",
                     )
