@@ -1460,7 +1460,7 @@ elif st.session_state['page'] == 'analytics':
     if uploaded_file is not None or flag == 1:
         try:
             if uploaded_file is not None:
-                #def parse_uploaded_portfolio(uploaded_file, selected_workspace):
+                def parse_uploaded_portfolio(uploaded_file, selected_workspace):
                     """
                     Parses portfolio CSVs, filters out 'INF' non-equities, 
                     matches partially masked ISINs prefix-wise, and outputs base stock symbols & quantities.
@@ -1486,10 +1486,12 @@ elif st.session_state['page'] == 'analytics':
                         possible_id_cols = ['ISIN No', 'ISIN', 'ISIN NUMBER', 'ISIN Code', 'Isin', 'ISIN_NO', 'CIK']
                         possible_ticker_cols = ['Stock Symbol', 'Symbol', 'Ticker', 'Stock', 'Security', 'Company', 'Scrip']
                         possible_qty_cols = ['Qty', 'Quantity', 'qty', 'Shares', 'Volume', 'Units', 'Holdings']
+                        possible_cost_cols = ['Average Cost Price', 'Cost Price', 'Buy Price', 'Average Price', 'Price', 'Cost']
                 
                         id_col = next((col for col in possible_id_cols if col in raw_df.columns), None)
                         ticker_col = next((col for col in possible_ticker_cols if col in raw_df.columns), raw_df.columns[0])
                         qty_col = next((col for col in possible_qty_cols if col in raw_df.columns), raw_df.columns[1] if len(raw_df.columns) > 1 else raw_df.columns[0])
+                        cost_col = next((col for col in possible_cost_cols if col in raw_df.columns), None)
                 
                         # Map workspaces to JSON files
                         workspace_json_mapping = {
@@ -1518,6 +1520,14 @@ elif st.session_state['page'] == 'analytics':
                                 qty = float(row[qty_col])
                             except (ValueError, TypeError):
                                 qty = 1.0
+
+                            cost_price = 0.0
+                            if cost_col and pd.notna(row[cost_col]):
+                                try:
+                                    val_str = str(row[cost_col]).replace(',', '').replace('₹', '').replace('$', '').strip()
+                                    cost_price = float(val_str)
+                                except (ValueError, TypeError):
+                                    cost_price = 0.0
                 
                             base_symbol = ""
                 
@@ -1544,7 +1554,7 @@ elif st.session_state['page'] == 'analytics':
                                 base_symbol = raw_ticker
                 
                             if base_symbol and base_symbol != 'NAN':
-                                parsed_rows.append({'Ticker': base_symbol, 'Quantity': int(qty)})
+                                parsed_rows.append({'Ticker': base_symbol, 'Quantity': int(qty), 'Cost Price': cost_price})
                 
                         holdings_df = pd.DataFrame(parsed_rows)
                         if not holdings_df.empty:
@@ -1553,7 +1563,7 @@ elif st.session_state['page'] == 'analytics':
                 
                     except Exception as e:
                         st.warning(f"Could not parse custom CSV format: {e}. Using fallback portfolio.")
-                #holdings_df = parse_uploaded_portfolio(uploaded_file, exchange)
+                holdings_df = parse_uploaded_portfolio(uploaded_file, exchange)
                  #return pd.DataFrame(columns=['Ticker', 'Quantity'])
             else:
                 holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
@@ -2581,7 +2591,7 @@ elif st.session_state['page'] == 'analytics':
                     if flag==1:  #No CSV is uploaded, stocks added on the portal
                         st.info(f"👈 Please upload a {exchange} portfolio CSV file from the left sidebar to generate the tax audit.")
                     else:
-                        df_base = raw_df.copy()
+                        df_base = holdings_df.copy()
                         ticker_col = (
                         'Instrument'
                         if 'Instrument' in df_base.columns
@@ -2589,7 +2599,7 @@ elif st.session_state['page'] == 'analytics':
                           )
                         cost_col = (
                         'Avg. cost'
-                        if 'Avg. cost' in df_base.columns
+                        if 'Avgerage cost' in df_base.columns
                         else (
                           'Avg_Cost'
                         if 'Avg_Cost' in df_base.columns
