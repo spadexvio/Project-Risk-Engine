@@ -2599,7 +2599,7 @@ elif st.session_state['page'] == 'analytics':
                           )
                         cost_col = (
                         'Avg. cost'
-                        if 'Avgerage cost' in df_base.columns
+                        if 'Cost Price' in df_base.columns
                         else (
                           'Avg_Cost'
                         if 'Avg_Cost' in df_base.columns
