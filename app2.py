@@ -2702,8 +2702,8 @@ elif st.session_state['page'] == 'analytics':
                         editable_init = pd.DataFrame({
                         'Instrument': df_base[ticker_col],
                         'Avg_Cost': (
-                          df_base[cost_col]
-                          if cost_col in df_base.columns
+                          df_base['Cost Price']
+                          if 'Cost Price' in df_base.columns
                           else 100.0
                             ),
                         'Qty': (
