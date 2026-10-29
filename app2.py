@@ -1098,7 +1098,7 @@ elif st.session_state['page'] == 'analytics':
                 "stocks": [
                     "AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"
                 ]
-            }
+            },
             "Consumer Goods & Retail": {
                 "indices": ["^FTSE"],
                 "stocks": [
