@@ -316,20 +316,10 @@ elif st.session_state['page'] == 'analytics':
 # ------------------------------------------------------------------------------
     # Mobile/Desktop Quick Action prompt right below the header
     st.markdown(
-        """
-        <div style="display: flex; align-items: center; justify-content: space-between; background-color: #FAF8ED; padding: 8px 14px; border-radius: 6px; margin-bottom: 12px; border: 1px solid rgba(30, 86, 49, 0.2);">
-            <span style="color: #1A2B4C; font-size: 0.85rem; font-weight: 600;">
-                <b>»</b> Inputs/Configuration
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-    st.markdown(
     """
     <style>
     /* ========================================================= */
-    /* 1. GLOBAL APP & TYPOGRAPHY                              */
+    /* 1. GLOBAL APP & TYPOGRAPHY                                */
     /* ========================================================= */
     html {
         zoom: 98% !important;
@@ -361,7 +351,7 @@ elif st.session_state['page'] == 'analytics':
         border-right: 1px solid rgba(250, 248, 237, 0.1) !important;
     }
     
-    /* All labels and text inside sidebar */
+    /* All labels and text inside sidebar (EXCLUDING buttons) */
     section[data-testid="stSidebar"] label, 
     section[data-testid="stSidebar"] .stMarkdown p, 
     section[data-testid="stSidebar"] span, 
@@ -423,11 +413,26 @@ elif st.session_state['page'] == 'analytics':
     /* Protect Metric Cards: Keep values and labels white/cream */
     div[data-testid="stMetric"] label,  
     div[data-testid="stMetric"] div[data-testid="stMetricValue"],  
-    div[data-testid="stMetric"] div[data-testid="stMetricDelta"],
     div[data-testid="stExpander"] *,
     div[data-testid="stExpander"] {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
+    }
+
+    /* FIX: Metric Delta Badges (below 42.8 / 100, 14.30%, 21.33%) */
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"],
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] * {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        border-radius: 999px !important;
+        padding: 2px 10px !important;
+        font-weight: 700 !important;
+    }
+
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] svg {
+        fill: #1A2B4C !important;
+        stroke: #1A2B4C !important;
     }
 
 
@@ -449,18 +454,29 @@ elif st.session_state['page'] == 'analytics':
         -webkit-text-fill-color: #1A2B4C !important;
     }
 
-    /* Styled Home / Custom Buttons */
+    /* Styled Home / Custom Buttons & Sidebar Buttons */
     div.stButton > button,
-    .stSidebar button[kind="secondary"], 
-    .stSidebar button[kind="primary"], 
+    section[data-testid="stSidebar"] div.stButton > button,
+    section[data-testid="stSidebar"] button[kind="secondary"], 
+    section[data-testid="stSidebar"] button[kind="primary"], 
     div.stFormSubmitButton button {
         background-color: #FAFAED !important;
         color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
         border: 1px solid #1A2B4C !important;
         border-radius: 8px !important;
         font-weight: 600 !important;
     }
 
+    /* FIX: Force inner p and span inside ALL buttons (including sidebar) to navy */
+    div.stButton > button p,
+    div.stButton > button span,
+    section[data-testid="stSidebar"] div.stButton > button p,
+    section[data-testid="stSidebar"] div.stButton > button span,
+    section[data-testid="stSidebar"] button[kind="secondary"] p,
+    section[data-testid="stSidebar"] button[kind="secondary"] span,
+    section[data-testid="stSidebar"] button[kind="primary"] p,
+    section[data-testid="stSidebar"] button[kind="primary"] span,
     div.stFormSubmitButton button p, 
     div.stFormSubmitButton button span {
         color: #1A2B4C !important;
@@ -468,13 +484,26 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 600 !important;
     }
 
+    /* Hover state for all buttons */
     div.stButton > button:hover,
+    section[data-testid="stSidebar"] div.stButton > button:hover,
+    section[data-testid="stSidebar"] button[kind="secondary"]:hover,
+    section[data-testid="stSidebar"] button[kind="primary"]:hover,
     div.stFormSubmitButton button:hover {
         background-color: #1A2B4C !important;
         color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
         border-color: #FAFAED !important;
     }
 
+    div.stButton > button:hover p,
+    div.stButton > button:hover span,
+    section[data-testid="stSidebar"] div.stButton > button:hover p,
+    section[data-testid="stSidebar"] div.stButton > button:hover span,
+    section[data-testid="stSidebar"] button[kind="secondary"]:hover p,
+    section[data-testid="stSidebar"] button[kind="secondary"]:hover span,
+    section[data-testid="stSidebar"] button[kind="primary"]:hover p,
+    section[data-testid="stSidebar"] button[kind="primary"]:hover span,
     div.stFormSubmitButton button:hover p, 
     div.stFormSubmitButton button:hover span {
         color: #FAFAED !important;
@@ -542,6 +571,7 @@ elif st.session_state['page'] == 'analytics':
     div[data-baseweb="tooltip"] * {
         color: #FAF8ED !important;
     }
+
     /* ========================================================= */
     /* CLEAN FILE UPLOADER FIX                                   */
     /* ========================================================= */
@@ -552,14 +582,12 @@ elif st.session_state['page'] == 'analytics':
         padding: 8px !important;
     }
 
-    /* Instruction text inside the uploader */
     div[data-testid="stFileUploader"] small,
     div[data-testid="stFileUploader"] span {
         color: #1A2B4C !important;
         -webkit-text-fill-color: #1A2B4C !important;
     }
 
-    /* The actual 'Browse files' button */
     div[data-testid="stFileUploader"] button {
         background-color: #1A2B4C !important;
         color: #FAFAED !important;
@@ -570,14 +598,11 @@ elif st.session_state['page'] == 'analytics':
         opacity: 1 !important;
     }
 
-    /* Text inside the browse button */
     div[data-testid="stFileUploader"] button * {
         background-color: #FAF8ED !important;
         color: #1A2B4C !important;
-        /*-webkit-text-fill-color: #FAFAED !important;*/
     }
 
-    /* Browse button hover state */
     div[data-testid="stFileUploader"] button:hover {
         background-color: #FAF8ED !important;
         color: #1A2B4C !important;
@@ -588,6 +613,7 @@ elif st.session_state['page'] == 'analytics':
         color: #1A2B4C !important;
         -webkit-text-fill-color: #1A2B4C !important;
     }
+
     /* ========================================================= */
     /* FORCE GLOBAL LIGHT/WHITE BACKGROUND ON MOBILE POPOVERS    */
     /* ========================================================= */
@@ -596,7 +622,6 @@ elif st.session_state['page'] == 'analytics':
         color: #1A2B4C !important;
     }
 
-    /* Force all text inside popover selection lists to be dark navy */
     div[data-baseweb="popover"] *, 
     div[data-baseweb="menu"] *, 
     ul[role="listbox"] * {
@@ -605,20 +630,19 @@ elif st.session_state['page'] == 'analytics':
         -webkit-text-fill-color: #1A2B4C !important;
     }
 
-    /* Specific option styling with high contrast */
     li[role="option"], div[role="option"] {
         background-color: #FAFAED !important;
         color: #1A2B4C !important;
         -webkit-text-fill-color: #1A2B4C !important;
     }
 
-    /* Hover/Selected state */
     li[role="option"]:hover, div[role="option"]:hover,
     li[role="option"][aria-selected="true"], div[role="option"][aria-selected="true"] {
         background-color: #1A2B4C !important;
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
     }
+
     /* Force chart container to expand 100% */
     div[data-testid="stPlotlyChart"] {
         width: 100% !important;
@@ -627,6 +651,7 @@ elif st.session_state['page'] == 'analytics':
     div[data-testid="stPlotlyChart"] > div {
         width: 100% !important;
     }
+
     /* Forcefully reduce sidebar vertical padding and element gaps */
     section[data-testid="stSidebar"] .block-container {
         padding-top: 0.5rem !important;
