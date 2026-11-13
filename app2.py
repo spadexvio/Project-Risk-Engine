@@ -2118,7 +2118,7 @@ elif st.session_state['page'] == 'analytics':
                 # 4. Compute Risk Metrics
                 mc_var_95 = np.percentile(port_sim_rets, (1-confidence_level) * 100)*initial_capital
                 max_expected_loss = np.abs(mc_var_95)
-                prob_loss_10pct = (np.sum(port_sim_rets < (0.90)) / num_sims) * 100.0
+                prob_loss_10pct = (np.sum(port_sim_rets < (-0.10)) / num_sims) * 100.0
 
                 mc_col1, mc_col2, mc_col3 = st.columns(3)
                 
@@ -2129,7 +2129,7 @@ elif st.session_state['page'] == 'analytics':
                 
                 mc_col2.metric(
                     label="Projected Portfolio Tail Value(1-Day)", 
-                    value=f"{currency} {initial_capital-mc_var_95:,.2f}"
+                    value=f"{currency} {initial_capital-np.abs(mc_var_95):,.2f}"
                 )
                 
                 mc_col3.metric(
