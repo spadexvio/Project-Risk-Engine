@@ -2050,7 +2050,7 @@ elif st.session_state['page'] == 'analytics':
 
                 # --- MONTE CARLO RISK STRESS RESULTS (USING QUANT_RISK_KIT GBM) ---
                 st.markdown("---")
-                st.write(f"### 🎲 Monte Carlo Risk Audit ({time_horizon_days}-Day Horizon)")
+                st.write(f"### 🎲 10,000 Path Monte Carlo Risk Audit ({time_horizon_days}-Day Horizon)")
                 
                 # 1. Parameter setup for GBM
                 num_sims = 10000
@@ -2074,7 +2074,7 @@ elif st.session_state['page'] == 'analytics':
                 #     prices=True
                 # )
 
-                 sim_prices = erk.cholesky_returns(price_data, 1000, True)
+                sim_prices = erk.cholesky_returns(price_data, 10000, True)
                 portfolio_multipliers = (sim_prices / sim_prices.iloc[0]).dot(weights)
                 gbm_paths = portfolio_multipliers*initial_capital
                 
