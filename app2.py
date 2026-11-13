@@ -2128,7 +2128,7 @@ elif st.session_state['page'] == 'analytics':
                 )
                 
                 mc_col2.metric(
-                    label="Projected Portfolio Tail Value({time_horizon_days}-Day)", 
+                    label=f"Projected Portfolio Tail Value ({time_horizon_days}-Day)", 
                     value=f"{currency} {initial_capital-np.abs(mc_var_95):,.2f}"
                 )
                 
@@ -2136,6 +2136,39 @@ elif st.session_state['page'] == 'analytics':
                     label="Probability of >10% Capital Drawdown(1-Day)", 
                     value=f"{prob_loss_10pct:.1f}%"
                 )
+
+                st.markdown("---")
+                st.header("⚡ Macro Stress Testing & Scenario Analysis")
+                st.info("Simulate portfolio capital erosion under sudden extreme market shock scenarios.")
+                
+                col_shock1, col_shock2 = st.columns([1, 2])
+                
+                with col_shock1:
+                    market_shock_pct = st.slider(
+                        "Market Benchmark Shock (%)", 
+                        min_value=-50.0, 
+                        max_value=0.0, 
+                        value=-15.0, 
+                        step=1.0,
+                        help="Simulate an instantaneous drop in the broader market index."
+                    )
+                
+                # Compute portfolio sensitivity (using portfolio beta if available, default to 1.0)
+                # If you have a calculated portfolio beta variable, use it here; otherwise, standard beta is 1.0
+                portfolio_beta = locals().get('portfolio_beta', 1.0) 
+                
+                # Calculate stressed losses
+                stressed_portfolio_drop_pct = market_shock_pct * portfolio_beta
+                stressed_loss_amount = initial_capital * (stressed_portfolio_drop_pct / 100.0)
+                stressed_final_value = initial_capital + stressed_loss_amount
+                
+                with col_shock2:
+                    st.metric(
+                        label=f"Stressed Portfolio Valuation ({market_shock_pct}% Market Crash)",
+                        value=f"₹{stressed_final_value:,.2f}",
+                        delta=f"{stressed_portfolio_drop_pct:.2f}% (₹{stressed_loss_amount:,.2f})",
+                        delta_color="inverse"
+                    )
 
                 def render_sebi_compliance_audit(holdings_df, initial_capital, weights):
                     st.markdown("---")
