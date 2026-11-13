@@ -1154,3 +1154,52 @@ def run_actionable_monte_carlo(portfolio_returns, initial_capital=1000000, num_s
         "Extreme_Stress_99_INR": round(max_inr_loss_99, 2),
         f"Probability_of_{int(loss_threshold_pct)}Pct_Loss": f"{prob_of_ruin:.1f}%"
     }
+
+def cholesky_returns(prices,num_steps=252,return_prices=True):
+    returns = prices.pct_change().dropna()
+    covmat=returns.cov()
+    L_matrix = np.linalg.cholesky(covmat.values)
+    L = pd.DataFrame(L_matrix, index=covmat.index, columns=covmat.columns)
+    num_assets = len(covmat.columns)  # 3 assets (GS, JPM, MS)
+    
+    # Generate Z: Standard normal distribution (Mean = 0, Variance = 1)
+    # Shape: (num_steps, num_assets)
+    z = np.random.randn(num_steps, num_assets)
+    z=pd.DataFrame(z, columns=covmat.columns)
+    mu = annualized_returns(returns,252)         # Mean daily return per asset
+    sigma = annualized_volatility(returns,252)       # Daily volatility per asset
+    dt = 1 / 252              # Time step (1 trading day)
+    
+    # 2. Number of simulation steps (e.g., 252 trading days)
+    num_steps = len(z)          # Z is your standard normal shocks array from earlier
+    
+    # 3. Vectorized GBM simulation across all columns at once
+    # Initialize a results array with the starting prices (the last actual price)
+    S_t = prices.iloc[-1].values # Starting prices shape: (3,)
+    simulated_prices = np.zeros((num_steps, len(prices.columns)))
+    
+    # Drift term: (mu - 0.5 * sigma^2) * dt
+    drift = (mu - 0.5 * (sigma ** 2)) * dt
+    
+    # Run simulation loop efficiently using the correlated shocks (epsilon)
+    # epsilon shape should be (num_steps, num_assets)
+    for t in range(num_steps):
+        # Geometric Brownian motion formula: S_{t} = S_{t-1} * exp(drift + diffusion)
+        # epsilon[t] contains the correlated random shocks for the 3 assets at step t
+        epsilon = pd.DataFrame(0, index=covmat.index, columns= ['My_Column'])
+        epsilon= L.dot(z.iloc[t])
+        diffusion = sigma * np.sqrt(dt) * epsilon
+        
+        if t == 0:
+            simulated_prices[t] = S_t * np.exp(drift + diffusion)
+        else:
+            simulated_prices[t] = simulated_prices[t-1] * np.exp(drift + diffusion)
+    
+    # 4. Wrap final simulated paths into a clean DataFrame
+    sim_df = pd.DataFrame(simulated_prices, columns=prices.columns)
+    rets = sim_df.pct_change().dropna()
+    if return_prices is not True:
+        result = rets
+    else:
+        result = sim_df
+    return result
