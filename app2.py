@@ -1474,16 +1474,18 @@ elif st.session_state['page'] == 'analytics':
                         if demo is not 1:
                             uploaded_file.seek(0)
                             bytes_data = uploaded_file.read()
+                        else:
+                            bytes_data = uploaded_file
                             
-                            if not bytes_data:
-                                return pd.DataFrame(columns=['Ticker', 'Quantity'])
-                                
-                            safe_buffer = io.BytesIO(bytes_data)
-                            raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
-                            raw_df = raw_df.dropna(how='all').dropna(how='all', axis=1)
+                        if not bytes_data:
+                            return pd.DataFrame(columns=['Ticker', 'Quantity'])
                             
-                            if raw_df.empty:
-                                return pd.DataFrame(columns=['Ticker', 'Quantity'])
+                        safe_buffer = io.BytesIO(bytes_data)
+                        raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
+                        raw_df = raw_df.dropna(how='all').dropna(how='all', axis=1)
+                        
+                        if raw_df.empty:
+                            return pd.DataFrame(columns=['Ticker', 'Quantity'])
                 
                         # Normalize column headers
                         raw_df.columns = raw_df.columns.astype(str).str.strip()
