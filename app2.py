@@ -2054,48 +2054,52 @@ elif st.session_state['page'] == 'analytics':
                 
                 # 1. Parameter setup for GBM
                 num_sims = 10000
-                n_years = time_horizon_days / 252.0  # Convert holding horizon days to annual fraction
-                mean_ret = portfolio_daily_returns.mean()
-                std_ret = portfolio_daily_returns.std()
+                # n_years = time_horizon_days / 252.0  # Convert holding horizon days to annual fraction
+                # mean_ret = portfolio_daily_returns.mean()
+                # std_ret = portfolio_daily_returns.std()
                 
-                # Annualize daily parameters for Geometric Brownian Motion
-                mu_annual = mean_ret * 252.0
-                sigma_annual = std_ret * (252.0 ** 0.5)
+                # # Annualize daily parameters for Geometric Brownian Motion
+                # mu_annual = mean_ret * 252.0
+                # sigma_annual = std_ret * (252.0 ** 0.5)
                 
-                # 2. Call your custom quant_risk_kit GBM simulation function
-                # Generates 10,000 scenario price paths starting at initial_capital
-                gbm_paths = erk.gbm(
-                    n_years=n_years,
-                    n_scenarios=num_sims,
-                    mu=mu_annual,
-                    sigma=sigma_annual,
-                    steps_per_year=252,
-                    s_0=initial_capital,
-                    prices=True
-                )
+                # # 2. Call your custom quant_risk_kit GBM simulation function
+                # # Generates 10,000 scenario price paths starting at initial_capital
+                # gbm_paths = erk.gbm(
+                #     n_years=n_years,
+                #     n_scenarios=num_sims,
+                #     mu=mu_annual,
+                #     sigma=sigma_annual,
+                #     steps_per_year=252,
+                #     s_0=initial_capital,
+                #     prices=True
+                # )
+
+                 sim_prices = erk.cholesky_returns(price_data, 1000, True)
+                portfolio_multipliers = (sim_prices / sim_prices.iloc[0]).dot(weights)
+                gbm_paths = portfolio_multipliers*initial_capital
                 
                 # 3. Extract ending values from the final step of all 10,000 simulated paths
-                simulated_ending_values = gbm_paths.iloc[-1].values
+                # simulated_ending_values = gbm_paths.iloc[-1].values
                 
                 # 4. Compute Risk Metrics
-                mc_var_95 = np.percentile(simulated_ending_values, (1 - confidence_level) * 100)
-                max_expected_loss = initial_capital - mc_var_95
-                prob_loss_10pct = (np.sum(simulated_ending_values < (initial_capital * 0.90)) / num_sims) * 100.0
+                mc_var_95 = np.percentile(gbm_paths, (1 - confidence_level) * 100)
+                max_expected_loss = initial_capital - np.abs(mc_var_95)
+                prob_loss_10pct = (np.sum(np.abs(gbm_paths) < (initial_capital * 0.90)) / num_sims) * 100.0
 
                 mc_col1, mc_col2, mc_col3 = st.columns(3)
                 
                 mc_col1.metric(
-                    label=f"Max Expected Loss ({time_horizon_days} Days)", 
+                    label=f"Max Expected Loss (1-Day)", 
                     value=f"{currency} {max_expected_loss:,.2f}"
                 )
                 
                 mc_col2.metric(
-                    label="Projected Portfolio Tail Value", 
-                    value=f"{currency} {mc_var_95:,.2f}"
+                    label="Projected Portfolio Tail Value(1-Day)", 
+                    value=f"{currency} {np.abs(mc_var_95):,.2f}"
                 )
                 
                 mc_col3.metric(
-                    label="Probability of >10% Capital Drawdown", 
+                    label="Probability of >10% Capital Drawdown(1-Day)", 
                     value=f"{prob_loss_10pct:.1f}%"
                 )
 
