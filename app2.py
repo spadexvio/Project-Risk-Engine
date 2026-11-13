@@ -2149,7 +2149,7 @@ elif st.session_state['page'] == 'analytics':
                     max_single_stock_allowed = 0.10
                     heavy_weights = weights[weights > max_single_stock_allowed]
                 
-                    if not heavy_weights.empty:
+                    if len(heavy_weights) > 0:
                         st.warning(f"⚠️ **Concentration Warning:** The following assets exceed the 10% single-issuer limit:")
                         for ticker, wt in heavy_weights.items():
                             st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
