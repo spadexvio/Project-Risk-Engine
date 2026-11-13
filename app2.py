@@ -828,6 +828,7 @@ elif st.session_state['page'] == 'analytics':
     if exchange == "BSE" or "NSE":
         if st.sidebar.button("📂 Load Demo Portfolio"):
             uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
+            demo=1
 
 # ==============================================================================
 # DYNAMIC SECTOR PERFORMANCE & STOCK DRILL-DOWN (NSE / BSE / JSE)
@@ -1469,18 +1470,19 @@ elif st.session_state['page'] == 'analytics':
                     matches partially masked ISINs prefix-wise, and outputs base stock symbols & quantities.
                     """
                     try:
-                        uploaded_file.seek(0)
-                        bytes_data = uploaded_file.read()
-                        
-                        if not bytes_data:
-                            return pd.DataFrame(columns=['Ticker', 'Quantity'])
+                        if demo is not 1:
+                            uploaded_file.seek(0)
+                            bytes_data = uploaded_file.read()
                             
-                        safe_buffer = io.BytesIO(bytes_data)
-                        raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
-                        raw_df = raw_df.dropna(how='all').dropna(how='all', axis=1)
-                        
-                        if raw_df.empty:
-                            return pd.DataFrame(columns=['Ticker', 'Quantity'])
+                            if not bytes_data:
+                                return pd.DataFrame(columns=['Ticker', 'Quantity'])
+                                
+                            safe_buffer = io.BytesIO(bytes_data)
+                            raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
+                            raw_df = raw_df.dropna(how='all').dropna(how='all', axis=1)
+                            
+                            if raw_df.empty:
+                                return pd.DataFrame(columns=['Ticker', 'Quantity'])
                 
                         # Normalize column headers
                         raw_df.columns = raw_df.columns.astype(str).str.strip()
