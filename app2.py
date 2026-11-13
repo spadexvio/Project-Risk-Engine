@@ -2116,7 +2116,7 @@ elif st.session_state['page'] == 'analytics':
                 # simulated_ending_values = gbm_paths.iloc[-1].values
                 
                 # 4. Compute Risk Metrics
-                mc_var_95 = np.percentile(port_sim_rets, (1-confidence_level) * 100)*initial_capital
+                mc_var_95 = np.percentile(port_sim_rets, (1-confidence_level) * 100)*initial_capital*np.sqrt(time_horizon_days)
                 max_expected_loss = np.abs(mc_var_95)
                 prob_loss_10pct = (np.sum(port_sim_rets < (-0.10)) / num_sims) * 100.0
 
