@@ -2169,6 +2169,8 @@ elif st.session_state['page'] == 'analytics':
                     if st.button("🔒 Generate Timestamped Audit Sign-Off"):
                         st.success(f"Audit log locked for **{client_name}** at `{audit_timestamp}`. Ready for client report attachment.")
 
+                render_sebi_compliance_audit(holdings_df, initial_capital, weights)
+
                 import io
                 from reportlab.lib import colors
                 from reportlab.lib.pagesizes import A4
