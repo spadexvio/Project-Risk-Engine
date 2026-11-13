@@ -2107,17 +2107,18 @@ elif st.session_state['page'] == 'analytics':
                 #     prices=True
                 # )
 
-                sim_prices = erk.cholesky_returns(price_data, 1000, True)
+                sim_returns = erk.cholesky_returns(price_data, 1000, False)
                 portfolio_multipliers = (sim_prices / sim_prices.iloc[0]).dot(weights)
                 gbm_paths = portfolio_multipliers*initial_capital
+                port_sim_rets = sim_returns.dot(weights)
                 
                 # 3. Extract ending values from the final step of all 10,000 simulated paths
                 # simulated_ending_values = gbm_paths.iloc[-1].values
                 
                 # 4. Compute Risk Metrics
-                mc_var_95 = np.percentile(gbm_paths, (1 - confidence_level) * 100)
+                mc_var_95 = np.percentile(port_sim_rets, (1 - confidence_level) * 100)*initial_capital
                 max_expected_loss = initial_capital - np.abs(mc_var_95)
-                prob_loss_10pct = (np.sum(gbm_paths < (initial_capital * 0.90)) / num_sims) * 100.0
+                prob_loss_10pct = (np.sum(port_sim_rets < (0.90)) / num_sims) * 100.0
 
                 mc_col1, mc_col2, mc_col3 = st.columns(3)
                 
