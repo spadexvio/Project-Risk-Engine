@@ -2050,7 +2050,7 @@ elif st.session_state['page'] == 'analytics':
 
                 # --- MONTE CARLO RISK STRESS RESULTS (USING QUANT_RISK_KIT GBM) ---
                 st.markdown("---")
-                st.write(f"### 🎲 10,000 Path Monte Carlo Risk Audit ({time_horizon_days}-Day Horizon)")
+                st.write(f"### 🎲 Monte Carlo Risk Audit ({time_horizon_days}-Day Horizon)")
                 
                 # 1. Parameter setup for GBM
                 num_sims = 1000
@@ -2084,7 +2084,7 @@ elif st.session_state['page'] == 'analytics':
                 # 4. Compute Risk Metrics
                 mc_var_95 = np.percentile(gbm_paths, (1 - confidence_level) * 100)
                 max_expected_loss = initial_capital - np.abs(mc_var_95)
-                prob_loss_10pct = (np.sum(np.abs(gbm_paths) < (initial_capital * 0.90)) / num_sims) * 100.0
+                prob_loss_10pct = (np.sum(gbm_paths < (initial_capital * 0.90)) / num_sims) * 100.0
 
                 mc_col1, mc_col2, mc_col3 = st.columns(3)
                 
@@ -2095,7 +2095,7 @@ elif st.session_state['page'] == 'analytics':
                 
                 mc_col2.metric(
                     label="Projected Portfolio Tail Value(1-Day)", 
-                    value=f"{currency} {np.abs(mc_var_95):,.2f}"
+                    value=f"{currency} {mc_var_95:,.2f}"
                 )
                 
                 mc_col3.metric(
