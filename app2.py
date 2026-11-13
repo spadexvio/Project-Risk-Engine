@@ -828,6 +828,7 @@ elif st.session_state['page'] == 'analytics':
     if exchange == "BSE" or "NSE":
         if st.sidebar.button("📂 Load Demo Portfolio"):
             uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
+            raw_df = uploaded_file
             demo=1
 
 # ==============================================================================
