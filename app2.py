@@ -2123,12 +2123,12 @@ elif st.session_state['page'] == 'analytics':
                 mc_col1, mc_col2, mc_col3 = st.columns(3)
                 
                 mc_col1.metric(
-                    label=f"Max Expected Loss (1-Day)", 
+                    label=f"Max Expected Loss ({time_horizon_days}-Day)", 
                     value=f"{currency} {max_expected_loss:,.2f}"
                 )
                 
                 mc_col2.metric(
-                    label="Projected Portfolio Tail Value(1-Day)", 
+                    label="Projected Portfolio Tail Value({time_horizon_days}-Day)", 
                     value=f"{currency} {initial_capital-np.abs(mc_var_95):,.2f}"
                 )
                 
