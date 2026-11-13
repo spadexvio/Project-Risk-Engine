@@ -2147,11 +2147,12 @@ elif st.session_state['page'] == 'analytics':
                     st.subheader("2. Prudential Concentration Limits (Single Issuer & Sector)")
                     # Check single stock weights (e.g., max 10% per SEBI guidelines)
                     max_single_stock_allowed = 0.10
-                    heavy_weights = weights[weights > max_single_stock_allowed]
-                
-                    if len(heavy_weights) > 0:
-                        st.warning(f"⚠️ **Concentration Warning:** The following assets exceed the 10% single-issuer limit:")
-                        for ticker, wt in heavy_weights.items():
+                    tickers = holdings_df['Ticker'].tolist()
+                    heavy_holdings = [(ticker, wt) for ticker, wt in zip(tickers, weights) if wt > max_single_stock_allowed]
+                    
+                    if len(heavy_holdings) > 0:
+                        st.warning("⚠️ **Concentration Warning:** The following assets exceed the 10% single-issuer limit:")
+                        for ticker, wt in heavy_holdings:
                             st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
                     else:
                         st.success("✅ **Diversification Check Passed:** No single asset exceeds the 10% concentration threshold.")
