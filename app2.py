@@ -239,12 +239,11 @@ if st.session_state['page'] == 'landing':
         <div style="font-size: 4rem; margin-bottom: 0.5rem;">🛡️</div>
         <h1 class="hero-title">WIRATOR</h1>
         <div class="hero-subtitle">Institutional Portfolio Risk Audit & Monte Carlo Stress Testing</div>
-        <div class="slogan-badge">Analyze. Build. Perform.</div>
+        <div class="slogan-badge">Optimize. Comply. Grow.</div>
         <p class="hero-description">
-            <b>WIRATOR</b> is an open-access quantitative risk engine for cross-border and emerging markets. 
-            It converts portfolio holdings into audit-ready <b>Value at Risk (VaR)</b>, <b>Conditional VaR (CVaR)</b>, 
-            <b>Sharpe Style Factor Attribution</b>, and <b>10,000-Path Monte Carlo Stress Simulations</b> 
-            tailored to global indices and native currencies.
+            <b>WIRATOR</b> is an open-access institutional-grade wealthtech platform for Investment Advisors.
+            It converts portfolio holdings into audit-ready <b>VaR</b>, <b>CVaR</b>, Monte Carlo risk models, macro stress test scenarios,
+            <b>Sharpe Style Factor Attribution</b>, <b>automated SEBI fiduciary audit certificates</b>, tax-loss optimization matrices, and precision rebalancing execution sheets.
         </p>
     </div>
     """,
