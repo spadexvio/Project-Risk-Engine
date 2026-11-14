@@ -852,7 +852,7 @@ elif st.session_state['page'] == 'analytics':
      )
     demo=0
     button=0
-    if exchange == "BSE" or "NSE":
+    if 'exchange' in st.session_state == "BSE" or "NSE":
         button = st.sidebar.button("📂 Load Demo Portfolio")
         button
     if button is True:
