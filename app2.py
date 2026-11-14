@@ -2170,68 +2170,6 @@ elif st.session_state['page'] == 'analytics':
                         delta_color="inverse"
                     )
 
-                # def render_sebi_compliance_audit(holdings_df, initial_capital, weights):
-                #     st.markdown("---")
-                #     st.header("⚖️ SEBI RIA Compliance & Fiduciary Audit")
-                #     st.info("Automated checks aligned with SEBI (Investment Advisers) Regulations for independent compliance reviews.")
-                
-                #     # 1. Client Risk Profile Selection (Mandatory for RIA record-keeping)
-                #     col_a, col_b = st.columns(2)
-                #     with col_a:
-                #         client_name = st.text_input("Client Identifier / Name", value="Retail Client Demo")
-                #     with col_b:
-                #         client_profile = st.selectbox(
-                #             "Mapped Client Risk Profile", 
-                #             ["Conservative (Max 12% Volatility)", "Moderate (Max 22% Volatility)", "Aggressive (Max 35% Volatility)"]
-                #         )
-                
-                #     # Extract risk thresholds
-                #     profile_limits = {
-                #         "Conservative (Max 12% Volatility)": 0.12,
-                #         "Moderate (Max 22% Volatility)": 0.22,
-                #         "Aggressive (Max 35% Volatility)": 0.35
-                #     }
-                #     max_limit = profile_limits[client_profile]
-                
-                #     # Calculate portfolio annualized volatility from holdings/weights
-                #     # (Assuming you have portfolio volatility computed as portfolio_volatility, e.g., 0.15 for 15%)
-                #     # Fallback or placeholder calculation if variable exists:
-                #     portfolio_vol = locals().get('exp_vol', 0.18) 
-                
-                #     st.subheader("1. Suitability & Risk Threshold Assessment")
-                #     if portfolio_vol > max_limit:
-                #         st.error(f"🚨 **Compliance Breach:** Portfolio volatility ({portfolio_vol*100:.1f}%) exceeds the regulatory limit for a **{client_profile.split(' ')[0]}** profile. Rebalancing is required before advice sign-off.")
-                #     else:
-                #         st.success(f"✅ **Suitability Verified:** Portfolio risk level is within permissible bounds for a {client_profile.split(' ')[0]} mandate.")
-                
-                #     st.subheader("2. Prudential Concentration Limits (Single Issuer & Sector)")
-                #     # Check single stock weights (e.g., max 10% per SEBI guidelines)
-                #     max_single_stock_allowed = 0.10
-                #     tickers = holdings_df['Ticker'].tolist()
-                #     heavy_holdings = [(ticker, wt) for ticker, wt in zip(tickers, weights) if wt > max_single_stock_allowed]
-                    
-                #     if len(heavy_holdings) > 0:
-                #         st.warning("⚠️ **Concentration Warning:** The following assets exceed the 10% single-issuer limit:")
-                #         for ticker, wt in heavy_holdings:
-                #             st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
-                #     else:
-                #         st.success("✅ **Diversification Check Passed:** No single asset exceeds the 10% concentration threshold.")
-                
-                #     st.subheader("3. Conflict of Interest & Direct Plan Disclosure")
-                #     st.markdown("""
-                #     * **Direct Plan Verification:** Certified that all recommended mutual fund schemes are analyzed under **Direct Plans** (zero-commission), complying with fiduciary obligations against third-party commissions.
-                #     * **Fee Disclosure:** Flat fee / advisory fee structure validated in accordance with SEBI fee ceilings.
-                #     """)
-                
-                #     # 4. Audit Trail Timestamp & Sign-off Button
-                #     import datetime
-                #     audit_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    
-                #     if st.button("🔒 Generate Timestamped Audit Sign-Off"):
-                #         st.success(f"Audit log locked for **{client_name}** at `{audit_timestamp}`. Ready for client report attachment.")
-
-                # render_sebi_compliance_audit(holdings_df, initial_capital, weights)
-
                 import datetime
                 from fpdf import FPDF
                 
@@ -2485,6 +2423,56 @@ elif st.session_state['page'] == 'analytics':
                     )
 
                 render_portfolio_rebalancing(holdings_df, initial_capital)
+
+                def render_wealth_drag_calculator(initial_capital):
+                    st.markdown("---")
+                    st.header("📉 Direct Plan vs. Regular Plan Wealth Drag Calculator")
+                    st.info("Demonstrate the compounding wealth lost to distributor commissions in Regular mutual fund plans over long investment horizons.")
+                
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        horizon_years = st.number_input("Investment Horizon (Years)", min_value=1, max_value=30, value=10, step=1, key="wd_horizon")
+                    with col2:
+                        expected_cagr = st.number_input("Expected Gross CAGR (%)", min_value=1.0, max_value=30.0, value=14.0, step=0.5, key="wd_cagr") / 100.0
+                    with col3:
+                        expense_diff = st.number_input("Expense Ratio Diff (Regular - Direct %)", min_value=0.1, max_value=2.0, value=1.0, step=0.1, key="wd_diff") / 100.0
+                
+                    # Compounding calculations
+                    years = np.arange(0, horizon_years + 1)
+                    regular_cagr = expected_cagr - expense_diff
+                    direct_cagr = expected_cagr
+                
+                    regular_wealth = initial_capital * ((1 + regular_cagr) ** years)
+                    direct_wealth = initial_capital * ((1 + direct_cagr) ** years)
+                    wealth_drag = direct_wealth - regular_wealth
+                
+                    final_regular = regular_wealth[-1]
+                    final_direct = direct_wealth[-1]
+                    total_drag = wealth_drag[-1]
+                
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    with col_m1:
+                        st.metric("Regular Plan Final Value", f"₹{final_regular:,.2f}")
+                    with col_m2:
+                        st.metric("Direct Plan Final Value (Fiduciary)", f"₹{final_direct:,.2f}")
+                    with col_m3:
+                        st.metric(
+                            "Total Wealth Lost to Commissions", 
+                            f"₹{total_drag:,.2f}", 
+                            delta=f"-{(total_drag/final_direct)*100:.1f}% drag", 
+                            delta_color="inverse"
+                        )
+                
+                    # Line chart comparing corpus growth trajectories
+                    chart_df = pd.DataFrame({
+                        "Year": years,
+                        "Regular Plan (With Commission)": regular_wealth,
+                        "Direct Plan (Zero Commission)": direct_wealth
+                    }).set_index("Year")
+                
+                    st.line_chart(chart_df)
+
+                render_wealth_drag_calculator(initial_capital)
 
                 import io
                 from reportlab.lib import colors
