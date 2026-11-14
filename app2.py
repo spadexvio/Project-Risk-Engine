@@ -851,6 +851,7 @@ elif st.session_state['page'] == 'analytics':
     help="Minimum acceptable return per annum used to calculate downside deviation.",
      )
     demo=0
+    button = False
     if 'exchange' in ["BSE", "NSE"]:
         button = st.sidebar.button("📂 Load Demo Portfolio")
         button
