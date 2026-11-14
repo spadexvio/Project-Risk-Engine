@@ -2409,6 +2409,83 @@ elif st.session_state['page'] == 'analytics':
                 # Pass your actual portfolio volatility variable (e.g., exp_vol) into the function call:
                 render_sebi_compliance_audit(holdings_df, initial_capital, weights, exp_vol=exp_vol)
 
+                
+                def render_portfolio_rebalancing(holdings_df, initial_capital):
+                    st.markdown("---")
+                    st.header("⚖️ Automated Portfolio Rebalancing & Trade Execution Generator")
+                    st.info("Align your portfolio back to target asset weights and generate exact execution orders (Buy/Sell) for client advisory sign-off.")
+                    
+                    n_assets = len(holdings_df)
+                    if n_assets == 0:
+                        st.warning("Please load or upload a portfolio first.")
+                        return
+                
+                    default_weight = 1.0 / n_assets
+                    st.write("**Specify Target Allocation Weights (Must sum to 100%):**")
+                    
+                    # Interactive target weight sliders/inputs arranged in columns
+                    target_weights = []
+                    cols = st.columns(min(n_assets, 4))
+                    
+                    for i, row in holdings_df.iterrows():
+                        ticker = row['Ticker'] if 'Ticker' in row else f"Asset {i}"
+                        col_idx = i % len(cols)
+                        with cols[col_idx]:
+                            tw = st.number_input(
+                                f"Target %: {ticker}", 
+                                min_value=0.0, 
+                                max_value=100.0, 
+                                value=float(default_weight * 100), 
+                                step=1.0, 
+                                key=f"tw_{i}"
+                            )
+                            target_weights.append(tw / 100.0)
+                    
+                    target_weights = pd.Series(target_weights)
+                    if target_weights.sum() > 0:
+                        target_weights = target_weights / target_weights.sum() # Normalize to 1.0
+                    
+                    # Extract current weights
+                    if 'Weight' in holdings_df.columns:
+                        curr_weights = holdings_df['Weight'].values
+                    else:
+                        curr_weights = [default_weight] * n_assets
+                        
+                    # Build rebalancing execution dataframe
+                    rebal_df = pd.DataFrame({
+                        'Ticker': holdings_df['Ticker'] if 'Ticker' in holdings_df.columns else [f"Asset {i}" for i in range(n_assets)],
+                        'Current Weight (%)': [w * 100 for w in curr_weights],
+                        'Target Weight (%)': [w * 100 for w in target_weights],
+                        'Current Value (INR)': [w * initial_capital for w in curr_weights],
+                        'Target Value (INR)': [w * initial_capital for w in target_weights]
+                    })
+                    
+                    rebal_df['Difference (INR)'] = rebal_df['Target Value (INR)'] - rebal_df['Current Value (INR)']
+                    rebal_df['Action'] = rebal_df['Difference (INR)'].apply(lambda x: 'BUY' if x > 1 else ('SELL' if x < -1 else 'HOLD'))
+                    rebal_df['Execution Amount (INR)'] = rebal_df['Difference (INR)'].abs()
+                    
+                    st.dataframe(
+                        rebal_df.style.format({
+                            'Current Weight (%)': '{:.2f}%',
+                            'Target Weight (%)': '{:.2f}%',
+                            'Current Value (INR)': '₹{:,.2f}',
+                            'Target Value (INR)': '₹{:,.2f}',
+                            'Execution Amount (INR)': '₹{:,.2f}'
+                        }), 
+                        use_container_width=True
+                    )
+                    
+                    # Export execution orders as CSV for client report attachment
+                    csv_data = rebal_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(
+                        label="📥 Download Trade Execution Orders (CSV)",
+                        data=csv_data,
+                        file_name=f"Rebalancing_Orders_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+
+                render_portfolio_rebalancing(holdings_df, initial_capital)
+
                 import io
                 from reportlab.lib import colors
                 from reportlab.lib.pagesizes import A4
