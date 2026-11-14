@@ -851,11 +851,13 @@ elif st.session_state['page'] == 'analytics':
     help="Minimum acceptable return per annum used to calculate downside deviation.",
      )
     demo=0
+    button=0
     if exchange == "BSE" or "NSE":
-        st.sidebar.button("📂 Load Demo Portfolio")
-        if st.sidebar.button("📂 Load Demo Portfolio"):
-            uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
-            demo=1
+        button = st.sidebar.button("📂 Load Demo Portfolio")
+        button
+    if button is True:
+        uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
+        demo=1
 
 # ==============================================================================
 # DYNAMIC SECTOR PERFORMANCE & STOCK DRILL-DOWN (NSE / BSE / JSE)
