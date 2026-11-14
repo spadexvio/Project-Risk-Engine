@@ -852,9 +852,10 @@ elif st.session_state['page'] == 'analytics':
      )
     demo=0
     if exchange == "BSE" or "NSE":
-        if st.sidebar.button("📂 Load Demo Portfolio"):
-            uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
-            demo=1
+        st.sidebar.button("📂 Load Demo Portfolio")
+            if st.sidebar.button("📂 Load Demo Portfolio"):
+                uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
+                demo=1
 
 # ==============================================================================
 # DYNAMIC SECTOR PERFORMANCE & STOCK DRILL-DOWN (NSE / BSE / JSE)
