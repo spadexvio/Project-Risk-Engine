@@ -424,7 +424,7 @@ elif st.session_state['page'] == 'analytics':
     div[data-testid="stExpander"] {
         background-color: #1A2B4C !important;
         border-radius: 12px !important;
-        border: 1px solid rgba(250, 248, 237, 0.12) !important;
+        border: 1px solid rgba(250, 248, 237, 0.15) !important;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
 
@@ -436,21 +436,25 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 600 !important;
     }
 
-    /* Expander Expanded Content Area */
+    /* Expander Expanded Content Area - Matched to Upper Cards */
     div[data-testid="stExpanderDetails"] {
-        background-color: #FAF8ED !important;
+        background-color: #1A2B4C !important;
         border-bottom-left-radius: 12px !important;
         border-bottom-right-radius: 12px !important;
         padding: 16px !important;
     }
 
-    /* Standard text inside expander details */
+    /* Standard text inside expander details set to Cream (#FAFAED) to match cards */
     div[data-testid="stExpanderDetails"] p,
     div[data-testid="stExpanderDetails"] span,
     div[data-testid="stExpanderDetails"] label,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="slider"] {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
+    div[data-testid="stExpanderDetails"] div[data-baseweb="slider"] *,
+    div[data-testid="stExpanderDetails"] h1,
+    div[data-testid="stExpanderDetails"] h2,
+    div[data-testid="stExpanderDetails"] h3,
+    div[data-testid="stExpanderDetails"] h4 {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
     }
 
     /* FIX: Metric Delta Badges */
