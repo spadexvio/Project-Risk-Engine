@@ -341,7 +341,7 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 500;
     }
 
-    
+
     /* ========================================================= */
     /* 2. SIDEBAR STYLING & INPUTS                               */
     /* ========================================================= */
@@ -350,7 +350,6 @@ elif st.session_state['page'] == 'analytics':
         border-right: 1px solid rgba(250, 248, 237, 0.1) !important;
     }
     
-    /* All labels and text inside sidebar (EXCLUDING buttons) */
     section[data-testid="stSidebar"] label, 
     section[data-testid="stSidebar"] .stMarkdown p, 
     section[data-testid="stSidebar"] span, 
@@ -362,7 +361,6 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 500;
     }
 
-    /* Typed text inside sidebar input boxes */
     section[data-testid="stSidebar"] input, 
     section[data-testid="stSidebar"] textarea, 
     section[data-testid="stSidebar"] div[data-baseweb="select"] span {
@@ -371,7 +369,6 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 600 !important;
     }
 
-    /* Sidebar Number Input (- / +) buttons */
     .stSidebar [data-testid="stNumberInput"] button {
         background-color: #FAFAED !important;
         border: 1px solid #1A2B4C !important;
@@ -388,95 +385,11 @@ elif st.session_state['page'] == 'analytics':
     .stSidebar [data-testid="stNumberInput"] button:hover svg {
         fill: #FAFAED !important;
     }
-    /* ========================================================= */
-    /* FIX: Remaining Invisible Texts (Inputs & Expander Headers) */
-    /* ========================================================= */
-    
-    /* 1. Fix text inputs / data editor input cells inside expanders */
-    div[data-testid="stExpanderDetails"] input,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="input"] input {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        background-color: #FAFAED !important;
-    }
 
-    /* 2. Fix collapsed expander header text (e.g. "Execution, Wealth Drag & Tax Optimization") */
-    div[data-testid="stExpander"] summary,
-    div[data-testid="stExpander"] summary *,
-    div[data-testid="stExpander"] summary span,
-    div[data-testid="stExpander"] summary p {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-        opacity: 1 !important;
-    }
-
-    /* 3. Ensure all text inside expander details blocks is cream */
-    div[data-testid="stExpanderDetails"] p,
-    div[data-testid="stExpanderDetails"] span,
-    div[data-testid="stExpanderDetails"] li,
-    div[data-testid="stExpanderDetails"] label {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-    }
-    /* ========================================================= */
-    /* FIX: Input Fields & Number Inputs Inside Expanders        */
-    /* ========================================================= */
-    div[data-testid="stExpanderDetails"] input,
-    div[data-testid="stExpanderDetails"] textarea,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="select"] {
-        background-color: #FAFAED !important;
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        border-radius: 6px !important;
-    }
-
-    div[data-testid="stExpanderDetails"] input *,
-    div[data-testid="stExpanderDetails"] textarea * {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-    }
-
-    /* Number input step buttons (+ / -) inside expanders */
-    div[data-testid="stExpanderDetails"] [data-testid="stNumberInput"] button {
-        background-color: #FAFAED !important;
-        border: 1px solid #1A2B4C !important;
-    }
-
-    div[data-testid="stExpanderDetails"] [data-testid="stNumberInput"] button svg {
-        fill: #1A2B4C !important;
-    }
-    /* ========================================================= */
-    /* FIX: Streamlit Alert / Info / Success Boxes inside Expanders */
-    /* ========================================================= */
-    div[data-testid="stExpanderDetails"] div.stAlert,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="notification"],
-    div[data-testid="stExpanderDetails"] [class*="st-key-"] div[role="alert"] {
-        background-color: #0F1C33 !important;
-        border: 1px solid rgba(250, 248, 237, 0.2) !important;
-        border-radius: 8px !important;
-    }
-
-    div[data-testid="stExpanderDetails"] div.stAlert *,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="notification"] *,
-    div[data-testid="stExpanderDetails"] [class*="st-key-"] div[role="alert"] * {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-        background-color: transparent !important;
-    }
-    /* ========================================================= */
-    /* FIX: Radio Button Options & Labels Inside Expanders       */
-    /* ========================================================= */
-    div[data-testid="stExpanderDetails"] div.stRadio div[role="radiogroup"] label,  
-    div[data-testid="stExpanderDetails"] div.stRadio div[role="radiogroup"] label p,  
-    div[data-testid="stExpanderDetails"] div.stRadio span {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-    }
     /* ========================================================= */
     /* 3. CARDS, METRICS & EXPANDERS                             */
     /* ========================================================= */
     
-    /* Universal Metric Cards (Applies to all metric cards everywhere) */
     div[data-testid="stMetric"] {
         background-color: #1A2B4C !important;
         border-radius: 12px !important;
@@ -492,7 +405,6 @@ elif st.session_state['page'] == 'analytics':
         align-items: center !important;
     }
 
-    /* Force explicit cream color on every label, value, and text span inside metrics */
     div[data-testid="stMetric"] label,
     div[data-testid="stMetric"] [data-testid="stMetricValue"],
     div[data-testid="stMetric"] [data-testid="stMetricValue"] div,
@@ -503,7 +415,7 @@ elif st.session_state['page'] == 'analytics':
         -webkit-text-fill-color: #FAFAED !important;
     }
 
-    /* Expander Container Header */
+    /* --- EXPANDER CONTAINER & COLLAPSED HEADER FIX --- */
     div[data-testid="stExpander"] {
         background-color: #1A2B4C !important;
         border-radius: 12px !important;
@@ -511,12 +423,15 @@ elif st.session_state['page'] == 'analytics':
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
 
+    /* Force all text inside the expander header/summary to be fully visible cream */
+    div[data-testid="stExpander"] summary,
+    div[data-testid="stExpander"] summary *,
     div[data-testid="stExpander"] summary span,
     div[data-testid="stExpander"] summary p,
-    div[data-testid="stExpander"] summary {
+    div[data-testid="stExpander"] [data-testid="stExpanderToggleIcon"] {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
-        font-weight: 600 !important;
+        opacity: 1 !important;
     }
 
     /* Expander Expanded Content Area */
@@ -527,7 +442,6 @@ elif st.session_state['page'] == 'analytics':
         padding: 16px !important;
     }
 
-    /* Comprehensive text fix for everything inside expander details */
     div[data-testid="stExpanderDetails"] *,
     div[data-testid="stExpanderDetails"] p,
     div[data-testid="stExpanderDetails"] span,
@@ -539,11 +453,18 @@ elif st.session_state['page'] == 'analytics':
     div[data-testid="stExpanderDetails"] h1,
     div[data-testid="stExpanderDetails"] h2,
     div[data-testid="stExpanderDetails"] h3,
-    div[data-testid="stExpanderDetails"] h4,
-    div[data-testid="stExpanderDetails"] h5,
-    div[data-testid="stExpanderDetails"] h6 {
+    div[data-testid="stExpanderDetails"] h4 {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
+        background-color: transparent !important;
+    }
+
+    /* Fix input cells inside expanders */
+    div[data-testid="stExpanderDetails"] input,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="input"] input {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        background-color: #FAFAED !important;
     }
 
     /* FIX: Metric Delta Badges */
@@ -565,7 +486,6 @@ elif st.session_state['page'] == 'analytics':
     /* ========================================================= */
     /* 4. FORM ELEMENTS & BUTTONS                                */
     /* ========================================================= */
-    /* Radio button options text visibility */
     div.stRadio div[role="radiogroup"] label,  
     div.stRadio div[role="radiogroup"] label p,  
     div.stRadio span {
@@ -574,18 +494,18 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 500;
     }
 
-    /* Force text area and text input typed text to #1A2B4C */
     div.stTextArea textarea, div.stTextInput input {
         color: #1A2B4C !important;
         -webkit-text-fill-color: #1A2B4C !important;
     }
 
-    /* Styled Home / Custom Buttons & Sidebar Buttons */
+    /* Styled Buttons & Download Buttons */
     div.stButton > button,
     section[data-testid="stSidebar"] div.stButton > button,
     section[data-testid="stSidebar"] button[kind="secondary"], 
     section[data-testid="stSidebar"] button[kind="primary"], 
-    div.stFormSubmitButton button {
+    div.stFormSubmitButton button,
+    [data-testid="stDownloadButton"] button {
         background-color: #FAFAED !important;
         color: #1A2B4C !important;
         -webkit-text-fill-color: #1A2B4C !important;
@@ -594,15 +514,12 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 600 !important;
     }
 
-    /* FIX: Force inner p and span inside ALL buttons (including sidebar) to navy */
     div.stButton > button p,
     div.stButton > button span,
+    [data-testid="stDownloadButton"] button p,
+    [data-testid="stDownloadButton"] button span,
     section[data-testid="stSidebar"] div.stButton > button p,
     section[data-testid="stSidebar"] div.stButton > button span,
-    section[data-testid="stSidebar"] button[kind="secondary"] p,
-    section[data-testid="stSidebar"] button[kind="secondary"] span,
-    section[data-testid="stSidebar"] button[kind="primary"] p,
-    section[data-testid="stSidebar"] button[kind="primary"] span,
     div.stFormSubmitButton button p, 
     div.stFormSubmitButton button span {
         color: #1A2B4C !important;
@@ -610,11 +527,9 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 600 !important;
     }
 
-    /* Hover state for all buttons */
     div.stButton > button:hover,
+    [data-testid="stDownloadButton"] button:hover,
     section[data-testid="stSidebar"] div.stButton > button:hover,
-    section[data-testid="stSidebar"] button[kind="secondary"]:hover,
-    section[data-testid="stSidebar"] button[kind="primary"]:hover,
     div.stFormSubmitButton button:hover {
         background-color: #1A2B4C !important;
         color: #FAFAED !important;
@@ -624,14 +539,8 @@ elif st.session_state['page'] == 'analytics':
 
     div.stButton > button:hover p,
     div.stButton > button:hover span,
-    section[data-testid="stSidebar"] div.stButton > button:hover p,
-    section[data-testid="stSidebar"] div.stButton > button:hover span,
-    section[data-testid="stSidebar"] button[kind="secondary"]:hover p,
-    section[data-testid="stSidebar"] button[kind="secondary"]:hover span,
-    section[data-testid="stSidebar"] button[kind="primary"]:hover p,
-    section[data-testid="stSidebar"] button[kind="primary"]:hover span,
-    div.stFormSubmitButton button:hover p, 
-    div.stFormSubmitButton button:hover span {
+    [data-testid="stDownloadButton"] button:hover p,
+    [data-testid="stDownloadButton"] button:hover span {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
     }
@@ -769,7 +678,6 @@ elif st.session_state['page'] == 'analytics':
         -webkit-text-fill-color: #FAFAED !important;
     }
 
-    /* Force chart container to expand 100% */
     div[data-testid="stPlotlyChart"] {
         width: 100% !important;
         max-width: 100% !important;
@@ -778,13 +686,11 @@ elif st.session_state['page'] == 'analytics':
         width: 100% !important;
     }
 
-    /* Forcefully reduce sidebar vertical padding and element gaps */
     section[data-testid="stSidebar"] .block-container {
         padding-top: 0.5rem !important;
         padding-bottom: 1rem !important;
     }
     
-    /* Tighten spacing specifically for sidebar widget wrappers */
     section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
         gap: 0.4rem !important;
     }
