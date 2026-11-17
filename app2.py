@@ -849,11 +849,24 @@ elif st.session_state['page'] == 'analytics':
     step=0.5,
     help="Minimum acceptable return per annum used to calculate downside deviation.",
      )
-    
+    # demo=0
+    # if exchange in ["BSE", "NSE"]:
+    #     if st.sidebar.button("📂 Load Demo Portfolio"):
+    #         uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
+    #         demo=1
+
+    if "use_demo" not in st.session_state:
+    st.session_state.use_demo = False
+
     if exchange in ["BSE", "NSE"]:
-        if st.sidebar.button("📂 Load Demo Portfolio"):
-            uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
-            demo=1
+        if st.sidebar.button("📁 Load Demo Portfolio"):
+            st.session_state.use_demo = True
+    
+        if uploaded_file is not None:
+            # If the user uploads their own CSV later, override the demo
+            st.session_state.use_demo = False
+        elif st.session_state.use_demo:
+            uploaded_file = pd.read_csv("Stocks _ Arghadeep - 8511471544_PortfolioEqtSummary.csv")
 
 # ==============================================================================
 # DYNAMIC SECTOR PERFORMANCE & STOCK DRILL-DOWN (NSE / BSE / JSE)
@@ -1495,7 +1508,7 @@ elif st.session_state['page'] == 'analytics':
                     matches partially masked ISINs prefix-wise, and outputs base stock symbols & quantities.
                     """
                     try:
-                        if demo is not 1:
+                        if st.session_state.use_demo == False:
                             uploaded_file.seek(0)
                             bytes_data = uploaded_file.read()
                             
