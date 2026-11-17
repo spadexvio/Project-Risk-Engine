@@ -2182,6 +2182,67 @@ elif st.session_state['page'] == 'analytics':
                         delta_color="inverse"
                     )
 
+                def var_backtest_traffic_light(
+                        actual_returns, var_series, alpha=0.05, window=250
+                    ):
+                      """Calculates Basel traffic light exceptions over a rolling window."""
+                      # Identify breaches (where actual loss exceeds VaR threshold)
+                      # Assuming VaR is stored as a negative return threshold (e.g., -0.02)
+                      breaches = actual_returns.tail(window) < var_series.tail(window)
+                      num_exceptions = breaches.sum()
+                    
+                      if num_exceptions <= 4:
+                        zone = "Green"
+                        status = "Acceptable accuracy (Zone 0-4)"
+                      elif 5 <= num_exceptions <= 9:
+                        zone = "Yellow"
+                        status = "Requires review / potential model tuning (Zone 5-9)"
+                      else:
+                        zone = "Red"
+                        status = "Model rejection / high breach frequency (Zone 10+)"
+                    
+                      return {
+                          "exceptions": int(num_exceptions),
+                          "zone": zone,
+                          "status": status,
+                      }
+
+                # Calculate rolling historical VaR (e.g., 250-day rolling window, 95% confidence)
+                rolling_var = (
+                    portfolio_daily_returns.rolling(window=250)
+                    .quantile(0.05)
+                    .dropna()
+                )
+                
+                # Align your actual returns with the exact same dates
+                aligned_actuals = portfolio_daily_returns.loc[rolling_var.index]
+                
+                # Run the traffic light check
+                result = var_backtest_traffic_light(
+                    aligned_actuals, rolling_var, alpha=0.05, window=250
+                )
+
+                st.subheader("🛡️ Regulatory VaR Backtesting (Basel Traffic Light)")
+
+                # Display metrics side by side
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                  st.metric(
+                      label="Lookback Window", value=f"{len(aligned_actuals)} Trading Days"
+                  )
+                with col2:
+                  st.metric(label="Model Exceptions", value=result["exceptions"])
+                with col3:
+                  st.metric(label="Traffic Light Zone", value=result["zone"])
+                
+                # Color-coded warning/success banner based on the zone
+                if result["zone"] == "Green":
+                  st.success(f"🟢 **Green Zone (0–4 Exceptions):** {result['status']}")
+                elif result["zone"] == "Yellow":
+                  st.warning(f"🟡 **Yellow Zone (5–9 Exceptions):** {result['status']}")
+                else:
+                  st.error(f"🔴 **Red Zone (10+ Exceptions):** {result['status']}")
+
                 import datetime
                 from fpdf import FPDF
                 
