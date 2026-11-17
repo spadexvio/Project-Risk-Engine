@@ -1168,8 +1168,10 @@ def cholesky_returns(prices,num_steps=252,return_prices=True):
     z=pd.DataFrame(z, columns=covmat.columns)
     mu = annualized_returns(returns,252)         # Mean daily return per asset
     sigma = annualized_volatility(returns,252)       # Daily volatility per asset
-    dt = 1 / 252              # Time step (1 trading day)
-    
+    dt = 1 / 252      # Time step (1 trading day)
+
+    daily_mu = mu / 252
+    daily_sigma = sigma / np.sqrt(252)
     # 2. Number of simulation steps (e.g., 252 trading days)
     num_steps = len(z)          # Z is your standard normal shocks array from earlier
     
@@ -1179,7 +1181,7 @@ def cholesky_returns(prices,num_steps=252,return_prices=True):
     simulated_prices = np.zeros((num_steps, len(prices.columns)))
     
     # Drift term: (mu - 0.5 * sigma^2) * dt
-    drift = (mu - 0.5 * (sigma ** 2)) * dt
+    drift = (daily_mu.values - 0.5 * (daily_sigma.values ** 2)) * 1.0
     
     # Run simulation loop efficiently using the correlated shocks (epsilon)
     # epsilon shape should be (num_steps, num_assets)
@@ -1188,7 +1190,7 @@ def cholesky_returns(prices,num_steps=252,return_prices=True):
         # epsilon[t] contains the correlated random shocks for the 3 assets at step t
         epsilon = pd.DataFrame(0, index=covmat.index, columns= ['My_Column'])
         epsilon= L.dot(z.iloc[t])
-        diffusion = sigma * np.sqrt(dt) * epsilon
+        diffusion = epsilon
         
         if t == 0:
             simulated_prices[t] = S_t * np.exp(drift + diffusion)
