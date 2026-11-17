@@ -866,7 +866,7 @@ elif st.session_state['page'] == 'analytics':
             # If the user uploads their own CSV later, override the demo
             st.session_state.use_demo = False
         elif st.session_state.use_demo:
-            uploaded_file = pd.read_csv("Stocks _ Arghadeep - 8511471544_PortfolioEqtSummary.csv")
+            uploaded_file = pd.read_csv("Stocks_Arghadeep - 8511471544_PortfolioEqtSummary.csv")
 
 # ==============================================================================
 # DYNAMIC SECTOR PERFORMANCE & STOCK DRILL-DOWN (NSE / BSE / JSE)
