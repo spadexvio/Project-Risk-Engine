@@ -388,7 +388,22 @@ elif st.session_state['page'] == 'analytics':
     .stSidebar [data-testid="stNumberInput"] button:hover svg {
         fill: #FAFAED !important;
     }
+    /* ========================================================= */
+    /* FIX: Streamlit Status Boxes (Info, Success, Warning, Error) */
+    /* ========================================================= */
+    div[data-testid="stExpanderDetails"] div[data-testid="stNotification"] {
+        background-color: rgba(250, 248, 237, 0.1) !important;
+        border: 1px solid rgba(250, 248, 237, 0.2) !important;
+        border-radius: 8px !important;
+    }
 
+    div[data-testid="stExpanderDetails"] div[data-testid="stNotification"] *,
+    div[data-testid="stExpanderDetails"] div[data-testid="stNotification"] p,
+    div[data-testid="stExpanderDetails"] div[data-testid="stNotification"] span {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        background-color: transparent !important;
+    }
     /* ========================================================= */
     /* 3. CARDS, METRICS & EXPANDERS                             */
     /* ========================================================= */
