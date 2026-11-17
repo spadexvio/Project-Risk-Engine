@@ -856,7 +856,7 @@ elif st.session_state['page'] == 'analytics':
     #         demo=1
 
     if "use_demo" not in st.session_state:
-    st.session_state.use_demo = False
+        st.session_state.use_demo = False
 
     if exchange in ["BSE", "NSE"]:
         if st.sidebar.button("📁 Load Demo Portfolio"):
