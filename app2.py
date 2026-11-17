@@ -407,6 +407,15 @@ elif st.session_state['page'] == 'analytics':
         background-color: transparent !important;
     }
     /* ========================================================= */
+    /* FIX: Radio Button Options & Labels Inside Expanders       */
+    /* ========================================================= */
+    div[data-testid="stExpanderDetails"] div.stRadio div[role="radiogroup"] label,  
+    div[data-testid="stExpanderDetails"] div.stRadio div[role="radiogroup"] label p,  
+    div[data-testid="stExpanderDetails"] div.stRadio span {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+    /* ========================================================= */
     /* 3. CARDS, METRICS & EXPANDERS                             */
     /* ========================================================= */
     
