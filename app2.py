@@ -2438,132 +2438,331 @@ elif st.session_state['page'] == 'analytics':
                     # Pass your actual portfolio volatility variable (e.g., exp_vol) into the function call:
                     render_sebi_compliance_audit(holdings_df, initial_capital, weights, exp_vol=exp_vol)
 
-                
-                def render_portfolio_rebalancing(holdings_df, initial_capital):
-                    st.markdown("---")
-                    st.header("⚖️ Automated Portfolio Rebalancing & Trade Execution Generator")
-                    st.info("Align your portfolio back to target asset weights and generate exact execution orders (Buy/Sell) for client advisory sign-off.")
-                    
-                    n_assets = len(holdings_df)
-                    if n_assets == 0:
-                        st.warning("Please load or upload a portfolio first.")
-                        return
-                
-                    default_weight = 1.0 / n_assets
-                    st.write("**Specify Target Allocation Weights (Must sum to 100%):**")
-                    
-                    # Interactive target weight sliders/inputs arranged in columns
-                    target_weights = []
-                    cols = st.columns(min(n_assets, 4))
-                    
-                    for i, row in holdings_df.iterrows():
-                        ticker = row['Ticker'] if 'Ticker' in row else f"Asset {i}"
-                        col_idx = i % len(cols)
-                        with cols[col_idx]:
-                            tw = st.number_input(
-                                f"Target %: {ticker}", 
-                                min_value=0.0, 
-                                max_value=100.0, 
-                                value=float(default_weight * 100), 
-                                step=1.0, 
-                                key=f"tw_{i}"
-                            )
-                            target_weights.append(tw / 100.0)
-                    
-                    target_weights = pd.Series(target_weights)
-                    if target_weights.sum() > 0:
-                        target_weights = target_weights / target_weights.sum() # Normalize to 1.0
-                    
-                    # Extract current weights
-                    if 'Weight' in holdings_df.columns:
-                        curr_weights = holdings_df['Weight'].values
-                    else:
-                        curr_weights = [default_weight] * n_assets
+                with st.expander(
+                        " Excecution, Wealth Drag & Tax Optimization", expanded=False
+                    ):
+                    def render_portfolio_rebalancing(holdings_df, initial_capital):
+                        st.markdown("---")
+                        st.header("⚖️ Automated Portfolio Rebalancing & Trade Execution Generator")
+                        st.info("Align your portfolio back to target asset weights and generate exact execution orders (Buy/Sell) for client advisory sign-off.")
                         
-                    # Build rebalancing execution dataframe
-                    rebal_df = pd.DataFrame({
-                        'Ticker': holdings_df['Ticker'] if 'Ticker' in holdings_df.columns else [f"Asset {i}" for i in range(n_assets)],
-                        'Current Weight (%)': [w * 100 for w in curr_weights],
-                        'Target Weight (%)': [w * 100 for w in target_weights],
-                        'Current Value (INR)': [w * initial_capital for w in curr_weights],
-                        'Target Value (INR)': [w * initial_capital for w in target_weights]
-                    })
+                        n_assets = len(holdings_df)
+                        if n_assets == 0:
+                            st.warning("Please load or upload a portfolio first.")
+                            return
                     
-                    rebal_df['Difference (INR)'] = rebal_df['Target Value (INR)'] - rebal_df['Current Value (INR)']
-                    rebal_df['Action'] = rebal_df['Difference (INR)'].apply(lambda x: 'BUY' if x > 1 else ('SELL' if x < -1 else 'HOLD'))
-                    rebal_df['Execution Amount (INR)'] = rebal_df['Difference (INR)'].abs()
-                    
-                    st.dataframe(
-                        rebal_df.style.format({
-                            'Current Weight (%)': '{:.2f}%',
-                            'Target Weight (%)': '{:.2f}%',
-                            'Current Value (INR)': '₹{:,.2f}',
-                            'Target Value (INR)': '₹{:,.2f}',
-                            'Execution Amount (INR)': '₹{:,.2f}'
-                        }), 
-                        use_container_width=True
-                    )
-                    
-                    # Export execution orders as CSV for client report attachment
-                    csv_data = rebal_df.to_csv(index=False).encode('utf-8')
-                    st.download_button(
-                        label="📥 Download Trade Execution Orders (CSV)",
-                        data=csv_data,
-                        file_name=f"Rebalancing_Orders_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-
-                render_portfolio_rebalancing(holdings_df, initial_capital)
-
-                def render_wealth_drag_calculator(initial_capital):
-                    st.markdown("---")
-                    st.header("📉 Direct Plan vs. Regular Plan Wealth Drag Calculator")
-                    st.info("Demonstrate the compounding wealth lost to distributor commissions in Regular mutual fund plans over long investment horizons.")
-                
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        horizon_years = st.number_input("Investment Horizon (Years)", min_value=1, max_value=30, value=10, step=1, key="wd_horizon")
-                    with col2:
-                        expected_cagr = st.number_input("Expected Gross CAGR (%)", min_value=1.0, max_value=30.0, value=14.0, step=0.5, key="wd_cagr") / 100.0
-                    with col3:
-                        expense_diff = st.number_input("Expense Ratio Diff (Regular - Direct %)", min_value=0.1, max_value=2.0, value=1.0, step=0.1, key="wd_diff") / 100.0
-                
-                    # Compounding calculations
-                    years = np.arange(0, horizon_years + 1)
-                    regular_cagr = expected_cagr - expense_diff
-                    direct_cagr = expected_cagr
-                
-                    regular_wealth = initial_capital * ((1 + regular_cagr) ** years)
-                    direct_wealth = initial_capital * ((1 + direct_cagr) ** years)
-                    wealth_drag = direct_wealth - regular_wealth
-                
-                    final_regular = regular_wealth[-1]
-                    final_direct = direct_wealth[-1]
-                    total_drag = wealth_drag[-1]
-                
-                    col_m1, col_m2, col_m3 = st.columns(3)
-                    with col_m1:
-                        st.metric("Regular Plan Final Value", f"₹{final_regular:,.2f}")
-                    with col_m2:
-                        st.metric("Direct Plan Final Value (Fiduciary)", f"₹{final_direct:,.2f}")
-                    with col_m3:
-                        st.metric(
-                            "Total Wealth Lost to Commissions", 
-                            f"₹{total_drag:,.2f}", 
-                            delta=f"-{(total_drag/final_direct)*100:.1f}% drag", 
-                            delta_color="inverse"
+                        default_weight = 1.0 / n_assets
+                        st.write("**Specify Target Allocation Weights (Must sum to 100%):**")
+                        
+                        # Interactive target weight sliders/inputs arranged in columns
+                        target_weights = []
+                        cols = st.columns(min(n_assets, 4))
+                        
+                        for i, row in holdings_df.iterrows():
+                            ticker = row['Ticker'] if 'Ticker' in row else f"Asset {i}"
+                            col_idx = i % len(cols)
+                            with cols[col_idx]:
+                                tw = st.number_input(
+                                    f"Target %: {ticker}", 
+                                    min_value=0.0, 
+                                    max_value=100.0, 
+                                    value=float(default_weight * 100), 
+                                    step=1.0, 
+                                    key=f"tw_{i}"
+                                )
+                                target_weights.append(tw / 100.0)
+                        
+                        target_weights = pd.Series(target_weights)
+                        if target_weights.sum() > 0:
+                            target_weights = target_weights / target_weights.sum() # Normalize to 1.0
+                        
+                        # Extract current weights
+                        if 'Weight' in holdings_df.columns:
+                            curr_weights = holdings_df['Weight'].values
+                        else:
+                            curr_weights = [default_weight] * n_assets
+                            
+                        # Build rebalancing execution dataframe
+                        rebal_df = pd.DataFrame({
+                            'Ticker': holdings_df['Ticker'] if 'Ticker' in holdings_df.columns else [f"Asset {i}" for i in range(n_assets)],
+                            'Current Weight (%)': [w * 100 for w in curr_weights],
+                            'Target Weight (%)': [w * 100 for w in target_weights],
+                            'Current Value (INR)': [w * initial_capital for w in curr_weights],
+                            'Target Value (INR)': [w * initial_capital for w in target_weights]
+                        })
+                        
+                        rebal_df['Difference (INR)'] = rebal_df['Target Value (INR)'] - rebal_df['Current Value (INR)']
+                        rebal_df['Action'] = rebal_df['Difference (INR)'].apply(lambda x: 'BUY' if x > 1 else ('SELL' if x < -1 else 'HOLD'))
+                        rebal_df['Execution Amount (INR)'] = rebal_df['Difference (INR)'].abs()
+                        
+                        st.dataframe(
+                            rebal_df.style.format({
+                                'Current Weight (%)': '{:.2f}%',
+                                'Target Weight (%)': '{:.2f}%',
+                                'Current Value (INR)': '₹{:,.2f}',
+                                'Target Value (INR)': '₹{:,.2f}',
+                                'Execution Amount (INR)': '₹{:,.2f}'
+                            }), 
+                            use_container_width=True
                         )
-                
-                    # Line chart comparing corpus growth trajectories
-                    chart_df = pd.DataFrame({
-                        "Year": years,
-                        "Regular Plan (With Commission)": regular_wealth,
-                        "Direct Plan (Zero Commission)": direct_wealth
-                    }).set_index("Year")
-                
-                    st.line_chart(chart_df)
-
-                render_wealth_drag_calculator(initial_capital)
+                        
+                        # Export execution orders as CSV for client report attachment
+                        csv_data = rebal_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="📥 Download Trade Execution Orders (CSV)",
+                            data=csv_data,
+                            file_name=f"Rebalancing_Orders_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                            mime="text/csv"
+                        )
+    
+                    render_portfolio_rebalancing(holdings_df, initial_capital)
+    
+                    def render_wealth_drag_calculator(initial_capital):
+                        st.markdown("---")
+                        st.header("📉 Direct Plan vs. Regular Plan Wealth Drag Calculator")
+                        st.info("Demonstrate the compounding wealth lost to distributor commissions in Regular mutual fund plans over long investment horizons.")
+                    
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            horizon_years = st.number_input("Investment Horizon (Years)", min_value=1, max_value=30, value=10, step=1, key="wd_horizon")
+                        with col2:
+                            expected_cagr = st.number_input("Expected Gross CAGR (%)", min_value=1.0, max_value=30.0, value=14.0, step=0.5, key="wd_cagr") / 100.0
+                        with col3:
+                            expense_diff = st.number_input("Expense Ratio Diff (Regular - Direct %)", min_value=0.1, max_value=2.0, value=1.0, step=0.1, key="wd_diff") / 100.0
+                    
+                        # Compounding calculations
+                        years = np.arange(0, horizon_years + 1)
+                        regular_cagr = expected_cagr - expense_diff
+                        direct_cagr = expected_cagr
+                    
+                        regular_wealth = initial_capital * ((1 + regular_cagr) ** years)
+                        direct_wealth = initial_capital * ((1 + direct_cagr) ** years)
+                        wealth_drag = direct_wealth - regular_wealth
+                    
+                        final_regular = regular_wealth[-1]
+                        final_direct = direct_wealth[-1]
+                        total_drag = wealth_drag[-1]
+                    
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        with col_m1:
+                            st.metric("Regular Plan Final Value", f"₹{final_regular:,.2f}")
+                        with col_m2:
+                            st.metric("Direct Plan Final Value (Fiduciary)", f"₹{final_direct:,.2f}")
+                        with col_m3:
+                            st.metric(
+                                "Total Wealth Lost to Commissions", 
+                                f"₹{total_drag:,.2f}", 
+                                delta=f"-{(total_drag/final_direct)*100:.1f}% drag", 
+                                delta_color="inverse"
+                            )
+                    
+                        # Line chart comparing corpus growth trajectories
+                        chart_df = pd.DataFrame({
+                            "Year": years,
+                            "Regular Plan (With Commission)": regular_wealth,
+                            "Direct Plan (Zero Commission)": direct_wealth
+                        }).set_index("Year")
+                    
+                        st.line_chart(chart_df)
+    
+                    render_wealth_drag_calculator(initial_capital)
+    
+                     # -------------------------------------------------------------------
+              # 🛡️️ TAX Liabilities & Optimization Section
+              # -------------------------------------------------------------------
+                    st.markdown("---")
+                    st.header("🛡️ TAX Liabilities & Optimization")
+    
+              # 1. Base Summary Table (Static / Current Upload View)
+                    if exchange in ["US", "UK", "EU", "JSE"]:
+                      st.info("ℹ️ Tax audit optimization is currently available only in India.")
+                    else:
+                        if flag==1:  #No CSV is uploaded, stocks added on the portal
+                            st.info(f"👈 Please upload a {exchange} portfolio CSV file from the left sidebar to generate the tax audit.")
+                        else:
+                            df_base = holdings_df.copy()
+                            ticker_col = (
+                            'Instrument'
+                            if 'Instrument' in df_base.columns
+                            else df_base.columns[0]
+                              )
+                            cost_col = (
+                            'Avg. cost'
+                            if 'Cost Price' in df_base.columns
+                            else (
+                              'Avg_Cost'
+                            if 'Avg_Cost' in df_base.columns
+                            else 'Buy_Price'
+                            )
+                            )
+                            qty_col = (
+                            'Qty.'
+                            if 'Qty.' in df_base.columns
+                            else ('Qty' if 'Qty' in df_base.columns else 'Quantity')
+                            )
+                            if 'Holding_Days' not in df_base.columns:
+                                df_base['Holding_Days'] = time_horizon_days
+    
+                    # -------------------------------------------------------------------
+                      # ✏️ Interactive & Editable Table (Supports Adding Stocks)
+                      # -------------------------------------------------------------------
+                            st.caption(
+                          "📌 *You can edit individual stock holding days, prices, or add new rows directly in the table below:*"
+                            )
+            
+                      # Prepare initial structure for editable grid
+                            editable_init = pd.DataFrame({
+                            'Instrument': df_base[ticker_col],
+                            'Avg_Cost': (
+                              df_base['Cost Price']
+                              if 'Cost Price' in df_base.columns
+                              else 100.0
+                                ),
+                            'Qty': (
+                             df_base[qty_col] if qty_col in df_base.columns else 1
+                              ),
+                            'Holding_Days': df_base['Holding_Days'],
+                            })
+            
+                      # Render st.data_editor with num_rows="dynamic" to enable row additions
+                            edited_tax_df = st.data_editor(
+                            editable_init,
+                            num_rows="dynamic",  # Enables (+ Add row) button
+                            column_config={
+                              "Instrument": st.column_config.TextColumn(
+                                  "Instrument", required=True
+                              ),
+                              "Avg_Cost": st.column_config.NumberColumn(
+                                  "Buy Price (₹)", min_value=0.01, format="₹%.2f"
+                              ),
+                              "Qty": st.column_config.NumberColumn(
+                                  "Quantity", min_value=1, step=1
+                              ),
+                              "Holding_Days": st.column_config.NumberColumn(
+                                  "Holding Days", min_value=1, step=1
+                              ),
+                            },
+                            hide_index=True,
+                            use_container_width=True,
+                            key="tax_editor_grid_v2",
+                            )
+            
+                      # Recompute live prices and dynamic tax on edited grid
+                            # Recompute live prices and dynamic tax on edited grid
+                            if not edited_tax_df.empty:
+                          # Fetch/map live price safely
+                                #cleaned_tickers = edited_tax_df['Instrument'].astype(str).str.replace(r'\.(NS|BO|JO)$', '', regex=True).str.strip()
+                        
+                                #edited_tax_df['Instrument'] = edited_tax_df[cleaned_tickers].astype(str).str.strip() + current_cfg['suffix']
+                                edited_tax_df['yf_ticker'] = edited_tax_df['Instrument'].astype(str).str.strip() + current_cfg['suffix']
+                                live_tickers = edited_tax_df['yf_ticker'].tolist()
+                                #live_tickers = (cleaned_tickers + current_cfg["suffix"]).tolist()
+                                end_date = datetime.datetime.now()
+                                start_date = end_date - datetime.timedelta(days=365)
+                                live_price_data = yf.download(live_tickers, start=start_date, end=end_date)['Close']
+            
+                    # Handle single series edge cases
+                                if isinstance(live_price_data, pd.Series):
+                                    live_price_data = live_price_data.to_frame()
+            
+                    # Clean invalid or empty columns
+                                    live_price_data = live_price_data.dropna(how='all', axis=1)
+            
+                    # Safety Check to prevent out-of-bounds iloc crash
+                                if live_price_data.empty:
+                                    st.error("Price data download returned no valid records for the given tickers.")
+                                else:
+                                    live_price_data = live_price_data.ffill().bfill()
+                                    live_prices = live_price_data.iloc[-1]
+            
+                        # 2. Map latest prices safely to user holdings
+                        # (Matches symbol or fallback if user CSV uses standard stock symbols)
+                                    edited_tax_df['Live Price'] = edited_tax_df['yf_ticker'].map(live_prices)
+                                    edited_tax_df['Live Price'] = edited_tax_df['Live Price'].fillna(0.0)
+            
+                          # Compute Live P&L correctly
+                                edited_tax_df['P&L'] = (edited_tax_df['Live Price'] - edited_tax_df['Avg_Cost']) * edited_tax_df['Qty']
+            
+                          # Tax calculation logic
+                                edited_tax_df['Tax_Category'] = np.where(
+                                edited_tax_df['Holding_Days'] >= 365, 'LTCG', 'STCG'
+                                )
+                                edited_tax_df['Tax_Liability'] = np.where(
+                                edited_tax_df['Tax_Category'] == 'LTCG',
+                                np.maximum(0, edited_tax_df['P&L']) * 0.125,
+                                np.maximum(0, edited_tax_df['P&L']) * 0.20,
+                                )
+            
+                          # Display metric
+                                modified_tax = edited_tax_df['Tax_Liability'].sum()
+                                total_profit = edited_tax_df['P&L'].sum()
+            
+                                res5_col1, res5_col2, res5_col3 = st.columns(3)
+            
+                                res5_col1.metric(
+                                label="Total Profit", 
+                                #value=f"{abs(total_profit):.2f}", 
+                                value=f"{currency} {total_profit:,.2f}", 
+                                #delta_color="inverse"
+                                )
+                            
+                                res5_col2.metric(
+                                label="Total Modified Tax", 
+                                #value=f"{abs(modified_tax):.2f}", 
+                                value=f"{currency} {modified_tax:,.2f}", 
+                                #delta_color="inverse"
+                                )
+                                
+                                res5_col3.metric(
+                                label="Tax Share", 
+                                #value=f"{abs(modified_tax):.2f}", 
+                                #value=f"{currency} {modified_tax:,.2f}", 
+                                #delta_color="inverse"
+                                value=f"{modified_tax/total_profit*100:,.2f} %",
+                                )
+            
+                          # Render summary table below metric
+                                st.dataframe(
+                                  edited_tax_df[
+                                  [
+                                      'Instrument',
+                                      'Avg_Cost',
+                                      'Live Price',
+                                      'P&L',
+                                      'Holding_Days',
+                                      'Tax_Category',
+                                      'Tax_Liability',
+                                  ]
+                                ],
+                                column_config={
+                                  "Instrument": st.column_config.TextColumn("Instrument"),
+                                  "Avg_Cost": st.column_config.NumberColumn(
+                                      "Buy Price (₹)", format="₹%.2f"
+                                  ),    
+                                  "Live Price": st.column_config.NumberColumn(
+                                      "Live Price (₹)", format="₹%.2f"
+                                  ),  
+                                  "P&L": st.column_config.NumberColumn(
+                                      "P&L (₹)", format="₹%.2f"
+                                  ),
+                                  "Holding_Days": st.column_config.NumberColumn(
+                                      "Holding_Days"
+                                  ),
+                                  "Tax_Category": st.column_config.TextColumn(
+                                      "Tax_Category"
+                                  ),
+                                  "Tax_Liability": st.column_config.NumberColumn(
+                                      "Tax_Liability (₹)", format="₹%.2f"
+                                  ),
+                                },
+                                hide_index=True,
+                                use_container_width=True,
+                                )
+                if exchange == "BSE":
+                    st.caption(
+                    "Note: Market data sourced via NSE primary liquid feeds for dual-listed equities to ensure consistent pricing data availability and zero downtime across exchange views.")
+            except Exception as e:
+                st.error(f"Error reading CSV portfolio file: {str(e)}")
 
                 import io
                 from reportlab.lib import colors
