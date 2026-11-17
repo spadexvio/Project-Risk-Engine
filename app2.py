@@ -881,12 +881,12 @@ elif st.session_state['page'] == 'analytics':
           False  # Default state: closed until clicked
       )
     
-    if st.expander(
+    with st.expander(
         "📊 Load Sector Performance & Stock Screener", key="btn_sec1"
     ):
-      st.session_state.run_sec1 = True
+    #   st.session_state.run_sec1 = True
     
-    if st.session_state.run_sec1:
+    # if st.session_state.run_sec1:
         st.header(f"📊 {exchange} Sector Performance & Stock Drill-Down Analysis")
         
         # 1. Exchange-Specific Sector Configurations
