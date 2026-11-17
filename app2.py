@@ -2098,7 +2098,7 @@ elif st.session_state['page'] == 'analytics':
                 st.write(f"### 🎲 10,000 Path Monte Carlo Risk Audit ({time_horizon_days}-Day Horizon)")
                 
                 # 1. Parameter setup for GBM
-                num_sims = 1000
+                num_sims = 10000
                 # n_years = time_horizon_days / 252.0  # Convert holding horizon days to annual fraction
                 # mean_ret = portfolio_daily_returns.mean()
                 # std_ret = portfolio_daily_returns.std()
