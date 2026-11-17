@@ -53,7 +53,7 @@ CHART_CONFIG = {
     },
     'displaylogo': False
 }
-
+demo=0
 # ==============================================================================
 # 1. LANDING PAGE (Centered Logo, Description, Exchange Selection & Auth Wall)
 # ==============================================================================
@@ -849,7 +849,7 @@ elif st.session_state['page'] == 'analytics':
     step=0.5,
     help="Minimum acceptable return per annum used to calculate downside deviation.",
      )
-    demo=0
+    
     if exchange in ["BSE", "NSE"]:
         if st.sidebar.button("📂 Load Demo Portfolio"):
             uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
