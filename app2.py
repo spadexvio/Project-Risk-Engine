@@ -2119,11 +2119,11 @@ elif st.session_state['page'] == 'analytics':
                 #     prices=True
                 # )
 
-                sim_returns = erk.cholesky_returns(price_data, num_sims, False)
+                sim_prices = erk.cholesky_returns(price_data, num_sims, True)
                 # portfolio_multipliers = (sim_prices / sim_prices.iloc[0]).dot(weights)
                 # gbm_paths = portfolio_multipliers*initial_capital
-                port_sim_rets = sim_returns.dot(weights)
-                
+                port_sim_prices = sim_prices.dot(weights)
+                port_sim_rets = erk.cholesky_returns(port_sim_prices,num_steps=1000,return_prices=False)
                 # 3. Extract ending values from the final step of all 10,000 simulated paths
                 # simulated_ending_values = gbm_paths.iloc[-1].values
                 
