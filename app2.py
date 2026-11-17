@@ -389,6 +389,33 @@ elif st.session_state['page'] == 'analytics':
         fill: #FAFAED !important;
     }
     /* ========================================================= */
+    /* FIX: Input Fields & Number Inputs Inside Expanders        */
+    /* ========================================================= */
+    div[data-testid="stExpanderDetails"] input,
+    div[data-testid="stExpanderDetails"] textarea,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="select"] {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        border-radius: 6px !important;
+    }
+
+    div[data-testid="stExpanderDetails"] input *,
+    div[data-testid="stExpanderDetails"] textarea * {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    /* Number input step buttons (+ / -) inside expanders */
+    div[data-testid="stExpanderDetails"] [data-testid="stNumberInput"] button {
+        background-color: #FAFAED !important;
+        border: 1px solid #1A2B4C !important;
+    }
+
+    div[data-testid="stExpanderDetails"] [data-testid="stNumberInput"] button svg {
+        fill: #1A2B4C !important;
+    }
+    /* ========================================================= */
     /* FIX: Streamlit Alert / Info / Success Boxes inside Expanders */
     /* ========================================================= */
     div[data-testid="stExpanderDetails"] div.stAlert,
