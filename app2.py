@@ -341,7 +341,7 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 500;
     }
 
-
+    
     /* ========================================================= */
     /* 2. SIDEBAR STYLING & INPUTS                               */
     /* ========================================================= */
@@ -387,6 +387,36 @@ elif st.session_state['page'] == 'analytics':
 
     .stSidebar [data-testid="stNumberInput"] button:hover svg {
         fill: #FAFAED !important;
+    }
+    /* ========================================================= */
+    /* FIX: Remaining Invisible Texts (Inputs & Expander Headers) */
+    /* ========================================================= */
+    
+    /* 1. Fix text inputs / data editor input cells inside expanders */
+    div[data-testid="stExpanderDetails"] input,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="input"] input {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        background-color: #FAFAED !important;
+    }
+
+    /* 2. Fix collapsed expander header text (e.g. "Execution, Wealth Drag & Tax Optimization") */
+    div[data-testid="stExpander"] summary,
+    div[data-testid="stExpander"] summary *,
+    div[data-testid="stExpander"] summary span,
+    div[data-testid="stExpander"] summary p {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        opacity: 1 !important;
+    }
+
+    /* 3. Ensure all text inside expander details blocks is cream */
+    div[data-testid="stExpanderDetails"] p,
+    div[data-testid="stExpanderDetails"] span,
+    div[data-testid="stExpanderDetails"] li,
+    div[data-testid="stExpanderDetails"] label {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
     }
     /* ========================================================= */
     /* FIX: Input Fields & Number Inputs Inside Expanders        */
