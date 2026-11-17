@@ -393,7 +393,7 @@ elif st.session_state['page'] == 'analytics':
     /* 3. CARDS, METRICS & EXPANDERS                             */
     /* ========================================================= */
     
-    /* Universal Metric Cards (Applies to all cards everywhere) */
+    /* Universal Metric Cards (Applies to all metric cards everywhere) */
     div[data-testid="stMetric"] {
         background-color: #1A2B4C !important;
         border-radius: 12px !important;
@@ -409,10 +409,11 @@ elif st.session_state['page'] == 'analytics':
         align-items: center !important;
     }
 
-    /* Force all text, values, and labels inside ALL metric cards to be cream */
-    div[data-testid="stMetric"] *,
+    /* Force explicit cream color on every label, value, and text span inside metrics */
     div[data-testid="stMetric"] label,
-    div[data-testid="stMetric"] div[data-testid="stMetricValue"],
+    div[data-testid="stMetric"] [data-testid="stMetricValue"],
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] div,
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] span,
     div[data-testid="stMetric"] span,
     div[data-testid="stMetric"] p {
         color: #FAFAED !important;
