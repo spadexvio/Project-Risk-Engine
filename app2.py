@@ -419,6 +419,39 @@ elif st.session_state['page'] == 'analytics':
         -webkit-text-fill-color: #FAFAED !important;
     }
     /* ========================================================= */
+    /* FIX: Download Button Inside Expanders                     */
+    /* ========================================================= */
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        border: 1px solid #1A2B4C !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button p,
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button span {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button:hover {
+        background-color: #1A2B4C !important;
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        border-color: #FAFAED !important;
+    }
+
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button:hover p,
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button:hover span {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+    /* ========================================================= */
     /* FIX: Input Fields & Number Inputs Inside Expanders        */
     /* ========================================================= */
     div[data-testid="stExpanderDetails"] input,
