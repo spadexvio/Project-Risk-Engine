@@ -389,10 +389,8 @@ elif st.session_state['page'] == 'analytics':
         fill: #FAFAED !important;
     }
     /* ========================================================= */
-    /* FIX: Expander Header & Content Text Colors                */
+    /* FIX: Collapsed Expander Header Text Only                  */
     /* ========================================================= */
-    
-    /* 1. Expander Header Text (Collapsed State) - Cream */
     div[data-testid="stExpander"] summary,
     div[data-testid="stExpander"] summary *,
     div[data-testid="stExpander"] summary span,
@@ -401,24 +399,35 @@ elif st.session_state['page'] == 'analytics':
         -webkit-text-fill-color: #FAFAED !important;
         opacity: 1 !important;
     }
+    /* ========================================================= */
+    /* FIX: Remaining Invisible Texts (Inputs & Expander Headers) */
+    /* ========================================================= */
     
-    /* 2. Text Inputs inside Expander Details */
+    /* 1. Fix text inputs / data editor input cells inside expanders */
     div[data-testid="stExpanderDetails"] input,
     div[data-testid="stExpanderDetails"] div[data-baseweb="input"] input {
         color: #1A2B4C !important;
         -webkit-text-fill-color: #1A2B4C !important;
         background-color: #FAFAED !important;
     }
-    
-    /* 3. Expander Details Body Text, Labels & Radios (Expanded State) - Dark */
-    div[data-testid="stExpanderDetails"],
+
+    /* 2. Fix collapsed expander header text (e.g. "Execution, Wealth Drag & Tax Optimization") */
+    div[data-testid="stExpander"] summary,
+    div[data-testid="stExpander"] summary *,
+    div[data-testid="stExpander"] summary span,
+    div[data-testid="stExpander"] summary p {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        opacity: 1 !important;
+    }
+
+    /* 3. Ensure all text inside expander details blocks is cream */
     div[data-testid="stExpanderDetails"] p,
     div[data-testid="stExpanderDetails"] span,
     div[data-testid="stExpanderDetails"] li,
-    div[data-testid="stExpanderDetails"] label,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="radio"] div {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
+    div[data-testid="stExpanderDetails"] label {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
     }
     /* ========================================================= */
     /* FIX: Download Button Inside Expanders                     */
