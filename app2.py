@@ -874,626 +874,639 @@ elif st.session_state['page'] == 'analytics':
 
     st.markdown("---")
     st.info("Scroll down to add/edit the stocks")
-    st.header(f"📊 {exchange} Sector Performance & Stock Drill-Down Analysis")
+
+    st.markdown("---")
+    if "run_sec1" not in st.session_state:
+      st.session_state.run_sec1 = (
+          False  # Default state: closed until clicked
+      )
     
-    # 1. Exchange-Specific Sector Configurations
-    ALL_EXCHANGE_CONFIGS = {
-        "NSE": {
-            "Nifty IT": {
-                "indices": ["^CNXIT"],
-                "stocks": [
-                    "TCS.NS",
-                    "INFY.NS",
-                    "WIPRO.NS",
-                    "HCLTECH.NS",
-                    "TECHM.NS",
-                    "LTIM.NS",
-                    "PERSISTENT.NS",
-                    "COFORGE.NS",
-                    "MPHASIS.NS",
-                    "LTTS.NS",
-                ],
-            },
-            "Nifty Bank": {
-                "indices": ["^NSEBANK"],
-                "stocks": [
-                    "HDFCBANK.NS",
-                    "ICICIBANK.NS",
-                    "SBIN.NS",
-                    "KOTAKBANK.NS",
-                    "AXISBANK.NS",
-                    "BANKBARODA.NS",
-                    "PNB.NS",
-                    "INDUSINDBK.NS",
-                    "AUBANK.NS",
-                    "IDFCFIRSTB.NS",
-                ],
-            },
-            "Nifty Auto": {
-                "indices": ["^CNXAUTO"],
-                "stocks": [
-                    "TATAMOTORS.NS",
-                    "MARUTI.NS",
-                    "M&M.NS",
-                    "BAJAJ-AUTO.NS",
-                    "HEROMOTOCO.NS",
-                    "EICHERMOT.NS",
-                    "TVSMOTOR.NS",
-                    "BHARATFORG.NS",
-                    "BOSCHLTD.NS",
-                    "MRF.NS",
-                ],
-            },
-            "Nifty FMCG": {
-                "indices": ["^CNXFMCG"],
-                "stocks": [
-                    "HINDUNILVR.NS",
-                    "ITC.NS",
-                    "NESTLEIND.NS",
-                    "BRITANNIA.NS",
-                    "TATACONSUM.NS",
-                    "DABUR.NS",
-                    "GODREJCP.NS",
-                    "MARICO.NS",
-                    "COLPAL.NS",
-                    "VBL.NS",
-                ],
-            },
-            "Nifty Energy": {
-                "indices": ["^CNXENERGY"],
-                "stocks": [
-                    "RELIANCE.NS",
-                    "ONGC.NS",
-                    "BPCL.NS",
-                    "NTPC.NS",
-                    "POWERGRID.NS",
-                    "IOC.NS",
-                    "GAIL.NS",
-                    "ADANIGREEN.NS",
-                    "TATAPOWER.NS",
-                    "COALINDIA.NS",
-                ],
-            },
-            "Nifty Pharma": {
-                "indices": ["^CNXPHARMA"],
-                "stocks": [
-                    "SUNPHARMA.NS",
-                    "CIPLA.NS",
-                    "DRREDDY.NS",
-                    "DIVISLAB.NS",
-                    "LUPIN.NS",
-                    "APOLLOHOSP.NS",
-                    "BIOCON.NS",
-                    "TORNTPHARM.NS",
-                    "ZYDUSLIFE.NS",
-                    "MANKIND.NS",
-                ],
-            },
-        },
-        "BSE": {
-            "BSE IT": {
-                "indices": ["^BSESIT.BO", "^BSESIT"],
-                "stocks": [
-                    "TCS.NS",
-                    "INFY.NS",
-                    "WIPRO.NS",
-                    "HCLTECH.NS",
-                    "TECHM.NS",
-                    "LTIM.NS",
-                    "PERSISTENT.NS",
-                    "COFORGE.NS",
-                ],
-            },
-            "BSE Bankex": {
-                "indices": ["^BSEBANK.NS", "^BSEBANK"],
-                "stocks": [
-                    "HDFCBANK.NS",
-                    "ICICIBANK.NS",
-                    "SBIN.NS",
-                    "KOTAKBANK.NS",
-                    "AXISBANK.NS",
-                    "BANKBARODA.NS",
-                    "PNB.NS",
-                ],
-            },
-            "BSE Healthcare": {
-                "indices": ["^BSEHC.NS", "^BSEHC"],
-                "stocks": [
-                    "SUNPHARMA.NS",
-                    "DRREDDY.NS",
-                    "CIPLA.NS",
-                    "DIVISLAB.NS",
-                    "APOLLOHOSP.NS",
-                    "LUPIN.NS",
-                ],
-            },
-            "BSE Auto": {
-                "indices": ["^BSEAUTO.NS", "^BSEAUTO"],
-                "stocks": [
-                    "TATAMOTORS.NS",
-                    "MARUTI.NS",
-                    "M&M.NS",
-                    "BAJAJ-AUTO.NS",
-                    "HEROMOTOCO.NS",
-                    "EICHERMOT.NS",
-                ],
-            },
-            "BSE FMCG": {
-                "indices": ["^BSEFMCG.NS"],
-                "stocks": [
-                    "HINDUNILVR.NS",
-                    "ITC.NS",
-                    "NESTLEIND.NS",
-                    "BRITANNIA.NS",
-                    "DABUR.NS",
-                ],
-            },
-            "BSE Metal": {
-            "indices": ["^BSEMT.NS"],
-            "stocks": [
-                "TATASTEEL.NS",
-                "JSWSTEEL.NS",
-                "HINDALCO.NS",
-                "VEDL.NS",
-                ],
-            },
-            "BSE Oil & Gas": {
-                "indices": ["^BSEOIL.NS"],
-                "stocks": [
-                    "RELIANCE.NS",
-                    "ONGC.NS",
-                    "IOC.NS",
-                    "BPCL.NS",
-                ],
-            },
-            "BSE Power & Utilities": {
-                "indices": ["^BSEPOWER.NS"],
-                "stocks": [
-                    "NTPC.NS",
-                    "POWERGRID.NS",
-                    "ADANIPOWER.NS",
-                    "TATAPOWER.NS",
-                ],
-            },
-            "BSE Realty": {
-                "indices": ["^BSERLTY.NS"],
-                "stocks": [
-                    "DLF.NS",
-                    "GODREJPROP.NS",
-                    "OBEROIRLTY.NS",
-                    "PRESTIGE.NS",
-                ],
-            },
-            "BSE Capital Goods & Industrials": {
-                "indices": ["^BSECG.NS"],
-                "stocks": [
-                    "LT.NS",
-                    "BEL.NS",
-                    "SIEMENS.NS",
-                    "ABB.NS",
-                ],
-            },
-        },
-        "US": {
-            "Technology": {
-                "indices": ["^NDX", "^GSPC"],
-                "stocks": [
-                    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL", "CRM", "ADBE"
-                ]
-            },
-            "Financials": {
-                "indices": ["^IXFN", "^GSPC"],
-                "stocks": [
-                    "JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW", "V", "MA"
-                ]
-            },
-            "Healthcare": {
-                "indices": ["^IXHC", "^GSPC"],
-                "stocks": [
-                    "UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR", "ISRG", "BMY"
-                ]
-            },
-            "Consumer Discretionary & Retail": {
-                "indices": ["^GSPC"],
-                "stocks": [
-                    "HD", "MCD", "NKE", "SBUX", "TJX", "LOW", "BKNG", "TGT", "CMG"
-                ]
-            },
-            "Consumer Staples": {
-                "indices": ["^GSPC"],
-                "stocks": [
-                    "WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "CL"
-                ]
-            },
-            "Communication Services & Media": {
-                "indices": ["^GSPC"],
-                "stocks": [
-                    "NFLX", "DIS", "CMCSA", "VZ", "T", "TMUS", "EA"
-                ]
-            },
-            "Energy & Industrials": {
-                "indices": ["^IXID", "^GSPC"],
-                "stocks": [
-                    "XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE", "COP", "SLB"
-                ]
-            },
-            "Utilities & Real Estate": {
-                "indices": ["^GSPC"],
-                "stocks": [
-                    "NEE", "DUK", "SO", "PLD", "AMT", "EQIX", "SPG"
-                ]
-            }
-        },
-        "UK": {
-            "Energy & Commodities": {
-                "indices": ["^FTSE"],
-                "stocks": [
-                    "SHEL.L", "BP.L", "GLEN.L", "RIO.L", "AAL.L", "ANTO.L"
-                ]
-            },
-            "Banking & Finance": {
-                "indices": ["^FTSE"],
-                "stocks": [
-                    "HSBA.L", "LLOY.L", "BARC.L", "NWG.L", "NWG.L", "PRU.L"
-                ]
-            },
-            "Healthcare & Consumer": {
-                "indices": ["^FTSE"],
-                "stocks": [
-                    "AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"
-                ]
-            },
-            "Consumer Goods & Retail": {
-                "indices": ["^FTSE"],
-                "stocks": [
-                    "ULVR.L", "BATS.L", "DGE.L", "ABF.L", "TSCO.L"
-                ]
-            },
-            "Technology & Telecoms": {
-                "indices": ["^FTSE"],
-                "stocks": [
-                    "REL.L", "SGE.L", "VOD.L", "AAF.L"
-                ]
-            },
-            "Aerospace, Industrials & Defense": {
-                "indices": ["^FTSE"],
-                "stocks": [
-                    "BA.L", "RR.L", "CRH.L", "SMIN.L"
-                ]
-            }
-        },
-        "EU": {
-            "Technology & Industrials": {
-                "indices": ["^STOXX", "^GDAXI"],
-                "stocks": [
-                    "ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "IFX.DE", "AD.AS"
-                ]
-            },
-            "Luxury & Consumer Goods": {
-                "indices": ["^STOXX", "^FCHI"],
-                "stocks": [
-                    "MC.PA", "OR.PA", "RMS.PA", "KER.PA", "ABI.BR", "HEIA.AS"
-                ]
-            },
-            "Financials & Automakers": {
-                "indices": ["^STOXX", "^GDAXI"],
-                "stocks": [
-                    "ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"
-                ]
-            },
-            "Healthcare & Pharmaceuticals": {
-                "indices": ["^STOXX", "^SSMI"],
-                "stocks": [
-                    "NOVN.SW", "ROG.SW", "NESN.SW", "SAN.PA", "BAYN.DE", "MRK.DE"
-                ]
-            },
-            "Energy & Utilities": {
-                "indices": ["^STOXX", "^FCHI"],
-                "stocks": [
-                    "TTE.PA", "ENI.MI", "IBE.MC", "ENEL.MI", "RWE.DE", "EOAN.DE"
-                ]
-            },
-            "Telecoms & Infrastructure": {
-                "indices": ["^STOXX", "^GDAXI"],
-                "stocks": [
-                    "DTE.DE", "ORA.PA", "TEF.MC", "VOD.L", "NOKIA.HE"
-                ]
-            }
-        },
-        "JSE": {
-            "JSE Mining & Resources": {
-                "indices": ["^J210.JO"],
-                "stocks": [
-                    "AGL.JO",
-                    "BHP.JO",
-                    "GFI.JO",
-                    "ANG.JO",
-                    "IMP.JO",
-                    "SSW.JO",
-                    "AMS.JO",
-                ],
-            },
-            "JSE Financials": {
-                "indices": ["^J212.JO"],
-                "stocks": [
-                    "FSR.JO",
-                    "SBK.JO",
-                    "ABG.JO",
-                    "NED.JO",
-                    "SLM.JO",
-                    "CPI.JO",
-                    "INP.JO",
-                ],
-            },
-            "JSE Tech & Telecoms": {
-                "indices": ["^J211.JO"],
-                "stocks": ["NPN.JO", "PRX.JO", "MTN.JO", "VOD.JO", "TEL.JO"],
-            },
-            "JSE Retail & Consumer": {
-                "indices": ["^J213.JO"],
-                "stocks": [
-                    "WHL.JO",
-                    "SHP.JO",
-                    "MRP.JO",
-                    "CLS.JO",
-                    "PIK.JO",
-                    "SPP.JO",
-                ],
-            },
-        },
-    }
+    if st.button(
+        "📊 Load Sector Performance & Stock Screener", key="btn_sec1"
+    ):
+      st.session_state.run_sec1 = True
     
-    # Load chosen exchange sector configuration dynamically
-    sector_config = ALL_EXCHANGE_CONFIGS.get(
-        exchange, ALL_EXCHANGE_CONFIGS["BSE"]
-    )
-    
-    # 2. Timeframe Selection
-    st.subheader("Select Time Horizon")
-    timeframe = st.radio(
-        "Choose period:",
-        ["1 Month", "3 Months", "6 Months", "1 Year"],
-        horizontal=True,
-        key="sector_idx_tf",
-    )
-    
-    timeframe_days_map = {
-        "1 Month": 21,
-        "3 Months": 63,
-        "6 Months": 126,
-        "1 Year": 252,
-    }
-    lookback_days = timeframe_days_map[timeframe]
-    
-    # 3. Gather Tickers
-    all_tickers_to_fetch = []
-    stock_to_sector_map = {}
-    
-    for sector_name, data in sector_config.items():
-        all_tickers_to_fetch.extend(data["indices"])
-        all_tickers_to_fetch.extend(data["stocks"])
-        for stock in data["stocks"]:
-            stock_to_sector_map[stock] = sector_name
-    
-    # Dedup list
-    all_tickers_to_fetch = list(set(all_tickers_to_fetch))
-    
-    # 4. Fetch Market Data Matrix
-    end_date = datetime.datetime.now()
-    start_date = end_date - datetime.timedelta(days=400)
-    
-    
-    @st.cache_data(ttl=3600)
-    def fetch_sector_price_matrix(tickers, start, end):
-        try:
-            df = yf.download(tickers, start=start, end=end, progress=False)
-            if isinstance(df, pd.DataFrame) and "Close" in df:
-                return df["Close"]
-            return df
-        except Exception:
-            return pd.DataFrame()
-    
-    
-    price_df = fetch_sector_price_matrix(all_tickers_to_fetch, start_date, end_date)
-    
-    # 5. Calculate Sector Returns & Individual Stock Performance
-    sector_returns = {}
-    stock_returns_dict = {}
-    
-    if not price_df.empty:
-        # A. Calculate Individual Stock Growth Rates
-        for col in price_df.columns:
-            series = price_df[col].dropna()
-            if len(series) >= lookback_days:
-                s_start = series.iloc[-lookback_days]
-                s_end = series.iloc[-1]
-                if s_start > 0:
-                    ret = ((s_end - s_start) / s_start) * 100
-                    stock_returns_dict[col] = ret
-    
-        # B. Calculate Aggregate Sector Growth
+    if st.session_state.run_sec1:
+        st.header(f"📊 {exchange} Sector Performance & Stock Drill-Down Analysis")
+        
+        # 1. Exchange-Specific Sector Configurations
+        ALL_EXCHANGE_CONFIGS = {
+            "NSE": {
+                "Nifty IT": {
+                    "indices": ["^CNXIT"],
+                    "stocks": [
+                        "TCS.NS",
+                        "INFY.NS",
+                        "WIPRO.NS",
+                        "HCLTECH.NS",
+                        "TECHM.NS",
+                        "LTIM.NS",
+                        "PERSISTENT.NS",
+                        "COFORGE.NS",
+                        "MPHASIS.NS",
+                        "LTTS.NS",
+                    ],
+                },
+                "Nifty Bank": {
+                    "indices": ["^NSEBANK"],
+                    "stocks": [
+                        "HDFCBANK.NS",
+                        "ICICIBANK.NS",
+                        "SBIN.NS",
+                        "KOTAKBANK.NS",
+                        "AXISBANK.NS",
+                        "BANKBARODA.NS",
+                        "PNB.NS",
+                        "INDUSINDBK.NS",
+                        "AUBANK.NS",
+                        "IDFCFIRSTB.NS",
+                    ],
+                },
+                "Nifty Auto": {
+                    "indices": ["^CNXAUTO"],
+                    "stocks": [
+                        "TATAMOTORS.NS",
+                        "MARUTI.NS",
+                        "M&M.NS",
+                        "BAJAJ-AUTO.NS",
+                        "HEROMOTOCO.NS",
+                        "EICHERMOT.NS",
+                        "TVSMOTOR.NS",
+                        "BHARATFORG.NS",
+                        "BOSCHLTD.NS",
+                        "MRF.NS",
+                    ],
+                },
+                "Nifty FMCG": {
+                    "indices": ["^CNXFMCG"],
+                    "stocks": [
+                        "HINDUNILVR.NS",
+                        "ITC.NS",
+                        "NESTLEIND.NS",
+                        "BRITANNIA.NS",
+                        "TATACONSUM.NS",
+                        "DABUR.NS",
+                        "GODREJCP.NS",
+                        "MARICO.NS",
+                        "COLPAL.NS",
+                        "VBL.NS",
+                    ],
+                },
+                "Nifty Energy": {
+                    "indices": ["^CNXENERGY"],
+                    "stocks": [
+                        "RELIANCE.NS",
+                        "ONGC.NS",
+                        "BPCL.NS",
+                        "NTPC.NS",
+                        "POWERGRID.NS",
+                        "IOC.NS",
+                        "GAIL.NS",
+                        "ADANIGREEN.NS",
+                        "TATAPOWER.NS",
+                        "COALINDIA.NS",
+                    ],
+                },
+                "Nifty Pharma": {
+                    "indices": ["^CNXPHARMA"],
+                    "stocks": [
+                        "SUNPHARMA.NS",
+                        "CIPLA.NS",
+                        "DRREDDY.NS",
+                        "DIVISLAB.NS",
+                        "LUPIN.NS",
+                        "APOLLOHOSP.NS",
+                        "BIOCON.NS",
+                        "TORNTPHARM.NS",
+                        "ZYDUSLIFE.NS",
+                        "MANKIND.NS",
+                    ],
+                },
+            },
+            "BSE": {
+                "BSE IT": {
+                    "indices": ["^BSESIT.BO", "^BSESIT"],
+                    "stocks": [
+                        "TCS.NS",
+                        "INFY.NS",
+                        "WIPRO.NS",
+                        "HCLTECH.NS",
+                        "TECHM.NS",
+                        "LTIM.NS",
+                        "PERSISTENT.NS",
+                        "COFORGE.NS",
+                    ],
+                },
+                "BSE Bankex": {
+                    "indices": ["^BSEBANK.NS", "^BSEBANK"],
+                    "stocks": [
+                        "HDFCBANK.NS",
+                        "ICICIBANK.NS",
+                        "SBIN.NS",
+                        "KOTAKBANK.NS",
+                        "AXISBANK.NS",
+                        "BANKBARODA.NS",
+                        "PNB.NS",
+                    ],
+                },
+                "BSE Healthcare": {
+                    "indices": ["^BSEHC.NS", "^BSEHC"],
+                    "stocks": [
+                        "SUNPHARMA.NS",
+                        "DRREDDY.NS",
+                        "CIPLA.NS",
+                        "DIVISLAB.NS",
+                        "APOLLOHOSP.NS",
+                        "LUPIN.NS",
+                    ],
+                },
+                "BSE Auto": {
+                    "indices": ["^BSEAUTO.NS", "^BSEAUTO"],
+                    "stocks": [
+                        "TATAMOTORS.NS",
+                        "MARUTI.NS",
+                        "M&M.NS",
+                        "BAJAJ-AUTO.NS",
+                        "HEROMOTOCO.NS",
+                        "EICHERMOT.NS",
+                    ],
+                },
+                "BSE FMCG": {
+                    "indices": ["^BSEFMCG.NS"],
+                    "stocks": [
+                        "HINDUNILVR.NS",
+                        "ITC.NS",
+                        "NESTLEIND.NS",
+                        "BRITANNIA.NS",
+                        "DABUR.NS",
+                    ],
+                },
+                "BSE Metal": {
+                "indices": ["^BSEMT.NS"],
+                "stocks": [
+                    "TATASTEEL.NS",
+                    "JSWSTEEL.NS",
+                    "HINDALCO.NS",
+                    "VEDL.NS",
+                    ],
+                },
+                "BSE Oil & Gas": {
+                    "indices": ["^BSEOIL.NS"],
+                    "stocks": [
+                        "RELIANCE.NS",
+                        "ONGC.NS",
+                        "IOC.NS",
+                        "BPCL.NS",
+                    ],
+                },
+                "BSE Power & Utilities": {
+                    "indices": ["^BSEPOWER.NS"],
+                    "stocks": [
+                        "NTPC.NS",
+                        "POWERGRID.NS",
+                        "ADANIPOWER.NS",
+                        "TATAPOWER.NS",
+                    ],
+                },
+                "BSE Realty": {
+                    "indices": ["^BSERLTY.NS"],
+                    "stocks": [
+                        "DLF.NS",
+                        "GODREJPROP.NS",
+                        "OBEROIRLTY.NS",
+                        "PRESTIGE.NS",
+                    ],
+                },
+                "BSE Capital Goods & Industrials": {
+                    "indices": ["^BSECG.NS"],
+                    "stocks": [
+                        "LT.NS",
+                        "BEL.NS",
+                        "SIEMENS.NS",
+                        "ABB.NS",
+                    ],
+                },
+            },
+            "US": {
+                "Technology": {
+                    "indices": ["^NDX", "^GSPC"],
+                    "stocks": [
+                        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL", "CRM", "ADBE"
+                    ]
+                },
+                "Financials": {
+                    "indices": ["^IXFN", "^GSPC"],
+                    "stocks": [
+                        "JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW", "V", "MA"
+                    ]
+                },
+                "Healthcare": {
+                    "indices": ["^IXHC", "^GSPC"],
+                    "stocks": [
+                        "UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR", "ISRG", "BMY"
+                    ]
+                },
+                "Consumer Discretionary & Retail": {
+                    "indices": ["^GSPC"],
+                    "stocks": [
+                        "HD", "MCD", "NKE", "SBUX", "TJX", "LOW", "BKNG", "TGT", "CMG"
+                    ]
+                },
+                "Consumer Staples": {
+                    "indices": ["^GSPC"],
+                    "stocks": [
+                        "WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "CL"
+                    ]
+                },
+                "Communication Services & Media": {
+                    "indices": ["^GSPC"],
+                    "stocks": [
+                        "NFLX", "DIS", "CMCSA", "VZ", "T", "TMUS", "EA"
+                    ]
+                },
+                "Energy & Industrials": {
+                    "indices": ["^IXID", "^GSPC"],
+                    "stocks": [
+                        "XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE", "COP", "SLB"
+                    ]
+                },
+                "Utilities & Real Estate": {
+                    "indices": ["^GSPC"],
+                    "stocks": [
+                        "NEE", "DUK", "SO", "PLD", "AMT", "EQIX", "SPG"
+                    ]
+                }
+            },
+            "UK": {
+                "Energy & Commodities": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "SHEL.L", "BP.L", "GLEN.L", "RIO.L", "AAL.L", "ANTO.L"
+                    ]
+                },
+                "Banking & Finance": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "HSBA.L", "LLOY.L", "BARC.L", "NWG.L", "NWG.L", "PRU.L"
+                    ]
+                },
+                "Healthcare & Consumer": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"
+                    ]
+                },
+                "Consumer Goods & Retail": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "ULVR.L", "BATS.L", "DGE.L", "ABF.L", "TSCO.L"
+                    ]
+                },
+                "Technology & Telecoms": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "REL.L", "SGE.L", "VOD.L", "AAF.L"
+                    ]
+                },
+                "Aerospace, Industrials & Defense": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "BA.L", "RR.L", "CRH.L", "SMIN.L"
+                    ]
+                }
+            },
+            "EU": {
+                "Technology & Industrials": {
+                    "indices": ["^STOXX", "^GDAXI"],
+                    "stocks": [
+                        "ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "IFX.DE", "AD.AS"
+                    ]
+                },
+                "Luxury & Consumer Goods": {
+                    "indices": ["^STOXX", "^FCHI"],
+                    "stocks": [
+                        "MC.PA", "OR.PA", "RMS.PA", "KER.PA", "ABI.BR", "HEIA.AS"
+                    ]
+                },
+                "Financials & Automakers": {
+                    "indices": ["^STOXX", "^GDAXI"],
+                    "stocks": [
+                        "ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"
+                    ]
+                },
+                "Healthcare & Pharmaceuticals": {
+                    "indices": ["^STOXX", "^SSMI"],
+                    "stocks": [
+                        "NOVN.SW", "ROG.SW", "NESN.SW", "SAN.PA", "BAYN.DE", "MRK.DE"
+                    ]
+                },
+                "Energy & Utilities": {
+                    "indices": ["^STOXX", "^FCHI"],
+                    "stocks": [
+                        "TTE.PA", "ENI.MI", "IBE.MC", "ENEL.MI", "RWE.DE", "EOAN.DE"
+                    ]
+                },
+                "Telecoms & Infrastructure": {
+                    "indices": ["^STOXX", "^GDAXI"],
+                    "stocks": [
+                        "DTE.DE", "ORA.PA", "TEF.MC", "VOD.L", "NOKIA.HE"
+                    ]
+                }
+            },
+            "JSE": {
+                "JSE Mining & Resources": {
+                    "indices": ["^J210.JO"],
+                    "stocks": [
+                        "AGL.JO",
+                        "BHP.JO",
+                        "GFI.JO",
+                        "ANG.JO",
+                        "IMP.JO",
+                        "SSW.JO",
+                        "AMS.JO",
+                    ],
+                },
+                "JSE Financials": {
+                    "indices": ["^J212.JO"],
+                    "stocks": [
+                        "FSR.JO",
+                        "SBK.JO",
+                        "ABG.JO",
+                        "NED.JO",
+                        "SLM.JO",
+                        "CPI.JO",
+                        "INP.JO",
+                    ],
+                },
+                "JSE Tech & Telecoms": {
+                    "indices": ["^J211.JO"],
+                    "stocks": ["NPN.JO", "PRX.JO", "MTN.JO", "VOD.JO", "TEL.JO"],
+                },
+                "JSE Retail & Consumer": {
+                    "indices": ["^J213.JO"],
+                    "stocks": [
+                        "WHL.JO",
+                        "SHP.JO",
+                        "MRP.JO",
+                        "CLS.JO",
+                        "PIK.JO",
+                        "SPP.JO",
+                    ],
+                },
+            },
+        }
+        
+        # Load chosen exchange sector configuration dynamically
+        sector_config = ALL_EXCHANGE_CONFIGS.get(
+            exchange, ALL_EXCHANGE_CONFIGS["BSE"]
+        )
+        
+        # 2. Timeframe Selection
+        st.subheader("Select Time Horizon")
+        timeframe = st.radio(
+            "Choose period:",
+            ["1 Month", "3 Months", "6 Months", "1 Year"],
+            horizontal=True,
+            key="sector_idx_tf",
+        )
+        
+        timeframe_days_map = {
+            "1 Month": 21,
+            "3 Months": 63,
+            "6 Months": 126,
+            "1 Year": 252,
+        }
+        lookback_days = timeframe_days_map[timeframe]
+        
+        # 3. Gather Tickers
+        all_tickers_to_fetch = []
+        stock_to_sector_map = {}
+        
         for sector_name, data in sector_config.items():
-            sec_stock_rets = [
-                stock_returns_dict[stk]
-                for stk in data["stocks"]
+            all_tickers_to_fetch.extend(data["indices"])
+            all_tickers_to_fetch.extend(data["stocks"])
+            for stock in data["stocks"]:
+                stock_to_sector_map[stock] = sector_name
+        
+        # Dedup list
+        all_tickers_to_fetch = list(set(all_tickers_to_fetch))
+        
+        # 4. Fetch Market Data Matrix
+        end_date = datetime.datetime.now()
+        start_date = end_date - datetime.timedelta(days=400)
+        
+        
+        @st.cache_data(ttl=3600)
+        def fetch_sector_price_matrix(tickers, start, end):
+            try:
+                df = yf.download(tickers, start=start, end=end, progress=False)
+                if isinstance(df, pd.DataFrame) and "Close" in df:
+                    return df["Close"]
+                return df
+            except Exception:
+                return pd.DataFrame()
+        
+        
+        price_df = fetch_sector_price_matrix(all_tickers_to_fetch, start_date, end_date)
+        
+        # 5. Calculate Sector Returns & Individual Stock Performance
+        sector_returns = {}
+        stock_returns_dict = {}
+        
+        if not price_df.empty:
+            # A. Calculate Individual Stock Growth Rates
+            for col in price_df.columns:
+                series = price_df[col].dropna()
+                if len(series) >= lookback_days:
+                    s_start = series.iloc[-lookback_days]
+                    s_end = series.iloc[-1]
+                    if s_start > 0:
+                        ret = ((s_end - s_start) / s_start) * 100
+                        stock_returns_dict[col] = ret
+        
+            # B. Calculate Aggregate Sector Growth
+            for sector_name, data in sector_config.items():
+                sec_stock_rets = [
+                    stock_returns_dict[stk]
+                    for stk in data["stocks"]
+                    if stk in stock_returns_dict
+                ]
+                if sec_stock_rets:
+                    sector_returns[sector_name] = np.mean(sec_stock_rets)
+        
+        # 6. Sector Performance Tables & Charts
+        perf_df = pd.DataFrame(
+            list(sector_returns.items()), columns=["Sector", "Growth (%)"]
+        )
+        perf_df = perf_df.sort_values(by="Growth (%)", ascending=False)
+        
+        col1, col2 = st.columns(2, gap="large")
+        
+        with col1:
+            st.subheader(f"🟢 Top Performing Sectors ({timeframe})")
+            st.dataframe(
+                perf_df.style.format({"Growth (%)": "{:+.2f}%"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            fig_top_sec = px.bar(
+                perf_df.head(5),
+                x="Growth (%)",
+                y="Sector",
+                orientation="h",
+                title=f"Top Sectors Growth - {timeframe}",
+                color="Growth (%)",
+                color_continuous_scale="Greens",
+            )
+            fig_top_sec.update_layout(dragmode=False)
+            st.plotly_chart(fig_top_sec, use_container_width=True)
+        
+        with col2:
+            st.subheader(f"🔴 Worst Performing Sectors ({timeframe})")
+            worst_sec_df = perf_df.tail(5).sort_values(
+                by="Growth (%)", ascending=True
+            )
+            st.dataframe(
+                worst_sec_df.style.format({"Growth (%)": "{:+.2f}%"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            fig_worst_sec = px.bar(
+                worst_sec_df,
+                x="Growth (%)",
+                y="Sector",
+                orientation="h",
+                title=f"Worst Sectors Growth - {timeframe}",
+                color="Growth (%)",
+                color_continuous_scale="Reds_r",
+            )
+            fig_worst_sec.update_layout(dragmode=False)
+            st.plotly_chart(fig_worst_sec, use_container_width=True)
+        
+        # 7. TOP 10 BEST & WORST INDIVIDUAL STOCKS ANALYSIS
+        st.markdown("---")
+        st.subheader(f"📌 Top 10 Best & Worst Stock Performers ({exchange})")
+        
+        # Convert individual stock returns into a DataFrame
+        all_stocks_in_exchange = []
+        for sector_data in sector_config.values():
+            all_stocks_in_exchange.extend(sector_data["stocks"])
+        
+        all_stocks_in_exchange = set(all_stocks_in_exchange)
+        
+        stock_perf_list = [
+            {
+                "Ticker": stk,
+                "Sector": stock_to_sector_map.get(stk, "N/A"),
+                "Return (%)": ret,
+            }
+            for stk, ret in stock_returns_dict.items()
+            if stk in all_stocks_in_exchange
+        ]
+        if stock_perf_list:
+            stock_perf_df = pd.DataFrame(stock_perf_list).sort_values(
+            by="Return (%)", ascending=False
+            )
+        else:
+            stock_perf_df = pd.DataFrame(columns=["Ticker", "Sector", "Return (%)"])
+        
+        stock_perf_df["Ticker"] = stock_perf_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
+        st_col1, st_col2 = st.columns(2, gap="large")
+        
+        with st_col1:
+            st.markdown("### 🚀 Top 10 Best Performing Stocks")
+            top10_stocks = stock_perf_df.head(10).reset_index(drop=True)
+            st.dataframe(
+                top10_stocks.style.format({"Return (%)": "{:+.2f}%"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            fig_top_stocks = px.bar(
+                top10_stocks,
+                x="Return (%)",
+                y="Ticker",
+                color="Sector",
+                orientation="h",
+                title=f"Top 10 Stocks - {timeframe}",
+            )
+            fig_top_stocks.update_layout(dragmode=False)
+            st.plotly_chart(fig_top_stocks, use_container_width=True)
+        
+        with st_col2:
+            st.markdown("### 📉 Top 10 Worst Performing Stocks")
+            worst10_stocks = stock_perf_df.tail(10).sort_values(
+                by="Return (%)", ascending=True
+            ).reset_index(drop=True)
+            st.dataframe(
+                worst10_stocks.style.format({"Return (%)": "{:+.2f}%"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            fig_worst_stocks = px.bar(
+                worst10_stocks,
+                x="Return (%)",
+                y="Ticker",
+                color="Sector",
+                orientation="h",
+                title=f"Worst 10 Stocks - {timeframe}",
+            )
+            fig_worst_stocks.update_layout(dragmode=False)
+            st.plotly_chart(fig_worst_stocks, use_container_width=True)
+    
+    # ==============================================================================
+    # 8. INDIVIDUAL SECTOR DRILL-DOWN (DROPDOWN SELECTOR & GRAPH)
+    # ==============================================================================
+        st.markdown("---")
+        st.subheader("🔎 Detailed Sector Drill-Down")
+        
+        # Dropdown menu populated dynamically with available sectors for the chosen exchange
+        available_sectors = list(sector_config.keys())
+        selected_sector = st.selectbox(
+            "Choose a Sector to Analyze:", options=available_sectors
+        )
+        
+        if selected_sector:
+            # Retrieve stocks configured for the selected sector
+            sector_stocks = sector_config[selected_sector]["stocks"]
+        
+            # Filter stock performance results for the selected sector
+            sector_stocks_perf = [
+                {"Ticker": stk, "Return (%)": stock_returns_dict.get(stk, np.nan)}
+                for stk in sector_stocks
                 if stk in stock_returns_dict
             ]
-            if sec_stock_rets:
-                sector_returns[sector_name] = np.mean(sec_stock_rets)
-    
-    # 6. Sector Performance Tables & Charts
-    perf_df = pd.DataFrame(
-        list(sector_returns.items()), columns=["Sector", "Growth (%)"]
-    )
-    perf_df = perf_df.sort_values(by="Growth (%)", ascending=False)
-    
-    col1, col2 = st.columns(2, gap="large")
-    
-    with col1:
-        st.subheader(f"🟢 Top Performing Sectors ({timeframe})")
-        st.dataframe(
-            perf_df.style.format({"Growth (%)": "{:+.2f}%"}),
-            use_container_width=True,
-            hide_index=True,
-        )
-        fig_top_sec = px.bar(
-            perf_df.head(5),
-            x="Growth (%)",
-            y="Sector",
-            orientation="h",
-            title=f"Top Sectors Growth - {timeframe}",
-            color="Growth (%)",
-            color_continuous_scale="Greens",
-        )
-        fig_top_sec.update_layout(dragmode=False)
-        st.plotly_chart(fig_top_sec, use_container_width=True)
-    
-    with col2:
-        st.subheader(f"🔴 Worst Performing Sectors ({timeframe})")
-        worst_sec_df = perf_df.tail(5).sort_values(
-            by="Growth (%)", ascending=True
-        )
-        st.dataframe(
-            worst_sec_df.style.format({"Growth (%)": "{:+.2f}%"}),
-            use_container_width=True,
-            hide_index=True,
-        )
-        fig_worst_sec = px.bar(
-            worst_sec_df,
-            x="Growth (%)",
-            y="Sector",
-            orientation="h",
-            title=f"Worst Sectors Growth - {timeframe}",
-            color="Growth (%)",
-            color_continuous_scale="Reds_r",
-        )
-        fig_worst_sec.update_layout(dragmode=False)
-        st.plotly_chart(fig_worst_sec, use_container_width=True)
-    
-    # 7. TOP 10 BEST & WORST INDIVIDUAL STOCKS ANALYSIS
-    st.markdown("---")
-    st.subheader(f"📌 Top 10 Best & Worst Stock Performers ({exchange})")
-    
-    # Convert individual stock returns into a DataFrame
-    all_stocks_in_exchange = []
-    for sector_data in sector_config.values():
-        all_stocks_in_exchange.extend(sector_data["stocks"])
-    
-    all_stocks_in_exchange = set(all_stocks_in_exchange)
-    
-    stock_perf_list = [
-        {
-            "Ticker": stk,
-            "Sector": stock_to_sector_map.get(stk, "N/A"),
-            "Return (%)": ret,
-        }
-        for stk, ret in stock_returns_dict.items()
-        if stk in all_stocks_in_exchange
-    ]
-    if stock_perf_list:
-        stock_perf_df = pd.DataFrame(stock_perf_list).sort_values(
-        by="Return (%)", ascending=False
-        )
-    else:
-        stock_perf_df = pd.DataFrame(columns=["Ticker", "Sector", "Return (%)"])
-    
-    stock_perf_df["Ticker"] = stock_perf_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
-    st_col1, st_col2 = st.columns(2, gap="large")
-    
-    with st_col1:
-        st.markdown("### 🚀 Top 10 Best Performing Stocks")
-        top10_stocks = stock_perf_df.head(10).reset_index(drop=True)
-        st.dataframe(
-            top10_stocks.style.format({"Return (%)": "{:+.2f}%"}),
-            use_container_width=True,
-            hide_index=True,
-        )
-        fig_top_stocks = px.bar(
-            top10_stocks,
-            x="Return (%)",
-            y="Ticker",
-            color="Sector",
-            orientation="h",
-            title=f"Top 10 Stocks - {timeframe}",
-        )
-        fig_top_stocks.update_layout(dragmode=False)
-        st.plotly_chart(fig_top_stocks, use_container_width=True)
-    
-    with st_col2:
-        st.markdown("### 📉 Top 10 Worst Performing Stocks")
-        worst10_stocks = stock_perf_df.tail(10).sort_values(
-            by="Return (%)", ascending=True
-        ).reset_index(drop=True)
-        st.dataframe(
-            worst10_stocks.style.format({"Return (%)": "{:+.2f}%"}),
-            use_container_width=True,
-            hide_index=True,
-        )
-        fig_worst_stocks = px.bar(
-            worst10_stocks,
-            x="Return (%)",
-            y="Ticker",
-            color="Sector",
-            orientation="h",
-            title=f"Worst 10 Stocks - {timeframe}",
-        )
-        fig_worst_stocks.update_layout(dragmode=False)
-        st.plotly_chart(fig_worst_stocks, use_container_width=True)
-
-# ==============================================================================
-# 8. INDIVIDUAL SECTOR DRILL-DOWN (DROPDOWN SELECTOR & GRAPH)
-# ==============================================================================
-    st.markdown("---")
-    st.subheader("🔎 Detailed Sector Drill-Down")
-    
-    # Dropdown menu populated dynamically with available sectors for the chosen exchange
-    available_sectors = list(sector_config.keys())
-    selected_sector = st.selectbox(
-        "Choose a Sector to Analyze:", options=available_sectors
-    )
-    
-    if selected_sector:
-        # Retrieve stocks configured for the selected sector
-        sector_stocks = sector_config[selected_sector]["stocks"]
-    
-        # Filter stock performance results for the selected sector
-        sector_stocks_perf = [
-            {"Ticker": stk, "Return (%)": stock_returns_dict.get(stk, np.nan)}
-            for stk in sector_stocks
-            if stk in stock_returns_dict
-        ]
-        #sector_stocks_perf["Ticker"] = sector_stocks_perf["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
-        sector_drill_df = pd.DataFrame(sector_stocks_perf).sort_values(
-            by="Return (%)", ascending=False
-        )
-        sector_drill_df["Ticker"] = sector_drill_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
-        if not sector_drill_df.empty:
-            sd_col1, sd_col2 = st.columns([1, 1.5], gap="large")
-    
-            with sd_col1:
-                st.markdown(
-                    f"### Performance Breakdown: **{selected_sector}** ({timeframe})"
-                )
-                st.dataframe(
-                    sector_drill_df.style.format({"Return (%)": "{:+.2f}%"}),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-    
-            with sd_col2:
-                fig_sector_drill = px.bar(
-                    sector_drill_df,
-                    x="Return (%)",
-                    y="Ticker",
-                    orientation="h",
-                    title=f"{selected_sector} Stock Returns — {timeframe}",
-                    color="Return (%)",
-                    color_continuous_scale="Viridis",
-                )
-                fig_sector_drill.update_layout(yaxis={"categoryorder": "total ascending"}, dragmode=False)
-                st.plotly_chart(fig_sector_drill, use_container_width=True)
-        else:
-            st.info(f"No price data available for stocks in {selected_sector}.")
+            #sector_stocks_perf["Ticker"] = sector_stocks_perf["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
+            sector_drill_df = pd.DataFrame(sector_stocks_perf).sort_values(
+                by="Return (%)", ascending=False
+            )
+            sector_drill_df["Ticker"] = sector_drill_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
+            if not sector_drill_df.empty:
+                sd_col1, sd_col2 = st.columns([1, 1.5], gap="large")
+        
+                with sd_col1:
+                    st.markdown(
+                        f"### Performance Breakdown: **{selected_sector}** ({timeframe})"
+                    )
+                    st.dataframe(
+                        sector_drill_df.style.format({"Return (%)": "{:+.2f}%"}),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+        
+                with sd_col2:
+                    fig_sector_drill = px.bar(
+                        sector_drill_df,
+                        x="Return (%)",
+                        y="Ticker",
+                        orientation="h",
+                        title=f"{selected_sector} Stock Returns — {timeframe}",
+                        color="Return (%)",
+                        color_continuous_scale="Viridis",
+                    )
+                    fig_sector_drill.update_layout(yaxis={"categoryorder": "total ascending"}, dragmode=False)
+                    st.plotly_chart(fig_sector_drill, use_container_width=True)
+            else:
+                st.info(f"No price data available for stocks in {selected_sector}.")
     
     # --- WORKFLOW: CSV PARSING & EDITABLE HOLDINGS TABLE ---
     flag = 0
