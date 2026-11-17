@@ -390,39 +390,82 @@ elif st.session_state['page'] == 'analytics':
     }
 
     /* ========================================================= */
-    /* FIXED METRIC CARDS INSIDE EXPANDERS                       */
+    /* 3. CARDS, METRICS & EXPANDERS                             */
     /* ========================================================= */
     
-    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] {
+    /* Universal Metric Cards (Applies to all cards everywhere) */
+    div[data-testid="stMetric"] {
         background-color: #1A2B4C !important;
-        border: 1px solid rgba(250, 248, 237, 0.2) !important;
         border-radius: 12px !important;
-        padding: 10px 8px !important;
-        text-align: center !important;
+        padding: 12px !important;
+        border: 1px solid rgba(250, 248, 237, 0.15) !important;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        height: auto !important;
-        min-height: 95px !important;
+        text-align: center !important;
     }
 
-    /* Force label & value text visibility and proper scaling */
-    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] label {
-        font-size: 0.8rem !important;
+    div[data-testid="stMetric"] > div {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+    }
+
+    /* Force all text, values, and labels inside ALL metric cards to be cream */
+    div[data-testid="stMetric"] *,
+    div[data-testid="stMetric"] label,
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"],
+    div[data-testid="stMetric"] span,
+    div[data-testid="stMetric"] p {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
     }
 
-    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-        font-size: 1.3rem !important;
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
+    /* Expander Container Header */
+    div[data-testid="stExpander"] {
+        background-color: #1A2B4C !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(250, 248, 237, 0.12) !important;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
 
-    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] *,
-    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] div,
-    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] span,
-    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] p {
+    div[data-testid="stExpander"] summary span,
+    div[data-testid="stExpander"] summary p,
+    div[data-testid="stExpander"] summary {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
+        font-weight: 600 !important;
+    }
+
+    /* Expander Expanded Content Area */
+    div[data-testid="stExpanderDetails"] {
+        background-color: #FAF8ED !important;
+        border-bottom-left-radius: 12px !important;
+        border-bottom-right-radius: 12px !important;
+        padding: 16px !important;
+    }
+
+    /* Standard text inside expander details */
+    div[data-testid="stExpanderDetails"] p,
+    div[data-testid="stExpanderDetails"] span,
+    div[data-testid="stExpanderDetails"] label,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="slider"] {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    /* FIX: Metric Delta Badges */
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"],
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] * {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        border-radius: 999px !important;
+        padding: 2px 10px !important;
+        font-weight: 700 !important;
+    }
+
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] svg {
+        fill: #1A2B4C !important;
+        stroke: #1A2B4C !important;
     }
     
     /* ========================================================= */
