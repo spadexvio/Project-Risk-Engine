@@ -418,7 +418,7 @@ elif st.session_state['page'] == 'analytics':
     div[data-testid="stExpander"] summary p {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
-        opacity: 1 !important;
+        opacity: 0.2 !important;
     }
 
     /* 3. Ensure all text inside expander details blocks is cream */
@@ -1041,9 +1041,6 @@ elif st.session_state['page'] == 'analytics':
 # ==============================================================================
 # DYNAMIC SECTOR PERFORMANCE & STOCK DRILL-DOWN (NSE / BSE / JSE)
 # ==============================================================================
-
-    st.markdown("---")
-    st.info("Scroll down to add/edit the stocks")
 
     st.markdown("---")
     if "run_sec1" not in st.session_state:
