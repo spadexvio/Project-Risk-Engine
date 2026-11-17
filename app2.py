@@ -444,11 +444,15 @@ elif st.session_state['page'] == 'analytics':
         padding: 16px !important;
     }
 
-    /* Correctly target text, captions, labels, and headings inside expander details */
-    div[data-testid="stExpanderDetails"] .stMarkdown p,
-    div[data-testid="stExpanderDetails"] .stMarkdown span,
-    div[data-testid="stExpanderDetails"] .stCaption,
+    /* Comprehensive text fix for everything inside expander details */
+    div[data-testid="stExpanderDetails"] *,
+    div[data-testid="stExpanderDetails"] p,
+    div[data-testid="stExpanderDetails"] span,
     div[data-testid="stExpanderDetails"] label,
+    div[data-testid="stExpanderDetails"] div,
+    div[data-testid="stExpanderDetails"] .stMarkdown,
+    div[data-testid="stExpanderDetails"] .stMarkdown p,
+    div[data-testid="stExpanderDetails"] .stCaption,
     div[data-testid="stExpanderDetails"] h1,
     div[data-testid="stExpanderDetails"] h2,
     div[data-testid="stExpanderDetails"] h3,
@@ -541,8 +545,170 @@ elif st.session_state['page'] == 'analytics':
     section[data-testid="stSidebar"] div.stButton > button:hover span,
     section[data-testid="stSidebar"] button[kind="secondary"]:hover p,
     section[data-testid="stSidebar"] button[kind="secondary"]:hover span,
-    section
+    section[data-testid="stSidebar"] button[kind="primary"]:hover p,
+    section[data-testid="stSidebar"] button[kind="primary"]:hover span,
+    div.stFormSubmitButton button:hover p, 
+    div.stFormSubmitButton button:hover span {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+
+
+    /* ========================================================= */
+    /* 5. DATAFRAME & DATA EDITOR TOOLBAR FIXES                  */
+    /* ========================================================= */
+    div[data-testid="stDataFrame"],
+    div[data-testid="stDataEditor"] {
+        background-color: #1A2B4C !important;
+        border-radius: 8px !important;
+        border: 1px solid rgba(250, 248, 237, 0.12) !important;
+        box-shadow: 0 4px 2px rgba(0, 0, 0, 0.2);
+        width: 100% !important;
+        overflow: visible !important;
+    }
+
+    div[data-testid="stDataFrame"] *,
+    div[data-testid="stDataEditor"] * {
+        color: #FAF8ED !important;
+    }
+
+    div[data-testid="stElementToolbar"],
+    div[data-testid="stDataEditor"] > div:first-child,
+    div[data-testid="stDataFrame"] > div:first-child {
+        background-color: #1A2B4C !important;
+        border-top-left-radius: 10px !important;
+        border-top-right-radius: 10px !important;
+        padding: 4px 8px !important;
+    }
+
+    div[data-testid="stElementToolbar"] button,
+    div[data-testid="stDataEditor"] button,
+    button[aria-label="Add row"],
+    button[title="Add row"],
+    button[aria-label="Download as CSV"] {
+        background-color: #0F1C33 !important;
+        color: #FAF8ED !important;
+        border: 1px solid #FAF8ED !important;
+        border-radius: 6px !important;
+        opacity: 1 !important;
+        margin: 2px !important;
+        visibility: visible !important;
+    }
+
+    div[data-testid="stElementToolbar"] button svg,
+    div[data-testid="stDataEditor"] button svg,
+    button[aria-label="Add row"] svg {
+        fill: #FAF8ED !important;
+        stroke: #FAF8ED !important;
+        color: #FAF8ED !important;
+    }
+
+    div[role="tooltip"],
+    div[data-baseweb="tooltip"] {
+        background-color: #1A2B4C !important;
+        color: #FAF8ED !important;
+        border: 1px solid #FAF8ED !important;
+    }
     
+    div[role="tooltip"] *,
+    div[data-baseweb="tooltip"] * {
+        color: #FAF8ED !important;
+    }
+
+    /* ========================================================= */
+    /* CLEAN FILE UPLOADER FIX                                   */
+    /* ========================================================= */
+    div[data-testid="stFileUploader"] {
+        background-color: #FAFAED !important;
+        border: 1px solid #1A2B4C !important;
+        border-radius: 8px !important;
+        padding: 8px !important;
+    }
+
+    div[data-testid="stFileUploader"] small,
+    div[data-testid="stFileUploader"] span {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    div[data-testid="stFileUploader"] button {
+        background-color: #1A2B4C !important;
+        color: #FAFAED !important;
+        border: 1px solid #FAFAED !important;
+        border-radius: 6px !important;
+        visibility: visible !important;
+        display: inline-block !important;
+        opacity: 1 !important;
+    }
+
+    div[data-testid="stFileUploader"] button * {
+        background-color: #FAF8ED !important;
+        color: #1A2B4C !important;
+    }
+
+    div[data-testid="stFileUploader"] button:hover {
+        background-color: #FAF8ED !important;
+        color: #1A2B4C !important;
+        border-color: #1A2B4C !important;
+    }
+
+    div[data-testid="stFileUploader"] button:hover * {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    /* ========================================================= */
+    /* FORCE GLOBAL LIGHT/WHITE BACKGROUND ON MOBILE POPOVERS    */
+    /* ========================================================= */
+    body, .stApp, div[data-baseweb="popover"], div[data-baseweb="menu"], ul[role="listbox"] {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+    }
+
+    div[data-baseweb="popover"] *, 
+    div[data-baseweb="menu"] *, 
+    ul[role="listbox"] * {
+        background-color: transparent !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    li[role="option"], div[role="option"] {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    li[role="option"]:hover, div[role="option"]:hover,
+    li[role="option"][aria-selected="true"], div[role="option"][aria-selected="true"] {
+        background-color: #1A2B4C !important;
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+
+    /* Force chart container to expand 100% */
+    div[data-testid="stPlotlyChart"] {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    div[data-testid="stPlotlyChart"] > div {
+        width: 100% !important;
+    }
+
+    /* Forcefully reduce sidebar vertical padding and element gaps */
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 0.5rem !important;
+        padding-bottom: 1rem !important;
+    }
+    
+    /* Tighten spacing specifically for sidebar widget wrappers */
+    section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
+        gap: 0.4rem !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
     # Top Bar Navigation
     top_col1, top_col2 = st.columns([6, 1])
     with top_col1:
