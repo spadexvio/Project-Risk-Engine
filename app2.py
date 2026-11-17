@@ -389,17 +389,19 @@ elif st.session_state['page'] == 'analytics':
         fill: #FAFAED !important;
     }
     /* ========================================================= */
-    /* FIX: Streamlit Status Boxes (Info, Success, Warning, Error) */
+    /* FIX: Streamlit Alert / Info / Success Boxes inside Expanders */
     /* ========================================================= */
-    div[data-testid="stExpanderDetails"] div[data-testid="stNotification"] {
-        background-color: rgba(250, 248, 237, 0.1) !important;
+    div[data-testid="stExpanderDetails"] div.stAlert,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="notification"],
+    div[data-testid="stExpanderDetails"] [class*="st-key-"] div[role="alert"] {
+        background-color: #0F1C33 !important;
         border: 1px solid rgba(250, 248, 237, 0.2) !important;
         border-radius: 8px !important;
     }
 
-    div[data-testid="stExpanderDetails"] div[data-testid="stNotification"] *,
-    div[data-testid="stExpanderDetails"] div[data-testid="stNotification"] p,
-    div[data-testid="stExpanderDetails"] div[data-testid="stNotification"] span {
+    div[data-testid="stExpanderDetails"] div.stAlert *,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="notification"] *,
+    div[data-testid="stExpanderDetails"] [class*="st-key-"] div[role="alert"] * {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
         background-color: transparent !important;
