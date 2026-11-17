@@ -393,6 +393,8 @@ elif st.session_state['page'] == 'analytics':
     /* ========================================================= */
     /* 3. CARDS, METRICS & EXPANDERS                             */
     /* ========================================================= */
+    
+    /* Standalone Metric Cards (Outside Expanders) - Keep Dark Navy with Cream Text */
     div[data-testid="stMetric"] {
         background-color: #1A2B4C !important;
         border-radius: 12px !important;
@@ -408,14 +410,13 @@ elif st.session_state['page'] == 'analytics':
         align-items: center !important;
     }
 
-    /* Protect Metric Cards */
     div[data-testid="stMetric"] label,  
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
     }
 
-    /* Expander Container Styling */
+    /* Expander Container Header */
     div[data-testid="stExpander"] {
         background-color: #1A2B4C !important;
         border-radius: 12px !important;
@@ -423,7 +424,6 @@ elif st.session_state['page'] == 'analytics':
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
 
-    /* Expander Header Text (The clickable button part) */
     div[data-testid="stExpander"] summary span,
     div[data-testid="stExpander"] summary p,
     div[data-testid="stExpander"] summary {
@@ -432,7 +432,7 @@ elif st.session_state['page'] == 'analytics':
         font-weight: 600 !important;
     }
 
-    /* Expander Expanded Content Area (Ensures standard dark-on-light or readable contrast for widgets inside) */
+    /* Expander Expanded Content Area */
     div[data-testid="stExpanderDetails"] {
         background-color: #FAF8ED !important;
         border-bottom-left-radius: 12px !important;
@@ -440,13 +440,25 @@ elif st.session_state['page'] == 'analytics':
         padding: 16px !important;
     }
 
-    /* Ensure text inside expanded details is navy and fully visible */
+    /* Standard text inside expander details */
     div[data-testid="stExpanderDetails"] p,
     div[data-testid="stExpanderDetails"] span,
     div[data-testid="stExpanderDetails"] label,
     div[data-testid="stExpanderDetails"] div[data-baseweb="slider"] {
         color: #1A2B4C !important;
         -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    /* SPECIFIC FIX: Metric Cards INSIDE Expander Details should have dark navy background with cream text */
+    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] {
+        background-color: #1A2B4C !important;
+        border: 1px solid rgba(250, 248, 237, 0.2) !important;
+    }
+
+    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] label,
+    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
     }
 
     /* FIX: Metric Delta Badges */
