@@ -881,7 +881,7 @@ elif st.session_state['page'] == 'analytics':
           False  # Default state: closed until clicked
       )
     
-    with st.expander(
+    if st.expander(
         "📊 Load Sector Performance & Stock Screener", key="btn_sec1"
     ):
       st.session_state.run_sec1 = True
