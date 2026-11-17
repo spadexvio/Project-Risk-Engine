@@ -390,27 +390,41 @@ elif st.session_state['page'] == 'analytics':
     }
 
     /* ========================================================= */
-    /* BULLETPROOF FIX FOR METRICS INSIDE EXPANDERS              */
+    /* FIXED METRIC CARDS INSIDE EXPANDERS                       */
     /* ========================================================= */
     
     div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] {
         background-color: #1A2B4C !important;
         border: 1px solid rgba(250, 248, 237, 0.2) !important;
         border-radius: 12px !important;
-        padding: 12px !important;
+        padding: 10px 8px !important;
         text-align: center !important;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        height: auto !important;
+        min-height: 95px !important;
     }
 
-    /* Target every possible text container inside expander metrics */
+    /* Force label & value text visibility and proper scaling */
+    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] label {
+        font-size: 0.8rem !important;
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+
+    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+        font-size: 1.3rem !important;
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+
     div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] *,
-    div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] label,
     div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] div,
     div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] span,
     div[data-testid="stExpanderDetails"] div[data-testid="stMetric"] p {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
     }
+    
     /* ========================================================= */
     /* 4. FORM ELEMENTS & BUTTONS                                */
     /* ========================================================= */
