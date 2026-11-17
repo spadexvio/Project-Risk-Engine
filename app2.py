@@ -418,7 +418,7 @@ elif st.session_state['page'] == 'analytics':
     div[data-testid="stExpander"] summary p {
         color: #FAFAED !important;
         -webkit-text-fill-color: #FAFAED !important;
-        opacity: 0.2 !important;
+        opacity: 1.5 !important;
     }
 
     /* 3. Ensure all text inside expander details blocks is cream */
