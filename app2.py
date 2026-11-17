@@ -1626,6 +1626,7 @@ elif st.session_state['page'] == 'analytics':
             else:
                 holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
 
+
             st.write("### 📝 Interactive Holdings Adjuster")
             st.info("Add/Edit stocks & quantities directly in the table below to dynamically trigger stress-test calculations.")
             
@@ -2162,276 +2163,280 @@ elif st.session_state['page'] == 'analytics':
                     value=f"{prob_loss_10pct:.1f}%"
                 )
 
-                st.markdown("---")
-                st.header("⚡ Macro Stress Testing & Scenario Analysis")
-                st.info("Simulate portfolio capital erosion under sudden extreme market shock scenarios.")
-                
-                col_shock1, col_shock2 = st.columns([1, 2])
-                
-                with col_shock1:
-                    market_shock_pct = st.slider(
-                        "Market Benchmark Shock (%)", 
-                        min_value=-50.0, 
-                        max_value=0.0, 
-                        value=-15.0, 
-                        step=1.0,
-                        help="Simulate an instantaneous drop in the broader market index."
-                    )
-                
-                # Compute portfolio sensitivity (using portfolio beta if available, default to 1.0)
-                # If you have a calculated portfolio beta variable, use it here; otherwise, standard beta is 1.0
-                portfolio_beta = locals().get('portfolio_beta', 1.0) 
-                
-                # Calculate stressed losses
-                stressed_portfolio_drop_pct = market_shock_pct * portfolio_beta
-                stressed_loss_amount = initial_capital * (stressed_portfolio_drop_pct / 100.0)
-                stressed_final_value = initial_capital + stressed_loss_amount
-                
-                with col_shock2:
-                    st.metric(
-                        label=f"Stressed Portfolio Valuation ({market_shock_pct}% Market Crash)",
-                        value=f"₹{stressed_final_value:,.2f}",
-                        delta=f"{stressed_portfolio_drop_pct:.2f}% (₹{stressed_loss_amount:,.2f})",
-                        delta_color="inverse"
-                    )
 
-                def var_backtest_traffic_light(
-                        actual_returns, var_series, alpha=0.05, window=250
+                with st.expander(
+                        "🛡️ Macro Stress Testing, Basel Backtesting & SEBI Regulatory Compliance", expanded=False
                     ):
-                      """Calculates Basel traffic light exceptions over a rolling window."""
-                      # Identify breaches (where actual loss exceeds VaR threshold)
-                      # Assuming VaR is stored as a negative return threshold (e.g., -0.02)
-                      breaches = actual_returns.tail(window) < var_series.tail(window)
-                      num_exceptions = breaches.sum()
-                    
-                      if num_exceptions <= 4:
-                        zone = "Green"
-                        status = "Acceptable accuracy (Zone 0-4)"
-                      elif 5 <= num_exceptions <= 9:
-                        zone = "Yellow"
-                        status = "Requires review / potential model tuning (Zone 5-9)"
-                      else:
-                        zone = "Red"
-                        status = "Model rejection / high breach frequency (Zone 10+)"
-                    
-                      return {
-                          "exceptions": int(num_exceptions),
-                          "zone": zone,
-                          "status": status,
-                      }
-
-                # Calculate rolling historical VaR (e.g., 250-day rolling window, 95% confidence)
-                rolling_var = (
-                    portfolio_daily_returns.rolling(window=250)
-                    .quantile(0.05)
-                    .dropna()
-                )
-                
-                # Align your actual returns with the exact same dates
-                aligned_actuals = portfolio_daily_returns.loc[rolling_var.index]
-                
-                # Run the traffic light check
-                result = var_backtest_traffic_light(
-                    aligned_actuals, rolling_var, alpha=0.05, window=250
-                )
-
-                st.subheader("🛡️ Regulatory VaR Backtesting (Basel Traffic Light)")
-
-                # Display metrics side by side
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                  st.metric(
-                      label="Lookback Window", value=f"{len(aligned_actuals)} Trading Days"
-                  )
-                with col2:
-                  st.metric(label="Model Exceptions", value=result["exceptions"])
-                with col3:
-                  st.metric(label="Traffic Light Zone", value=result["zone"])
-                
-                # Color-coded warning/success banner based on the zone
-                if result["zone"] == "Green":
-                  st.success(f"🟢 **Green Zone (0–4 Exceptions):** {result['status']}")
-                elif result["zone"] == "Yellow":
-                  st.warning(f"🟡 **Yellow Zone (5–9 Exceptions):** {result['status']}")
-                else:
-                  st.error(f"🔴 **Red Zone (10+ Exceptions):** {result['status']}")
-
-                import datetime
-                from fpdf import FPDF
-                
-                def generate_sebi_audit_pdf(client_name, ria_reg_no, score, profile, portfolio_vol, max_limit, heavy_holdings, q_answers, timestamp):
-                    pdf = FPDF()
-                    pdf.add_page()
-                    
-                    # Header
-                    pdf.set_font("Arial", "B", 15)
-                    pdf.cell(0, 10, "SEBI RIA COMPLIANCE & SUITABILITY AUDIT RECORD", ln=True, align="C")
-                    pdf.set_font("Arial", "I", 9)
-                    pdf.cell(0, 6, f"Generated via WIRATOR Risk Engine | Timestamp: {timestamp}", ln=True, align="C")
-                    pdf.ln(8)
-                    
-                    # Client & Advisor Details
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(0, 8, "1. Client & Advisory Identification", ln=True)
-                    pdf.set_font("Arial", "", 10)
-                    pdf.cell(0, 6, f"Client Identifier / Name: {client_name}", ln=True)
-                    pdf.cell(0, 6, f"SEBI RIA Registration No.: {ria_reg_no}", ln=True)
-                    pdf.cell(0, 6, f"Assessed Risk Score: {score} / 100 -> Mapped Profile: {profile}", ln=True)
-                    pdf.ln(5)
-                    
-                    # Questionnaire Log
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(0, 8, "2. Documented Risk Profiling Responses", ln=True)
-                    pdf.set_font("Arial", "", 9)
-                    for q, ans in q_answers.items():
-                        pdf.multi_cell(0, 5, f"- {q}: {ans}")
-                    pdf.ln(5)
-                    
-                    # Suitability & Volatility Check
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(0, 8, "3. Portfolio Suitability & Risk Threshold Check", ln=True)
-                    pdf.set_font("Arial", "", 10)
-                    status = "BREACH (Rebalancing Required)" if portfolio_vol > max_limit else "PASSED (Within Mandate)"
-                    pdf.cell(0, 6, f"Portfolio Annualized Volatility: {portfolio_vol*100:.2f}% | Permissible Ceiling: {max_limit*100:.0f}%", ln=True)
-                    pdf.cell(0, 6, f"Suitability Status: {status}", ln=True)
-                    pdf.ln(5)
-                    
-                    # Concentration Check
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(0, 8, "4. Single-Issuer Concentration Check (10% Threshold)", ln=True)
-                    pdf.set_font("Arial", "", 10)
-                    if len(heavy_holdings) > 0:
-                        for ticker, wt in heavy_holdings:
-                            pdf.cell(0, 6, f"WARNING: {ticker} exceeds 10% limit ({wt*100:.2f}% allocation)", ln=True)
-                    else:
-                        pdf.cell(0, 6, "PASSED: All holdings are within the 10% single-issuer concentration guideline.", ln=True)
-                    pdf.ln(5)
-                    
-                    # Fiduciary Disclosures
-                    pdf.set_font("Arial", "B", 11)
-                    pdf.cell(0, 8, "5. Fiduciary & Regulatory Disclosures", ln=True)
-                    pdf.set_font("Arial", "", 9)
-                    pdf.multi_cell(0, 5, (
-                        "1. Direct Plan Compliance: All recommended securities/schemes are evaluated strictly on a zero-commission basis.\n"
-                        "2. Fee Transparency: Advisory fees adhere to SEBI (Investment Advisers) Regulations fee caps.\n"
-                        "3. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES (scores.sebi.gov.in) or SMART ODR."
-                    ))
-                    
-                    return pdf.output(dest="S").encode("latin-1")
-                
-                
-                def render_sebi_compliance_audit(holdings_df, initial_capital, weights, exp_vol=0.18):
                     st.markdown("---")
-                    st.header("⚖️ SEBI RIA Compliance & Fiduciary Audit")
-                    st.info("Automated suitability scoring, concentration checks, and auditable record generation aligned with SEBI (Investment Advisers) Regulations.")
-                
-                    # 1. Client & Advisor Metadata
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        client_name = st.text_input("Client Identifier / PAN Mask", value="Retail Client Demo (XXXX1234X)")
-                    with col_b:
-                        ria_reg_no = st.text_input("SEBI RIA Registration No. (Optional)", value="INA0000XXXXX")
-                
-                    # 2. Scored Risk Profiling Questionnaire
-                    st.subheader("1. Client Risk Profiling Questionnaire (SEBI Suitability Log)")
-                    q1 = st.radio(
-                        "Q1. Primary Investment Horizon:",
-                        ["Less than 2 years (10 pts)", "2 to 5 years (20 pts)", "More than 5 years (30 pts)"],
-                        horizontal=True
+                    st.header("⚡ Macro Stress Testing & Scenario Analysis")
+                    st.info("Simulate portfolio capital erosion under sudden extreme market shock scenarios.")
+                    
+                    col_shock1, col_shock2 = st.columns([1, 2])
+                    
+                    with col_shock1:
+                        market_shock_pct = st.slider(
+                            "Market Benchmark Shock (%)", 
+                            min_value=-50.0, 
+                            max_value=0.0, 
+                            value=-15.0, 
+                            step=1.0,
+                            help="Simulate an instantaneous drop in the broader market index."
+                        )
+                    
+                    # Compute portfolio sensitivity (using portfolio beta if available, default to 1.0)
+                    # If you have a calculated portfolio beta variable, use it here; otherwise, standard beta is 1.0
+                    portfolio_beta = locals().get('portfolio_beta', 1.0) 
+                    
+                    # Calculate stressed losses
+                    stressed_portfolio_drop_pct = market_shock_pct * portfolio_beta
+                    stressed_loss_amount = initial_capital * (stressed_portfolio_drop_pct / 100.0)
+                    stressed_final_value = initial_capital + stressed_loss_amount
+                    
+                    with col_shock2:
+                        st.metric(
+                            label=f"Stressed Portfolio Valuation ({market_shock_pct}% Market Crash)",
+                            value=f"₹{stressed_final_value:,.2f}",
+                            delta=f"{stressed_portfolio_drop_pct:.2f}% (₹{stressed_loss_amount:,.2f})",
+                            delta_color="inverse"
+                        )
+    
+                    def var_backtest_traffic_light(
+                            actual_returns, var_series, alpha=0.05, window=250
+                        ):
+                          """Calculates Basel traffic light exceptions over a rolling window."""
+                          # Identify breaches (where actual loss exceeds VaR threshold)
+                          # Assuming VaR is stored as a negative return threshold (e.g., -0.02)
+                          breaches = actual_returns.tail(window) < var_series.tail(window)
+                          num_exceptions = breaches.sum()
+                        
+                          if num_exceptions <= 4:
+                            zone = "Green"
+                            status = "Acceptable accuracy (Zone 0-4)"
+                          elif 5 <= num_exceptions <= 9:
+                            zone = "Yellow"
+                            status = "Requires review / potential model tuning (Zone 5-9)"
+                          else:
+                            zone = "Red"
+                            status = "Model rejection / high breach frequency (Zone 10+)"
+                        
+                          return {
+                              "exceptions": int(num_exceptions),
+                              "zone": zone,
+                              "status": status,
+                          }
+    
+                    # Calculate rolling historical VaR (e.g., 250-day rolling window, 95% confidence)
+                    rolling_var = (
+                        portfolio_daily_returns.rolling(window=250)
+                        .quantile(0.05)
+                        .dropna()
                     )
-                    q2 = st.radio(
-                        "Q2. Reaction to a sudden 20% portfolio drawdown:",
-                        ["Sell immediately to prevent further loss (5 pts)", "Hold and wait for recovery (15 pts)", "Invest additional capital at lower prices (25 pts)"],
-                        horizontal=True
+                    
+                    # Align your actual returns with the exact same dates
+                    aligned_actuals = portfolio_daily_returns.loc[rolling_var.index]
+                    
+                    # Run the traffic light check
+                    result = var_backtest_traffic_light(
+                        aligned_actuals, rolling_var, alpha=0.05, window=250
                     )
-                    q3 = st.radio(
-                        "Q3. Primary Investment Objective:",
-                        ["Capital preservation & steady income (5 pts)", "Balanced growth & inflation protection (15 pts)", "Aggressive long-term wealth creation (25 pts)"],
-                        horizontal=True
-                    )
-                    q4 = st.radio(
-                        "Q4. Emergency Liquidity & Income Stability:",
-                        ["Less than 3 months emergency fund (5 pts)", "3 to 6 months emergency fund (10 pts)", "6+ months emergency fund & stable cashflow (20 pts)"],
-                        horizontal=True
-                    )
-                
-                    # Calculate Total Risk Score (Out of 100)
-                    def extract_pts(text):
-                        return int(text.split("(")[1].split(" ")[0])
-                
-                    total_score = extract_pts(q1) + extract_pts(q2) + extract_pts(q3) + extract_pts(q4)
-                
-                    if total_score <= 45:
-                        mapped_profile = "Conservative (Max 12% Volatility)"
-                        max_limit = 0.12
-                    elif total_score <= 75:
-                        mapped_profile = "Moderate (Max 22% Volatility)"
-                        max_limit = 0.22
+    
+                    st.subheader("🛡️ Regulatory VaR Backtesting (Basel Traffic Light)")
+    
+                    # Display metrics side by side
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                      st.metric(
+                          label="Lookback Window", value=f"{len(aligned_actuals)} Trading Days"
+                      )
+                    with col2:
+                      st.metric(label="Model Exceptions", value=result["exceptions"])
+                    with col3:
+                      st.metric(label="Traffic Light Zone", value=result["zone"])
+                    
+                    # Color-coded warning/success banner based on the zone
+                    if result["zone"] == "Green":
+                      st.success(f"🟢 **Green Zone (0–4 Exceptions):** {result['status']}")
+                    elif result["zone"] == "Yellow":
+                      st.warning(f"🟡 **Yellow Zone (5–9 Exceptions):** {result['status']}")
                     else:
-                        mapped_profile = "Aggressive (Max 35% Volatility)"
-                        max_limit = 0.35
-                
-                    st.info(f"**Calculated Risk Score:** `{total_score} / 100`  |  **Assigned Risk Category:** `{mapped_profile}`")
-                
-                    # 3. Suitability & Volatility Assessment
-                    st.subheader("2. Suitability & Volatility Threshold Assessment")
-                    portfolio_vol = exp_vol
-                    if portfolio_vol > max_limit:
-                        st.error(f"🚨 **Compliance Breach:** Portfolio volatility ({portfolio_vol*100:.1f}%) exceeds the permissible limit ({max_limit*100:.0f}%) for a **{mapped_profile.split(' ')[0]}** profile. Rebalancing is required before advice sign-off.")
-                    else:
-                        st.success(f"✅ **Suitability Verified:** Portfolio volatility ({portfolio_vol*100:.1f}%) is within permissible bounds for a **{mapped_profile.split(' ')[0]}** mandate.")
-                
-                    # 4. Prudential Concentration Limits
-                    st.subheader("3. Prudential Concentration Limits (Single Issuer)")
-                    max_single_stock_allowed = 0.10
-                    tickers = holdings_df['Ticker'].tolist()
-                    heavy_holdings = [(ticker, wt) for ticker, wt in zip(tickers, weights) if wt > max_single_stock_allowed]
-                
-                    if len(heavy_holdings) > 0:
-                        st.warning("⚠️ **Concentration Warning:** The following assets exceed the 10% single-issuer limit:")
-                        for ticker, wt in heavy_holdings:
-                            st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
-                    else:
-                        st.success("✅ **Diversification Check Passed:** No single asset exceeds the 10% concentration threshold.")
-                
-                    # 5. Conflict of Interest & Grievance Disclosure
-                    st.subheader("4. Fiduciary & Grievance Disclosures")
-                    st.markdown("""
-                    * **Direct Plan Verification:** Certified that all recommended mutual fund schemes are analyzed under **Direct Plans** (zero-commission).
-                    * **Fee Disclosure:** Advisory fee structure validated in accordance with SEBI fee ceilings (Fixed Fee / AUM Cap).
-                    * **Grievance Redressal (SCORES / ODR):** Client informed of escalation rights via SEBI SCORES (`scores.sebi.gov.in`) and SMART ODR.
-                    """)
-                
-                    # 6. Timestamped Sign-Off & PDF Audit Export
-                    audit_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    q_answers = {
-                        "Investment Horizon": q1,
-                        "Drawdown Tolerance": q2,
-                        "Investment Objective": q3,
-                        "Liquidity Cushion": q4
-                    }
-                
-                    pdf_bytes = generate_sebi_audit_pdf(
-                        client_name=client_name,
-                        ria_reg_no=ria_reg_no,
-                        score=total_score,
-                        profile=mapped_profile,
-                        portfolio_vol=portfolio_vol,
-                        max_limit=max_limit,
-                        heavy_holdings=heavy_holdings,
-                        q_answers=q_answers,
-                        timestamp=audit_timestamp
-                    )
-                
-                    st.download_button(
-                        label="📄 Download Timestamped SEBI Compliance Audit Certificate (PDF)",
-                        data=pdf_bytes,
-                        file_name=f"SEBI_Audit_{client_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
-                        mime="application/pdf"
-                    )
-                
-                # Pass your actual portfolio volatility variable (e.g., exp_vol) into the function call:
-                render_sebi_compliance_audit(holdings_df, initial_capital, weights, exp_vol=exp_vol)
+                      st.error(f"🔴 **Red Zone (10+ Exceptions):** {result['status']}")
+    
+                    import datetime
+                    from fpdf import FPDF
+                    
+                    def generate_sebi_audit_pdf(client_name, ria_reg_no, score, profile, portfolio_vol, max_limit, heavy_holdings, q_answers, timestamp):
+                        pdf = FPDF()
+                        pdf.add_page()
+                        
+                        # Header
+                        pdf.set_font("Arial", "B", 15)
+                        pdf.cell(0, 10, "SEBI RIA COMPLIANCE & SUITABILITY AUDIT RECORD", ln=True, align="C")
+                        pdf.set_font("Arial", "I", 9)
+                        pdf.cell(0, 6, f"Generated via WIRATOR Risk Engine | Timestamp: {timestamp}", ln=True, align="C")
+                        pdf.ln(8)
+                        
+                        # Client & Advisor Details
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "1. Client & Advisory Identification", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        pdf.cell(0, 6, f"Client Identifier / Name: {client_name}", ln=True)
+                        pdf.cell(0, 6, f"SEBI RIA Registration No.: {ria_reg_no}", ln=True)
+                        pdf.cell(0, 6, f"Assessed Risk Score: {score} / 100 -> Mapped Profile: {profile}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Questionnaire Log
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "2. Documented Risk Profiling Responses", ln=True)
+                        pdf.set_font("Arial", "", 9)
+                        for q, ans in q_answers.items():
+                            pdf.multi_cell(0, 5, f"- {q}: {ans}")
+                        pdf.ln(5)
+                        
+                        # Suitability & Volatility Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "3. Portfolio Suitability & Risk Threshold Check", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        status = "BREACH (Rebalancing Required)" if portfolio_vol > max_limit else "PASSED (Within Mandate)"
+                        pdf.cell(0, 6, f"Portfolio Annualized Volatility: {portfolio_vol*100:.2f}% | Permissible Ceiling: {max_limit*100:.0f}%", ln=True)
+                        pdf.cell(0, 6, f"Suitability Status: {status}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Concentration Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "4. Single-Issuer Concentration Check (10% Threshold)", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        if len(heavy_holdings) > 0:
+                            for ticker, wt in heavy_holdings:
+                                pdf.cell(0, 6, f"WARNING: {ticker} exceeds 10% limit ({wt*100:.2f}% allocation)", ln=True)
+                        else:
+                            pdf.cell(0, 6, "PASSED: All holdings are within the 10% single-issuer concentration guideline.", ln=True)
+                        pdf.ln(5)
+                        
+                        # Fiduciary Disclosures
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "5. Fiduciary & Regulatory Disclosures", ln=True)
+                        pdf.set_font("Arial", "", 9)
+                        pdf.multi_cell(0, 5, (
+                            "1. Direct Plan Compliance: All recommended securities/schemes are evaluated strictly on a zero-commission basis.\n"
+                            "2. Fee Transparency: Advisory fees adhere to SEBI (Investment Advisers) Regulations fee caps.\n"
+                            "3. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES (scores.sebi.gov.in) or SMART ODR."
+                        ))
+                        
+                        return pdf.output(dest="S").encode("latin-1")
+                    
+                    
+                    def render_sebi_compliance_audit(holdings_df, initial_capital, weights, exp_vol=0.18):
+                        st.markdown("---")
+                        st.header("⚖️ SEBI RIA Compliance & Fiduciary Audit")
+                        st.info("Automated suitability scoring, concentration checks, and auditable record generation aligned with SEBI (Investment Advisers) Regulations.")
+                    
+                        # 1. Client & Advisor Metadata
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            client_name = st.text_input("Client Identifier / PAN Mask", value="Retail Client Demo (XXXX1234X)")
+                        with col_b:
+                            ria_reg_no = st.text_input("SEBI RIA Registration No. (Optional)", value="INA0000XXXXX")
+                    
+                        # 2. Scored Risk Profiling Questionnaire
+                        st.subheader("1. Client Risk Profiling Questionnaire (SEBI Suitability Log)")
+                        q1 = st.radio(
+                            "Q1. Primary Investment Horizon:",
+                            ["Less than 2 years (10 pts)", "2 to 5 years (20 pts)", "More than 5 years (30 pts)"],
+                            horizontal=True
+                        )
+                        q2 = st.radio(
+                            "Q2. Reaction to a sudden 20% portfolio drawdown:",
+                            ["Sell immediately to prevent further loss (5 pts)", "Hold and wait for recovery (15 pts)", "Invest additional capital at lower prices (25 pts)"],
+                            horizontal=True
+                        )
+                        q3 = st.radio(
+                            "Q3. Primary Investment Objective:",
+                            ["Capital preservation & steady income (5 pts)", "Balanced growth & inflation protection (15 pts)", "Aggressive long-term wealth creation (25 pts)"],
+                            horizontal=True
+                        )
+                        q4 = st.radio(
+                            "Q4. Emergency Liquidity & Income Stability:",
+                            ["Less than 3 months emergency fund (5 pts)", "3 to 6 months emergency fund (10 pts)", "6+ months emergency fund & stable cashflow (20 pts)"],
+                            horizontal=True
+                        )
+                    
+                        # Calculate Total Risk Score (Out of 100)
+                        def extract_pts(text):
+                            return int(text.split("(")[1].split(" ")[0])
+                    
+                        total_score = extract_pts(q1) + extract_pts(q2) + extract_pts(q3) + extract_pts(q4)
+                    
+                        if total_score <= 45:
+                            mapped_profile = "Conservative (Max 12% Volatility)"
+                            max_limit = 0.12
+                        elif total_score <= 75:
+                            mapped_profile = "Moderate (Max 22% Volatility)"
+                            max_limit = 0.22
+                        else:
+                            mapped_profile = "Aggressive (Max 35% Volatility)"
+                            max_limit = 0.35
+                    
+                        st.info(f"**Calculated Risk Score:** `{total_score} / 100`  |  **Assigned Risk Category:** `{mapped_profile}`")
+                    
+                        # 3. Suitability & Volatility Assessment
+                        st.subheader("2. Suitability & Volatility Threshold Assessment")
+                        portfolio_vol = exp_vol
+                        if portfolio_vol > max_limit:
+                            st.error(f"🚨 **Compliance Breach:** Portfolio volatility ({portfolio_vol*100:.1f}%) exceeds the permissible limit ({max_limit*100:.0f}%) for a **{mapped_profile.split(' ')[0]}** profile. Rebalancing is required before advice sign-off.")
+                        else:
+                            st.success(f"✅ **Suitability Verified:** Portfolio volatility ({portfolio_vol*100:.1f}%) is within permissible bounds for a **{mapped_profile.split(' ')[0]}** mandate.")
+                    
+                        # 4. Prudential Concentration Limits
+                        st.subheader("3. Prudential Concentration Limits (Single Issuer)")
+                        max_single_stock_allowed = 0.10
+                        tickers = holdings_df['Ticker'].tolist()
+                        heavy_holdings = [(ticker, wt) for ticker, wt in zip(tickers, weights) if wt > max_single_stock_allowed]
+                    
+                        if len(heavy_holdings) > 0:
+                            st.warning("⚠️ **Concentration Warning:** The following assets exceed the 10% single-issuer limit:")
+                            for ticker, wt in heavy_holdings:
+                                st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
+                        else:
+                            st.success("✅ **Diversification Check Passed:** No single asset exceeds the 10% concentration threshold.")
+                    
+                        # 5. Conflict of Interest & Grievance Disclosure
+                        st.subheader("4. Fiduciary & Grievance Disclosures")
+                        st.markdown("""
+                        * **Direct Plan Verification:** Certified that all recommended mutual fund schemes are analyzed under **Direct Plans** (zero-commission).
+                        * **Fee Disclosure:** Advisory fee structure validated in accordance with SEBI fee ceilings (Fixed Fee / AUM Cap).
+                        * **Grievance Redressal (SCORES / ODR):** Client informed of escalation rights via SEBI SCORES (`scores.sebi.gov.in`) and SMART ODR.
+                        """)
+                    
+                        # 6. Timestamped Sign-Off & PDF Audit Export
+                        audit_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        q_answers = {
+                            "Investment Horizon": q1,
+                            "Drawdown Tolerance": q2,
+                            "Investment Objective": q3,
+                            "Liquidity Cushion": q4
+                        }
+                    
+                        pdf_bytes = generate_sebi_audit_pdf(
+                            client_name=client_name,
+                            ria_reg_no=ria_reg_no,
+                            score=total_score,
+                            profile=mapped_profile,
+                            portfolio_vol=portfolio_vol,
+                            max_limit=max_limit,
+                            heavy_holdings=heavy_holdings,
+                            q_answers=q_answers,
+                            timestamp=audit_timestamp
+                        )
+                    
+                        st.download_button(
+                            label="📄 Download Timestamped SEBI Compliance Audit Certificate (PDF)",
+                            data=pdf_bytes,
+                            file_name=f"SEBI_Audit_{client_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
+                            mime="application/pdf"
+                        )
+                    
+                    # Pass your actual portfolio volatility variable (e.g., exp_vol) into the function call:
+                    render_sebi_compliance_audit(holdings_df, initial_capital, weights, exp_vol=exp_vol)
 
                 
                 def render_portfolio_rebalancing(holdings_df, initial_capital):
