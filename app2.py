@@ -389,6 +389,17 @@ elif st.session_state['page'] == 'analytics':
         fill: #FAFAED !important;
     }
     /* ========================================================= */
+    /* FIX: Collapsed Expander Header Text Only                  */
+    /* ========================================================= */
+    div[data-testid="stExpander"] summary,
+    div[data-testid="stExpander"] summary *,
+    div[data-testid="stExpander"] summary span,
+    div[data-testid="stExpander"] summary p {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        opacity: 1 !important;
+    }
+    /* ========================================================= */
     /* FIX: Remaining Invisible Texts (Inputs & Expander Headers) */
     /* ========================================================= */
     
