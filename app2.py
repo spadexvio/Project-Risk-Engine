@@ -2567,7 +2567,7 @@ elif st.session_state['page'] == 'analytics':
                             "1. Asset Segregation & Custody: Client funds and securities are held in segregated bank/demat accounts via an independent SEBI-registered Custodian.\n"
                             "2. Fee & High-Water Mark (HWM): Management and performance fees (if applicable) are computed strictly on a High-Water Mark basis as per the Disclosure Document.\n"
                             "3. Direct Onboarding & Benchmarking: Performance is tracked against the SEBI-mandated strategy benchmark (TWRR methodology).\n"
-                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES (scores.sebi.gov.in) or SMART ODR."
+                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES or SMART ODR."
                         ))
                         
                         return pdf.output(dest="S").encode("latin-1")
@@ -2656,7 +2656,7 @@ elif st.session_state['page'] == 'analytics':
                         st.markdown("""
                     - **Direct Plan Verification:** Certified that all recommended mutual fund schemes are analyzed under **Direct Plans** (zero-commission).
                     - **Fee Disclosure:** Advisory fee structure validated in accordance with SEBI fee ceilings (Fixed Fee / AUM Cap).
-                    - **Grievance Redressal (SCORES / ODR):** Client informed of escalation rights via SEBI SCORES (`scores.sebi.gov.in`) and SMART ODR.
+                    - **Grievance Redressal (SCORES / ODR):** Client informed of escalation rights via SEBI SCORES and SMART ODR.
                         """)
                     
                         # 6. Timestamped Sign-Off & PDF Audit Export
@@ -3169,17 +3169,12 @@ elif st.session_state['page'] == 'analytics':
                             
                                 res5_col2.metric(
                                 label="Total Modified Tax", 
-                                #value=f"{abs(modified_tax):.2f}", 
-                                value=f"{currency} {modified_tax:,.2f}", 
-                                #delta_color="inverse"
+                                value="N/A" if total_profit < 0 else f"{currency} {modified_tax:,.2f}",
                                 )
                                 
                                 res5_col3.metric(
                                 label="Tax Share", 
-                                #value=f"{abs(modified_tax):.2f}", 
-                                #value=f"{currency} {modified_tax:,.2f}", 
-                                #delta_color="inverse"
-                                value=f"{modified_tax/total_profit*100:,.2f} %",
+                                value="N/A" if total_profit < 0 else f"{modified_tax / total_profit * 100:,.2f} %",
                                 )
             
                           # Render summary table below metric
