@@ -2431,7 +2431,14 @@ elif st.session_state['page'] == 'analytics':
                     import datetime
                     from fpdf import FPDF
                     
-                    def generate_sebi_audit_pdf(client_name, ria_reg_no, score, profile, portfolio_vol, max_limit, heavy_holdings, q_answers, timestamp):
+                    import datetime
+                    from fpdf import FPDF
+                    
+                    
+                    # ==========================================
+                    # 1. PDF GENERATOR: SEBI RIA (INDIVIDUAL & NON-INDIVIDUAL)
+                    # ==========================================
+                    def generate_sebi_ria_audit_pdf(entity_subtype, client_name, ria_reg_no, score, profile, portfolio_vol, max_limit, heavy_holdings, q_answers, timestamp):
                         pdf = FPDF()
                         pdf.add_page()
                         
@@ -2439,13 +2446,14 @@ elif st.session_state['page'] == 'analytics':
                         pdf.set_font("Arial", "B", 15)
                         pdf.cell(0, 10, "SEBI RIA COMPLIANCE & SUITABILITY AUDIT RECORD", ln=True, align="C")
                         pdf.set_font("Arial", "I", 9)
-                        pdf.cell(0, 6, f"Generated via WIRATOR Risk Engine | Timestamp: {timestamp}", ln=True, align="C")
+                        pdf.cell(0, 6, f"Generated via WIRATOR Risk Engine | Entity: {entity_subtype} | Timestamp: {timestamp}", ln=True, align="C")
                         pdf.ln(8)
                         
                         # Client & Advisor Details
                         pdf.set_font("Arial", "B", 11)
                         pdf.cell(0, 8, "1. Client & Advisory Identification", ln=True)
                         pdf.set_font("Arial", "", 10)
+                        pdf.cell(0, 6, f"Advisory Entity Category: {entity_subtype}", ln=True)
                         pdf.cell(0, 6, f"Client Identifier / Name: {client_name}", ln=True)
                         pdf.cell(0, 6, f"SEBI RIA Registration No.: {ria_reg_no}", ln=True)
                         pdf.cell(0, 6, f"Assessed Risk Score: {score} / 100 -> Mapped Profile: {profile}", ln=True)
@@ -2486,15 +2494,90 @@ elif st.session_state['page'] == 'analytics':
                         pdf.multi_cell(0, 5, (
                             "1. Direct Plan Compliance: All recommended securities/schemes are evaluated strictly on a zero-commission basis.\n"
                             "2. Fee Transparency: Advisory fees adhere to SEBI (Investment Advisers) Regulations fee caps.\n"
-                            "3. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES (scores.sebi.gov.in) or SMART ODR."
+                            "3. Client-Level Segregation: Distribution and advisory arms are strictly segregated (mandatory for Non-Individual RIAs).\n"
+                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES (scores.sebi.gov.in) or SMART ODR."
                         ))
                         
                         return pdf.output(dest="S").encode("latin-1")
                     
                     
-                    def render_sebi_compliance_audit(holdings_df, initial_capital, weights, exp_vol=0.18):
-                        st.markdown("---")
-                        st.header("⚖️ SEBI RIA Compliance & Fiduciary Audit")
+                    # ==========================================
+                    # 2. PDF GENERATOR: BOUTIQUE PMS (PRINCIPAL OFFICER)
+                    # ==========================================
+                    def generate_sebi_pms_audit_pdf(client_name, pms_reg_no, principal_officer, pms_type, approach_name, initial_capital, is_accredited, portfolio_vol, target_vol_cap, max_stock_cap, heavy_holdings, benchmark_name, timestamp):
+                        pdf = FPDF()
+                        pdf.add_page()
+                        
+                        # Header
+                        pdf.set_font("Arial", "B", 15)
+                        pdf.cell(0, 10, "SEBI PMS MANDATE & RISK GOVERNANCE AUDIT RECORD", ln=True, align="C")
+                        pdf.set_font("Arial", "I", 9)
+                        pdf.cell(0, 6, f"Generated via WIRATOR Risk Engine | Principal Officer Review | Timestamp: {timestamp}", ln=True, align="C")
+                        pdf.ln(8)
+                        
+                        # PMS & Client Identification
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "1. Portfolio Manager & Mandate Identification", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        pdf.cell(0, 6, f"Client Identifier / Account Mask: {client_name}", ln=True)
+                        pdf.cell(0, 6, f"SEBI PMS Registration No.: {pms_reg_no} | Principal Officer: {principal_officer}", ln=True)
+                        pdf.cell(0, 6, f"Mandate Type: {pms_type} | Investment Approach: {approach_name}", ln=True)
+                        pdf.cell(0, 6, f"Benchmark Index: {benchmark_name}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Minimum Ticket Size Eligibility Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "2. Regulatory Capital Threshold Verification (INR 50 Lakhs)", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        min_req = 5000000  # INR 50,00,000
+                        if is_accredited:
+                            cap_status = f"EXEMPT / ELIGIBLE (Accredited Investor Status Verified | Capital: INR {initial_capital:,.0f})"
+                        elif initial_capital >= min_req:
+                            cap_status = f"PASSED (Capital INR {initial_capital:,.0f} meets INR 50,00,000 minimum threshold)"
+                        else:
+                            cap_status = f"BREACH (Capital INR {initial_capital:,.0f} is below INR 50,00,000 statutory minimum)"
+                        pdf.cell(0, 6, f"Ticket Size Status: {cap_status}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Strategy Volatility & Risk Guardrail Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "3. Investment Approach Risk & Volatility Guardrail", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        vol_status = "BREACH (Exceeds Strategy Risk Band)" if portfolio_vol > target_vol_cap else "PASSED (Within Disclosure Document Risk Band)"
+                        pdf.cell(0, 6, f"Portfolio Annualized Volatility: {portfolio_vol*100:.2f}% | Strategy Ceiling: {target_vol_cap*100:.0f}%", ln=True)
+                        pdf.cell(0, 6, f"Mandate Risk Status: {vol_status}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Single-Security Concentration Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, f"4. Mandate Concentration Check ({max_stock_cap*100:.0f}% Internal / Disclosure Cap)", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        if len(heavy_holdings) > 0:
+                            for ticker, wt in heavy_holdings:
+                                pdf.cell(0, 6, f"WARNING: {ticker} exceeds {max_stock_cap*100:.0f}% strategy cap ({wt*100:.2f}% allocation)", ln=True)
+                        else:
+                            pdf.cell(0, 6, f"PASSED: All securities comply with the {max_stock_cap*100:.0f}% single-security strategy limit.", ln=True)
+                        pdf.ln(5)
+                        
+                        # PMS Regulatory & Governance Disclosures
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "5. PMS Regulatory & Governance Attestations", ln=True)
+                        pdf.set_font("Arial", "", 9)
+                        pdf.multi_cell(0, 5, (
+                            "1. Asset Segregation & Custody: Client funds and securities are held in segregated bank/demat accounts via an independent SEBI-registered Custodian.\n"
+                            "2. Fee & High-Water Mark (HWM): Management and performance fees (if applicable) are computed strictly on a High-Water Mark basis as per the Disclosure Document.\n"
+                            "3. Direct Onboarding & Benchmarking: Performance is tracked against the SEBI-mandated strategy benchmark (TWRR methodology).\n"
+                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES (scores.sebi.gov.in) or SMART ODR."
+                        ))
+                        
+                        return pdf.output(dest="S").encode("latin-1")
+                    
+                    
+                    # ==========================================
+                    # 3. UI RENDERER: SEBI RIA AUDIT
+                    # ==========================================
+                    def render_sebi_ria_audit(entity_subtype, holdings_df, initial_capital, weights, exp_vol=0.18):
+                        st.header(f"⚖️ SEBI RIA Compliance & Fiduciary Audit ({entity_subtype})")
                         st.info("Automated suitability scoring, concentration checks, and auditable record generation aligned with SEBI (Investment Advisers) Regulations.")
                     
                         # 1. Client & Advisor Metadata
@@ -2503,6 +2586,9 @@ elif st.session_state['page'] == 'analytics':
                             client_name = st.text_input("Client Identifier / PAN Mask", value="Retail Client Demo (XXXX1234X)")
                         with col_b:
                             ria_reg_no = st.text_input("SEBI RIA Registration No. (Optional)", value="INA0000XXXXX")
+                    
+                        if "Non-Individual" in entity_subtype:
+                            st.caption("ℹ️ **Non-Individual RIA Note:** Ensure client-level segregation between advisory and distribution services is maintained at the group/family level.")
                     
                         # 2. Scored Risk Profiling Questionnaire
                         st.subheader("1. Client Risk Profiling Questionnaire (SEBI Suitability Log)")
@@ -2527,7 +2613,6 @@ elif st.session_state['page'] == 'analytics':
                             horizontal=True
                         )
                     
-                        # Calculate Total Risk Score (Out of 100)
                         def extract_pts(text):
                             return int(text.split("(")[1].split(" ")[0])
                     
@@ -2569,9 +2654,9 @@ elif st.session_state['page'] == 'analytics':
                         # 5. Conflict of Interest & Grievance Disclosure
                         st.subheader("4. Fiduciary & Grievance Disclosures")
                         st.markdown("""
-                        * **Direct Plan Verification:** Certified that all recommended mutual fund schemes are analyzed under **Direct Plans** (zero-commission).
-                        * **Fee Disclosure:** Advisory fee structure validated in accordance with SEBI fee ceilings (Fixed Fee / AUM Cap).
-                        * **Grievance Redressal (SCORES / ODR):** Client informed of escalation rights via SEBI SCORES (`scores.sebi.gov.in`) and SMART ODR.
+                    - **Direct Plan Verification:** Certified that all recommended mutual fund schemes are analyzed under **Direct Plans** (zero-commission).
+                    - **Fee Disclosure:** Advisory fee structure validated in accordance with SEBI fee ceilings (Fixed Fee / AUM Cap).
+                    - **Grievance Redressal (SCORES / ODR):** Client informed of escalation rights via SEBI SCORES (`scores.sebi.gov.in`) and SMART ODR.
                         """)
                     
                         # 6. Timestamped Sign-Off & PDF Audit Export
@@ -2583,7 +2668,8 @@ elif st.session_state['page'] == 'analytics':
                             "Liquidity Cushion": q4
                         }
                     
-                        pdf_bytes = generate_sebi_audit_pdf(
+                        pdf_bytes = generate_sebi_ria_audit_pdf(
+                            entity_subtype=entity_subtype,
                             client_name=client_name,
                             ria_reg_no=ria_reg_no,
                             score=total_score,
@@ -2596,14 +2682,135 @@ elif st.session_state['page'] == 'analytics':
                         )
                     
                         st.download_button(
-                            label="📄 Download Timestamped SEBI Compliance Audit Certificate (PDF)",
+                            label="📄 Download Timestamped SEBI RIA Audit Certificate (PDF)",
                             data=pdf_bytes,
-                            file_name=f"SEBI_Audit_{client_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
+                            file_name=f"SEBI_RIA_Audit_{client_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
                             mime="application/pdf"
                         )
                     
-                    # Pass your actual portfolio volatility variable (e.g., exp_vol) into the function call:
-                    render_sebi_compliance_audit(holdings_df, initial_capital, weights, exp_vol=exp_vol)
+                    
+                    # ==========================================
+                    # 4. UI RENDERER: BOUTIQUE PMS AUDIT
+                    # ==========================================
+                    def render_sebi_pms_audit(holdings_df, initial_capital, weights, exp_vol=0.18):
+                        st.header("🏛️ SEBI PMS Mandate & Principal Officer Risk Audit")
+                        st.info("Portfolio mandate adherence, minimum ticket-size validation, strategy risk limits, and Disclosure Document governance aligned with SEBI (Portfolio Managers) Regulations.")
+                    
+                        # 1. PMS Firm & Principal Officer Metadata
+                        col_a, col_b, col_c = st.columns(3)
+                        with col_a:
+                            client_name = st.text_input("PMS Client Account / PAN Mask", value="HNI Client Account (XXXX9876X)")
+                        with col_b:
+                            pms_reg_no = st.text_input("SEBI PMS Registration No.", value="INP0000XXXXX")
+                        with col_c:
+                            principal_officer = st.text_input("Principal Officer Name", value="Principal Officer (NISM-XXI-B)")
+                    
+                        # 2. Investment Approach & Mandate Parameters
+                        st.subheader("1. Investment Approach & Mandate Configuration")
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        with col_m1:
+                            pms_type = st.selectbox("PMS Mandate Type:", ["Discretionary PMS", "Non-Discretionary PMS", "Advisory PMS"])
+                        with col_m2:
+                            approach_name = st.text_input("Investment Approach Name:", value="Core Concentrated Flexi-Cap")
+                        with col_m3:
+                            benchmark_name = st.selectbox("SEBI Strategy Benchmark:", ["BSE 500 TRI", "NIFTY 50 TRI", "NIFTY Midcap 150 TRI", "CRISIL Composite Bond Index"])
+                    
+                        # 3. Statutory Minimum Investment Check (INR 50 Lakhs)
+                        st.subheader("2. Statutory Minimum Ticket Size Check (₹50 Lakhs)")
+                        is_accredited = st.checkbox("Client holds valid SEBI Accredited Investor Certificate (exempt from ₹50L floor)")
+                        min_pms_capital = 5000000  # ₹50,00,000
+                    
+                        if is_accredited:
+                            st.success(f"✅ **Accredited Investor Exemption:** Capital check bypassed via valid SEBI Accreditation (Portfolio Value: `₹{initial_capital:,.0f}`).")
+                        elif initial_capital >= min_pms_capital:
+                            st.success(f"✅ **Ticket Size Compliant:** Portfolio capital (`₹{initial_capital:,.0f}`) meets the `₹50,00,000` minimum threshold.")
+                        else:
+                            st.error(f"🚨 **Regulatory Threshold Alert:** Portfolio capital (`₹{initial_capital:,.0f}`) is below the statutory `₹50,00,000` PMS minimum (unless accredited).")
+                    
+                        # 4. Strategy Risk & Concentration Guardrails (Disclosure Document Limits)
+                        st.subheader("3. Strategy Volatility & Concentration Guardrails")
+                        col_g1, col_g2 = st.columns(2)
+                        with col_g1:
+                            target_vol_pct = st.slider("Disclosure Document Volatility Ceiling (%)", min_value=10, max_value=45, value=25, step=1)
+                            target_vol_cap = target_vol_pct / 100.0
+                        with col_g2:
+                            max_stock_pct = st.slider("Single-Security Mandate Cap (%)", min_value=5, max_value=25, value=15, step=1)
+                            max_stock_cap = max_stock_pct / 100.0
+                    
+                        portfolio_vol = exp_vol
+                        if portfolio_vol > target_vol_cap:
+                            st.error(f"🚨 **Mandate Risk Breach:** Portfolio annualized volatility (`{portfolio_vol*100:.1f}%`) exceeds the `{target_vol_pct}%` ceiling stated for **{approach_name}**.")
+                        else:
+                            st.success(f"✅ **Strategy Risk Aligned:** Portfolio annualized volatility (`{portfolio_vol*100:.1f}%`) is within the `{target_vol_pct}%` mandate ceiling.")
+                    
+                        tickers = holdings_df['Ticker'].tolist()
+                        heavy_holdings = [(ticker, wt) for ticker, wt in zip(tickers, weights) if wt > max_stock_cap]
+                    
+                        if len(heavy_holdings) > 0:
+                            st.warning(f"⚠️ **Mandate Concentration Warning:** The following holdings exceed the `{max_stock_pct}%` internal/disclosure limit:")
+                            for ticker, wt in heavy_holdings:
+                                st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
+                        else:
+                            st.success(f"✅ **Concentration Check Passed:** No single security exceeds the `{max_stock_pct}%` mandate limit.")
+                    
+                        # 5. PMS Custody, HWM Fee & Governance Disclosures
+                        st.subheader("4. Principal Officer Governance & Custody Attestations")
+                        st.markdown("""
+                    - **Independent Custodian & Asset Segregation:** Client securities and funds are ring-fenced in individual demat/bank accounts overseen by a SEBI-registered Custodian (no pooling of client assets).
+                    - **High-Water Mark (HWM) & Fee Transparency:** Performance-linked fees (if opted) adhere strictly to High-Water Mark computation and Disclosure Document fee schedules.
+                    - **Benchmarking & TWRR Reporting:** Performance attribution is benchmarked against the strategy's SEBI-mandated TRI benchmark using Time-Weighted Rate of Return (TWRR).
+                    - **Grievance Redressal (SCORES / ODR):** Client escalation pathways via SEBI SCORES (`scores.sebi.gov.in`) and SMART ODR are documented in the PMS Agreement.
+                        """)
+                    
+                        # 6. Timestamped Sign-Off & PDF Audit Export
+                        audit_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        pdf_bytes = generate_sebi_pms_audit_pdf(
+                            client_name=client_name,
+                            pms_reg_no=pms_reg_no,
+                            principal_officer=principal_officer,
+                            pms_type=pms_type,
+                            approach_name=approach_name,
+                            initial_capital=initial_capital,
+                            is_accredited=is_accredited,
+                            portfolio_vol=portfolio_vol,
+                            target_vol_cap=target_vol_cap,
+                            max_stock_cap=max_stock_cap,
+                            heavy_holdings=heavy_holdings,
+                            benchmark_name=benchmark_name,
+                            timestamp=audit_timestamp
+                        )
+                    
+                        st.download_button(
+                            label="📄 Download Timestamped SEBI PMS Governance Audit (PDF)",
+                            data=pdf_bytes,
+                            file_name=f"SEBI_PMS_Audit_{client_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
+                            mime="application/pdf"
+                        )
+                    
+                    
+                    # ==========================================
+                    # 5. MAIN ROUTER FUNCTION (ENTRY POINT)
+                    # ==========================================
+                    def render_compliance_module(holdings_df, initial_capital, weights, exp_vol=0.18):
+                        st.markdown("---")
+                        entity_role = st.radio(
+                            "Select Your Regulatory Entity / Practice Type:",
+                            [
+                                "Boutique PMS Firm (Principal Officer)",
+                                "Non-Individual SEBI RIA (Corporate / Partnership)",
+                                "Individual SEBI RIA"
+                            ],
+                            horizontal=True
+                        )
+                    
+                        if entity_role == "Boutique PMS Firm (Principal Officer)":
+                            render_sebi_pms_audit(holdings_df, initial_capital, weights, exp_vol=exp_vol)
+                        else:
+                            render_sebi_ria_audit(entity_role, holdings_df, initial_capital, weights, exp_vol=exp_vol)
+                    
+                    
+                    # Call the router function in your main app:
+                    render_compliance_module(holdings_df, initial_capital, weights, exp_vol=exp_vol)
 
                 with st.expander(
                         " Excecution, Wealth Drag & Tax Optimization", expanded=False
