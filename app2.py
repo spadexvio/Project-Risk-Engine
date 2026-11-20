@@ -3013,7 +3013,16 @@ elif st.session_state['page'] == 'analytics':
                     
                         st.line_chart(chart_df)
                     
-                    
+                    entity_role = st.radio(
+                        "Select Your Regulatory Entity / Practice Type:",
+                        [
+                            "Boutique PMS Firm (Principal Officer)",
+                            "Non-Individual SEBI RIA (Corporate / Partnership)",
+                            "Individual SEBI RIA",
+                        ],
+                        horizontal=True,
+                        key="entity_role",
+                    )
                     # Pass entity_role from your compliance/session state if available
                     active_entity_role = st.session_state.get("entity_role", "Individual SEBI RIA")
                     render_portfolio_rebalancing(holdings_df, initial_capital, entity_role=active_entity_role)
