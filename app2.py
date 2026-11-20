@@ -2495,7 +2495,7 @@ elif st.session_state['page'] == 'analytics':
                             "1. Direct Plan Compliance: All recommended securities/schemes are evaluated strictly on a zero-commission basis.\n"
                             "2. Fee Transparency: Advisory fees adhere to SEBI (Investment Advisers) Regulations fee caps.\n"
                             "3. Client-Level Segregation: Distribution and advisory arms are strictly segregated (mandatory for Non-Individual RIAs).\n"
-                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES (scores.sebi.gov.in) or SMART ODR."
+                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES or SMART ODR."
                         ))
                         
                         return pdf.output(dest="S").encode("latin-1")
@@ -2815,86 +2815,153 @@ elif st.session_state['page'] == 'analytics':
                 with st.expander(
                         " Excecution, Wealth Drag & Tax Optimization", expanded=False
                     ):
-                    def render_portfolio_rebalancing(holdings_df, initial_capital):
+                    
+                    
+                    def render_portfolio_rebalancing(holdings_df, initial_capital, entity_role="Individual SEBI RIA"):
                         st.markdown("---")
-                        st.header("⚖️ Automated Portfolio Rebalancing & Trade Execution Generator")
-                        st.info("Align your portfolio back to target asset weights and generate exact execution orders (Buy/Sell) for client advisory sign-off.")
-                        
+                        is_pms = "PMS" in entity_role
+                    
+                        if is_pms:
+                            st.header("⚖️ Model Approach Rebalancing & Execution Blotter")
+                            st.info("Align client mandate allocations to model approach targets, estimate turnover & execution friction, and export an order blotter for OMS/custodian review.")
+                        else:
+                            st.header("⚖️ Automated Portfolio Rebalancing & Trade Execution Generator")
+                            st.info("Align your portfolio back to target asset weights and generate exact execution orders (Buy/Sell) for client advisory sign-off.")
+                    
                         n_assets = len(holdings_df)
                         if n_assets == 0:
                             st.warning("Please load or upload a portfolio first.")
                             return
                     
+                        # Optional friction assumption (STT, exchange/SEBI charges, stamp duty, brokerage/slippage)
+                        friction_bps = st.slider(
+                            "Estimated Execution & Friction Cost (bps on traded notional)",
+                            min_value=0,
+                            max_value=100,
+                            value=15 if is_pms else 10,
+                            step=5,
+                            key="rebal_friction_bps"
+                        )
+                        friction_rate = friction_bps / 10000.0
+                    
                         default_weight = 1.0 / n_assets
-                        st.write("**Specify Target Allocation Weights (Must sum to 100%):**")
-                        
-                        # Interactive target weight sliders/inputs arranged in columns
+                        st.write("**Specify Target Allocation Weights (Automatically normalized to 100%):**")
+                    
+                        # Interactive target weight inputs arranged in columns
                         target_weights = []
                         cols = st.columns(min(n_assets, 4))
-                        
-                        for i, row in holdings_df.iterrows():
-                            ticker = row['Ticker'] if 'Ticker' in row else f"Asset {i}"
+                    
+                        for i, (_, row) in enumerate(holdings_df.iterrows()):
+                            ticker = row["Ticker"] if "Ticker" in row and pd.notna(row["Ticker"]) else f"Asset {i}"
                             col_idx = i % len(cols)
                             with cols[col_idx]:
                                 tw = st.number_input(
-                                    f"Target %: {ticker}", 
-                                    min_value=0.0, 
-                                    max_value=100.0, 
-                                    value=float(default_weight * 100), 
-                                    step=1.0, 
-                                    key=f"tw_{i}"
+                                    f"Target %: {ticker}",
+                                    min_value=0.0,
+                                    max_value=100.0,
+                                    value=float(default_weight * 100),
+                                    step=1.0,
+                                    key=f"tw_{i}_{ticker}"
                                 )
                                 target_weights.append(tw / 100.0)
-                        
-                        target_weights = pd.Series(target_weights)
+                    
+                        target_weights = pd.Series(target_weights, dtype=float)
                         if target_weights.sum() > 0:
-                            target_weights = target_weights / target_weights.sum() # Normalize to 1.0
-                        
-                        # Extract current weights
-                        if 'Weight' in holdings_df.columns:
-                            curr_weights = holdings_df['Weight'].values
+                            target_weights = target_weights / target_weights.sum()
                         else:
-                            curr_weights = [default_weight] * n_assets
-                            
-                        # Build rebalancing execution dataframe
+                            target_weights = pd.Series([default_weight] * n_assets, dtype=float)
+                    
+                        # Extract current weights safely
+                        if "Weight" in holdings_df.columns and len(holdings_df["Weight"]) == n_assets:
+                            curr_weights = pd.Series(holdings_df["Weight"].values, dtype=float)
+                            if curr_weights.sum() > 0 and not np.isclose(curr_weights.sum(), 1.0):
+                                curr_weights = curr_weights / curr_weights.sum()
+                        else:
+                            curr_weights = pd.Series([default_weight] * n_assets, dtype=float)
+                    
+                        tickers = (
+                            holdings_df["Ticker"].astype(str).tolist()
+                            if "Ticker" in holdings_df.columns
+                            else [f"Asset {i}" for i in range(n_assets)]
+                        )
+                    
                         rebal_df = pd.DataFrame({
-                            'Ticker': holdings_df['Ticker'] if 'Ticker' in holdings_df.columns else [f"Asset {i}" for i in range(n_assets)],
-                            'Current Weight (%)': [w * 100 for w in curr_weights],
-                            'Target Weight (%)': [w * 100 for w in target_weights],
-                            'Current Value (INR)': [w * initial_capital for w in curr_weights],
-                            'Target Value (INR)': [w * initial_capital for w in target_weights]
+                            "Ticker": tickers,
+                            "Current Weight (%)": curr_weights.values * 100.0,
+                            "Target Weight (%)": target_weights.values * 100.0,
+                            "Current Value (INR)": curr_weights.values * initial_capital,
+                            "Target Value (INR)": target_weights.values * initial_capital,
                         })
-                        
-                        rebal_df['Difference (INR)'] = rebal_df['Target Value (INR)'] - rebal_df['Current Value (INR)']
-                        rebal_df['Action'] = rebal_df['Difference (INR)'].apply(lambda x: 'BUY' if x > 1 else ('SELL' if x < -1 else 'HOLD'))
-                        rebal_df['Execution Amount (INR)'] = rebal_df['Difference (INR)'].abs()
-                        
+                    
+                        rebal_df["Difference (INR)"] = rebal_df["Target Value (INR)"] - rebal_df["Current Value (INR)"]
+                        rebal_df["Action"] = rebal_df["Difference (INR)"].apply(
+                            lambda x: "BUY" if x > 1.0 else ("SELL" if x < -1.0 else "HOLD")
+                        )
+                        rebal_df["Execution Amount (INR)"] = rebal_df.apply(
+                            lambda r: abs(r["Difference (INR)"]) if r["Action"] != "HOLD" else 0.0,
+                            axis=1
+                        )
+                        rebal_df["Est. Friction Cost (INR)"] = rebal_df["Execution Amount (INR)"] * friction_rate
+                    
+                        total_turnover = rebal_df["Execution Amount (INR)"].sum()
+                        est_total_friction = rebal_df["Est. Friction Cost (INR)"].sum()
+                        turnover_pct = (total_turnover / initial_capital * 100.0) if initial_capital > 0 else 0.0
+                    
+                        m1, m2, m3 = st.columns(3)
+                        with m1:
+                            st.metric("Total Rebalance Turnover", f"₹{total_turnover:,.2f}", delta=f"{turnover_pct:.2f}% of portfolio", delta_color="off")
+                        with m2:
+                            st.metric("Est. Execution Friction", f"₹{est_total_friction:,.2f}")
+                        with m3:
+                            active_orders = int((rebal_df["Action"] != "HOLD").sum())
+                            st.metric("Active Orders", f"{active_orders} / {n_assets}")
+                    
                         st.dataframe(
                             rebal_df.style.format({
-                                'Current Weight (%)': '{:.2f}%',
-                                'Target Weight (%)': '{:.2f}%',
-                                'Current Value (INR)': '₹{:,.2f}',
-                                'Target Value (INR)': '₹{:,.2f}',
-                                'Execution Amount (INR)': '₹{:,.2f}'
-                            }), 
+                                "Current Weight (%)": "{:.2f}%",
+                                "Target Weight (%)": "{:.2f}%",
+                                "Current Value (INR)": "₹{:,.2f}",
+                                "Target Value (INR)": "₹{:,.2f}",
+                                "Difference (INR)": "₹{:,.2f}",
+                                "Execution Amount (INR)": "₹{:,.2f}",
+                                "Est. Friction Cost (INR)": "₹{:,.2f}",
+                            }),
                             use_container_width=True
                         )
-                        
-                        # Export execution orders as CSV for client report attachment
-                        csv_data = rebal_df.to_csv(index=False).encode('utf-8')
+                    
+                        csv_data = rebal_df.to_csv(index=False).encode("utf-8")
                         st.download_button(
                             label="📥 Download Trade Execution Orders (CSV)",
                             data=csv_data,
                             file_name=f"Rebalancing_Orders_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
                             mime="text/csv"
                         )
-    
-                    render_portfolio_rebalancing(holdings_df, initial_capital)
-    
-                    def render_wealth_drag_calculator(initial_capital):
+                    
+                    
+                    def render_wealth_drag_calculator(initial_capital, entity_role="Individual SEBI RIA"):
                         st.markdown("---")
-                        st.header("📉 Direct Plan vs. Regular Plan Wealth Drag Calculator")
-                        st.info("Demonstrate the compounding wealth lost to distributor commissions in Regular mutual fund plans over long investment horizons.")
+                        is_pms = "PMS" in entity_role
+                    
+                        if is_pms:
+                            st.header("📉 Strategy Fee, Cash & Execution Drag Calculator")
+                            st.info("Compare gross strategy compounding against net-of-fee and friction/cash-drag compounding over your investment horizon.")
+                            label_a = "Net-of-Fee / Friction Value"
+                            label_b = "Gross Strategy Potential"
+                            label_drag = "Total Compounded Fee & Friction Drag"
+                            col3_label = "Annual Fee + Friction Drag (% p.a.)"
+                            default_drag_pct = 1.75
+                            series_a_name = "Net of Fee & Friction"
+                            series_b_name = "Gross Strategy Trajectory"
+                        else:
+                            st.header("📉 Direct Plan vs. Regular Plan Wealth Drag Calculator")
+                            st.info("Demonstrate the compounding wealth lost to distributor commissions in Regular mutual fund plans over long investment horizons.")
+                            label_a = "Regular Plan Final Value"
+                            label_b = "Direct Plan Final Value (Fiduciary)"
+                            label_drag = "Total Wealth Lost to Commissions"
+                            col3_label = "Expense Ratio Diff (Regular - Direct %)"
+                            default_drag_pct = 1.0
+                            series_a_name = "Regular Plan (With Commission)"
+                            series_b_name = "Direct Plan (Zero Commission)"
                     
                         col1, col2, col3 = st.columns(3)
                         with col1:
@@ -2902,44 +2969,55 @@ elif st.session_state['page'] == 'analytics':
                         with col2:
                             expected_cagr = st.number_input("Expected Gross CAGR (%)", min_value=1.0, max_value=30.0, value=14.0, step=0.5, key="wd_cagr") / 100.0
                         with col3:
-                            expense_diff = st.number_input("Expense Ratio Diff (Regular - Direct %)", min_value=0.1, max_value=2.0, value=1.0, step=0.1, key="wd_diff") / 100.0
+                            expense_diff = st.number_input(
+                                col3_label,
+                                min_value=0.1,
+                                max_value=5.0,
+                                value=default_drag_pct,
+                                step=0.1,
+                                key="wd_diff"
+                            ) / 100.0
                     
-                        # Compounding calculations
-                        years = np.arange(0, horizon_years + 1)
-                        regular_cagr = expected_cagr - expense_diff
-                        direct_cagr = expected_cagr
+                        # Ensure net/regular CAGR does not drop below -99%
+                        net_cagr = max(expected_cagr - expense_diff, -0.99)
+                        gross_cagr = expected_cagr
                     
-                        regular_wealth = initial_capital * ((1 + regular_cagr) ** years)
-                        direct_wealth = initial_capital * ((1 + direct_cagr) ** years)
-                        wealth_drag = direct_wealth - regular_wealth
+                        years = np.arange(0, int(horizon_years) + 1)
+                        net_wealth = initial_capital * ((1.0 + net_cagr) ** years)
+                        gross_wealth = initial_capital * ((1.0 + gross_cagr) ** years)
+                        wealth_drag = gross_wealth - net_wealth
                     
-                        final_regular = regular_wealth[-1]
-                        final_direct = direct_wealth[-1]
-                        total_drag = wealth_drag[-1]
+                        final_net = float(net_wealth[-1])
+                        final_gross = float(gross_wealth[-1])
+                        total_drag = float(wealth_drag[-1])
+                        drag_pct_of_gross = (total_drag / final_gross * 100.0) if final_gross != 0 else 0.0
                     
                         col_m1, col_m2, col_m3 = st.columns(3)
                         with col_m1:
-                            st.metric("Regular Plan Final Value", f"₹{final_regular:,.2f}")
+                            st.metric(label_a, f"₹{final_net:,.2f}")
                         with col_m2:
-                            st.metric("Direct Plan Final Value (Fiduciary)", f"₹{final_direct:,.2f}")
+                            st.metric(label_b, f"₹{final_gross:,.2f}")
                         with col_m3:
                             st.metric(
-                                "Total Wealth Lost to Commissions", 
-                                f"₹{total_drag:,.2f}", 
-                                delta=f"-{(total_drag/final_direct)*100:.1f}% drag", 
+                                label_drag,
+                                f"₹{total_drag:,.2f}",
+                                delta=f"-{drag_pct_of_gross:.1f}% drag",
                                 delta_color="inverse"
                             )
                     
-                        # Line chart comparing corpus growth trajectories
                         chart_df = pd.DataFrame({
                             "Year": years,
-                            "Regular Plan (With Commission)": regular_wealth,
-                            "Direct Plan (Zero Commission)": direct_wealth
+                            series_a_name: net_wealth,
+                            series_b_name: gross_wealth
                         }).set_index("Year")
                     
                         st.line_chart(chart_df)
-    
-                    render_wealth_drag_calculator(initial_capital)
+                    
+                    
+                    # Pass entity_role from your compliance/session state if available
+                    active_entity_role = st.session_state.get("entity_role", "Individual SEBI RIA")
+                    render_portfolio_rebalancing(holdings_df, initial_capital, entity_role=active_entity_role)
+                    render_wealth_drag_calculator(initial_capital, entity_role=active_entity_role)
     
                      # -------------------------------------------------------------------
               # 🛡️️ TAX Liabilities & Optimization Section
