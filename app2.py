@@ -953,8 +953,15 @@ elif st.session_state["page"] == "analytics":
     #     },
     # }
         
-    ALL_EXCHANGE_CONFIGS = "stock-sectors-nse-bse.json"
-    ALL_EXCHANGE_CONFIGS = json.loads(ALL_EXCHANGE_CONFIGS)
+    # ALL_EXCHANGE_CONFIGS = "stock-sectors-nse-bse.json"
+    try:
+        with open("stock-sectors-nse-bse.json", "r", encoding="utf-8") as f:
+            ALL_EXCHANGE_CONFIGS = json.load(f)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            "Could not find 'stock-sectors-nse-bse.json' in the app's working directory. "
+            "Make sure it is committed to the root of your GitHub repo next to app2.py."
+        )
     sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["NSE"])
     ticker_to_sector = {}
     for sec_name, sec_data in sector_config.items():
