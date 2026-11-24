@@ -708,7 +708,7 @@ if st.session_state["page"] == "landing":
         }
         .slogan-badge {
             color: #FDFBD4;
-            font-size: 2.6rem;
+            font-size: 4.0 rem;
             font-weight: 800;
             letter-spacing: 2px;
             margin: 0 auto 1.5rem auto;
