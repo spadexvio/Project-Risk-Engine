@@ -706,6 +706,18 @@ if st.session_state["page"] == "landing":
             transition: all 0.3s ease-in-out !important;
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
         }
+        .slogan-badge {
+            color: #FDFBD4;
+            font-size: 2.6rem;
+            font-weight: 800;
+            letter-spacing: 2px;
+            margin: 0 auto 1.5rem auto;
+            text-transform: uppercase;
+            text-align: center;
+            display: block;
+            width: 100%;
+            white-space: normal;
+        }
         div.stButton > button:hover {
             background-color: #FDFBD4 !important;
             color: #0B192C !important;
@@ -723,7 +735,7 @@ if st.session_state["page"] == "landing":
         <div class="hero-container">
             <div style="font-size: 4rem; margin-bottom: 0.5rem;">🛡️</div>
             <h1 class="hero-title">WIRATOR</h1>
-            <div class="hero-subtitle">Institutional Portfolio Risk Audit & Monte Carlo Stress Testing</div>
+            <div class="hero-subtitle">Institutional Portfolio Risk Audit & Compliance Engine</div>
             <div class="slogan-badge">Sharper Risk. Stronger Proof.</div>
             <p class="hero-description">
                 Turn every rebalance into a clearer and more defensible decision.
