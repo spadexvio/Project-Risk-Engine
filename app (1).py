@@ -269,51 +269,73 @@ def sortino_ratio(returns_series, rfr=0.055, target_return=0.0, periods_per_year
     return annualized_excess_return / downside_std
 
 
+def _fpdf_clean(val):
+    """Sanitizes strings for FPDF core fonts (latin-1 safe without Unicode crashes)."""
+    s = str(val if val is not None else "")
+    replacements = {
+        "\u2014": "-",
+        "\u2013": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2022": "*",
+        "\u20b9": "INR ",
+    }
+    for k, v in replacements.items():
+        s = s.replace(k, v)
+    return s.encode("latin-1", errors="replace").decode("latin-1")
+
+
 def build_audit_packet_pdf(entity_type, workspace_mode, exchange, currency, client_label, reg_no, officer_or_advisor, mandate_limits, diff_summary, gate_result, rationale_text, timestamp):
     """Generates a timestamped Audit & Suitability Report PDF for Single Client or Batch."""
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, "WIRATOR — AUDIT & SUITABILITY REPORT", ln=True, align="C")
+    pdf.cell(0, 10, _fpdf_clean("WIRATOR - AUDIT & SUITABILITY REPORT"), ln=True, align="C")
     pdf.set_font("Arial", "I", 8.5)
-    pdf.cell(0, 6, f"Entity: {entity_type} | Workspace: {workspace_mode} | Exchange: {exchange} | {timestamp}", ln=True, align="C")
+    pdf.cell(0, 6, _fpdf_clean(f"Entity: {entity_type} | Workspace: {workspace_mode} | Exchange: {exchange} | {timestamp}"), ln=True, align="C")
     pdf.ln(6)
 
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(0, 7, "1. Mandate, Entity & Client Context", ln=True)
+    pdf.cell(0, 7, _fpdf_clean("1. Mandate, Entity & Client Context"), ln=True)
     pdf.set_font("Arial", "", 9.5)
-    pdf.cell(0, 5.5, f"Entity Type: {entity_type} | Reg No.: {reg_no} | Signatory: {officer_or_advisor}", ln=True)
-    pdf.cell(0, 5.5, f"Client / Batch Scope: {client_label} | Currency: {currency}", ln=True)
-    pdf.cell(0, 5.5, f"Limits -> Vol Cap: {mandate_limits['vol_cap']:.1f}% | CVaR Cap: {mandate_limits['cvar_cap']:.1f}% | Stock Cap: {mandate_limits['stock_cap']:.1f}% | Sector Cap: {mandate_limits['sector_cap']:.1f}%", ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Entity Type: {entity_type} | Reg No.: {reg_no} | Signatory: {officer_or_advisor}"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Client / Batch Scope: {client_label} | Currency: {currency}"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Limits -> Vol Cap: {mandate_limits['vol_cap']:.1f}% | CVaR Cap: {mandate_limits['cvar_cap']:.1f}% | Stock Cap: {mandate_limits['stock_cap']:.1f}% | Sector Cap: {mandate_limits['sector_cap']:.1f}%"), ln=True)
     pdf.ln(4)
 
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(0, 7, "2. Pre-Trade Diff & Mandate Gate Result", ln=True)
+    pdf.cell(0, 7, _fpdf_clean("2. Pre-Trade Diff & Mandate Gate Result"), ln=True)
     pdf.set_font("Arial", "", 9.5)
-    pdf.cell(0, 5.5, f"Gate Status: {gate_result['status'].upper()} | Missing Rationale: {'Yes' if gate_result['missing_rationale'] else 'No'}", ln=True)
-    pdf.cell(0, 5.5, f"Turnover: {diff_summary.get('turnover_pct', 0.0):.2f}% | Est. Friction: {currency} {diff_summary.get('friction_cost', 0.0):,.2f}", ln=True)
-    pdf.cell(0, 5.5, f"Volatility: {diff_summary.get('pre_vol', 0.0):.2f}% -> {diff_summary.get('post_vol', 0.0):.2f}% | CVaR: {diff_summary.get('pre_cvar', 0.0):.2f}% -> {diff_summary.get('post_cvar', 0.0):.2f}%", ln=True)
-    pdf.cell(0, 5.5, f"Max Stock Wt: {diff_summary.get('pre_max_stock', 0.0):.2f}% -> {diff_summary.get('post_max_stock', 0.0):.2f}% | Max Sector Wt: {diff_summary.get('pre_max_sector', 0.0):.2f}% -> {diff_summary.get('post_max_sector', 0.0):.2f}%", ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Gate Status: {gate_result['status'].upper()} | Missing Rationale: {'Yes' if gate_result['missing_rationale'] else 'No'}"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Turnover: {diff_summary.get('turnover_pct', 0.0):.2f}% | Est. Friction: {currency} {diff_summary.get('friction_cost', 0.0):,.2f}"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Volatility: {diff_summary.get('pre_vol', 0.0):.2f}% -> {diff_summary.get('post_vol', 0.0):.2f}% | CVaR: {diff_summary.get('pre_cvar', 0.0):.2f}% -> {diff_summary.get('post_cvar', 0.0):.2f}%"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Max Stock Wt: {diff_summary.get('pre_max_stock', 0.0):.2f}% -> {diff_summary.get('post_max_stock', 0.0):.2f}% | Max Sector Wt: {diff_summary.get('pre_max_sector', 0.0):.2f}% -> {diff_summary.get('post_max_sector', 0.0):.2f}%"), ln=True)
     if gate_result["breaches"]:
-        pdf.multi_cell(0, 5, f"Breaches: {'; '.join(gate_result['breaches'])}")
+        pdf.multi_cell(0, 5, _fpdf_clean(f"Breaches: {'; '.join(gate_result['breaches'])}"))
     if gate_result["warnings"]:
-        pdf.multi_cell(0, 5, f"Warnings: {'; '.join(gate_result['warnings'])}")
+        pdf.multi_cell(0, 5, _fpdf_clean(f"Warnings: {'; '.join(gate_result['warnings'])}"))
     pdf.ln(4)
 
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(0, 7, "3. Investment & Suitability Rationale", ln=True)
+    pdf.cell(0, 7, _fpdf_clean("3. Investment & Suitability Rationale"), ln=True)
     pdf.set_font("Arial", "", 9.5)
-    pdf.multi_cell(0, 5.5, rationale_text.strip() if rationale_text and rationale_text.strip() else "[No suitability/investment rationale logged]")
+    rat_clean = rationale_text.strip() if rationale_text and rationale_text.strip() else "[No suitability/investment rationale logged]"
+    pdf.multi_cell(0, 5.5, _fpdf_clean(rat_clean))
     pdf.ln(4)
 
     pdf.set_font("Arial", "B", 11)
-    pdf.cell(0, 7, "4. Regulatory & Fiduciary Attestation", ln=True)
+    pdf.cell(0, 7, _fpdf_clean("4. Regulatory & Fiduciary Attestation"), ln=True)
     pdf.set_font("Arial", "", 8.5)
-    pdf.multi_cell(0, 5, (
+    pdf.multi_cell(0, 5, _fpdf_clean(
         "Generated via WIRATOR Risk & Compliance Engine for SEBI RIA / Boutique PMS governance and pre-trade suitability review. "
         "Escalation channels via SEBI SCORES and SMART ODR apply where applicable."
     ))
-    return pdf.output(dest="S").encode("latin-1")
+    raw_out = pdf.output(dest="S")
+    if isinstance(raw_out, bytes):
+        return raw_out
+    return raw_out.encode("latin-1", errors="replace")
 
 
 # ==============================================================================
