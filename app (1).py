@@ -626,7 +626,136 @@ elif st.session_state["page"] == "analytics":
             base_s = stk.split(".")[0].upper()
             ticker_to_sector[base_s] = sec_name
             ticker_to_sector[stk.upper()] = sec_name
+            
+    # --- LIVE INDEX CHART SECTION ---
+    st.subheader(f"Live Market Context: {current_cfg['name']}")
+    
+    # Timeframe selector pill options
+    tf_options = {
+        "1D": {"days": 1, "label": "past day"},
+        "5D": {"days": 5, "label": "past 5 days"},
+        "1M": {"days": 30, "label": "past month"},
+        "6M": {"days": 180, "label": "past 6 months"},
+        "YTD": {"days": "YTD", "label": "year to date"},
+        "1Y": {"days": 365, "label": "past year"},
+        "5Y": {"days": 1825, "label": "past 5 years"},
+        "MAX": {"days": 3650, "label": "all time"}
+    }
 
+    # Time period buttons bar
+    col_tf, _ = st.columns([3, 1])
+    with col_tf:
+        selected_tf = st.segmented_control(
+            "Timeframe", 
+            options=list(tf_options.keys()), 
+            default="6M", 
+            label_visibility="collapsed"
+        )
+
+    with st.spinner(f"Fetching live benchmark data for {current_cfg['name']}..."):
+        try:
+            import plotly.graph_objects as go
+
+            end_d = datetime.datetime.now()
+            tf_info = tf_options.get(selected_tf, tf_options["6M"])
+            
+            # Determine start date based on selected timeframe
+            if tf_info["days"] == "YTD":
+                start_d = datetime.datetime(end_d.year, 1, 1)
+            else:
+                start_d = end_d - datetime.timedelta(days=tf_info["days"])
+            
+            # Fetch data with appropriate interval (1m/5m for 1D, daily for others)
+            interval = "15m" if selected_tf == "1D" else "1d"
+            bench_raw = yf.download(
+                current_cfg['symbol'], 
+                start=start_d, 
+                end=end_d, 
+                interval=interval,
+                progress=False,
+                auto_adjust=True
+            )
+            
+            if not bench_raw.empty:
+                if 'Close' in bench_raw.columns:
+                    chart_series = bench_raw['Close']
+                else:
+                    chart_series = bench_raw.iloc[:, 0]
+                
+                if isinstance(chart_series, pd.DataFrame):
+                    chart_series = chart_series.squeeze()
+                
+                chart_df = chart_series.dropna().reset_index()
+                date_col = chart_df.columns[0]
+                chart_df.columns = ['Date', 'Close']
+
+                # Calculations for Price, Absolute Change & Percentage Change
+                start_price = chart_df['Close'].iloc[0]
+                latest_price = chart_df['Close'].iloc[-1]
+                abs_change = latest_price - start_price
+                pct_change = (abs_change / start_price) * 100
+                is_falling = abs_change < 0
+
+                # Format colors and arrows matching Google Finance
+                theme_color = '#D93025' if is_falling else '#188038'
+                fill_color = 'rgba(217, 48, 37, 0.10)' if is_falling else 'rgba(24, 128, 56, 0.10)'
+                arrow = '↓' if is_falling else '↑'
+                sign = '' if is_falling else '+'
+
+                # Display Google Finance Header stats
+                st.markdown(
+                    f"""
+                    <div style="margin-top: -10px; margin-bottom: 10px;">
+                        <span style="font-size: 2.2rem; font-weight: 700; color: #202124;">{latest_price:,.2f}</span>
+                        <span style="background-color: {'#FCE8E6' if is_falling else '#E6F4EA'}; color: {theme_color}; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.95rem; margin-left: 10px;">
+                            {arrow} {abs(pct_change):.2f}%
+                        </span>
+                        <span style="color: {theme_color}; font-weight: 600; font-size: 0.95rem; margin-left: 6px;">
+                            {sign}{abs_change:,.2f}
+                        </span>
+                        <span style="color: #5f6368; font-size: 0.9rem; margin-left: 6px;">
+                            {tf_info['label']}
+                        </span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                # Chart bounds for clean dynamic zoom
+                y_min = chart_df['Close'].min() * 0.998
+                y_max = chart_df['Close'].max() * 1.002
+
+                # Build Plotly Line Area Chart
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=chart_df['Date'],
+                    y=chart_df['Close'],
+                    mode='lines',
+                    line=dict(color=theme_color, width=2),
+                    fill='tonexty',
+                    fillcolor=fill_color,
+                    hovertemplate="%{x}<br><b>Price:</b> %{y:,.2f}<extra></extra>"
+                ))
+
+                fig.update_layout(
+                    height=230,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    xaxis_title=None,
+                    yaxis_title=None,
+                    xaxis=dict(fixedrange=True),
+                    yaxis=dict(range=[y_min, y_max], fixedrange=True),
+                    dragmode=False,
+                    hovermode="x unified",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)"
+                )
+                
+                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+            else:
+                st.warning("Market benchmark data temporarily unavailable.")
+        except Exception as e:
+            st.warning(f"Benchmark market index chart error: {str(e)}")
+            
     # ==========================================================================
     # 0. TOP-LEVEL ENTITY, RISK PARAMETERS & WORKSPACE MODE SWITCH
     # ==========================================================================
