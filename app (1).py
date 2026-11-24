@@ -410,13 +410,13 @@ def run_cholesky_monte_carlo(price_matrix, weights, initial_val, horizon_days=30
     terminal_rets_pct = ((terminal_vals - float(initial_val)) / max(float(initial_val), 1.0)) * 100.0
     return {
         "paths": all_paths,
-        "p5": np.percentile(all_paths, 5, axis=1),
+        "p5": np.percentile(all_paths, (1-confidence_level)*100, axis=1),
         "p50": np.percentile(all_paths, 50, axis=1),
-        "p95": np.percentile(all_paths, 95, axis=1),
+        "p95": np.percentile(all_paths, confidence_level*100, axis=1),
         "mean_end": float(np.mean(terminal_vals)),
         "median_end": float(np.median(terminal_vals)),
-        "p5_end": float(np.percentile(terminal_vals, 5)),
-        "p95_end": float(np.percentile(terminal_vals, 95)),
+        "p5_end": float(np.percentile(terminal_vals, (1-confidence_level)*100)),
+        "p95_end": float(np.percentile(terminal_vals, confidence_level*100)),
         "prob_loss": float(np.mean(terminal_rets_pct < 0.0) * 100.0),
     }
 
@@ -471,7 +471,7 @@ def render_risk_diversification_and_mc_section(
 
     # Summary Stats Table from erk.summary_stats (Pre vs Post)
     if not pre_metrics["summary_df"].empty and not post_metrics["summary_df"].empty:
-        with st.expander("📋 View Full `erk.summary_stats` Table (Pre-Trade vs. Post-Trade)", expanded=False):
+        with st.expander("📋 View Full Summary Table (Pre-Trade vs. Post-Trade)", expanded=False):
             comb_stats = pd.concat([
                 pre_metrics["summary_df"].rename(index={"Portfolio": "Pre-Trade Portfolio"}),
                 post_metrics["summary_df"].rename(index={"Portfolio": "Post-Trade Portfolio"}),
@@ -479,7 +479,7 @@ def render_risk_diversification_and_mc_section(
             st.dataframe(comb_stats, use_container_width=True)
 
     # Weight Distribution vs Risk Contribution Graph & Table (erk.risk_contribution)
-    st.markdown("### ⚖️ Weight Distribution vs. Risk Contribution (`erk.risk_contribution` & `erk.enc`)")
+    st.markdown("### ⚖️ Weight Distribution vs. Risk Contribution")
     rc_col1, rc_col2 = st.columns([1.8, 1.2])
     with rc_col1:
         rc_df = post_div["table_df"]
@@ -547,7 +547,7 @@ def render_risk_diversification_and_mc_section(
     st.plotly_chart(fig_bm, use_container_width=True, config=CHART_CONFIG)
 
     # Cholesky Monte Carlo Simulation (via erk.cholesky_returns(..., return_prices=False))
-    st.markdown(f"### 🎲 Cholesky Monte Carlo Simulation ({time_horizon_days}D Horizon via `erk.cholesky_returns`)")
+    st.markdown(f"### 🎲 Cholesky Monte Carlo Simulation ({time_horizon_days}D Horizon)")
     mc_c1, mc_c2 = st.columns([1.2, 2.8])
     with mc_c1:
         mc_sims = st.select_slider("Monte Carlo Paths", options=[200, 500, 1000, 2000], value=500, key=f"{prefix_key}_mc_sims")
@@ -559,8 +559,8 @@ def render_risk_diversification_and_mc_section(
             n_sims=int(mc_sims),
         )
         st.metric("Median Projected Value", f"{currency} {mc_res['median_end']:,.0f}")
-        st.metric("5th Pct (Tail) Value", f"{currency} {mc_res['p5_end']:,.0f}", delta=f"Prob. Loss: {mc_res['prob_loss']:.1f}%", delta_color="inverse")
-        st.metric("95th Pct (Upside) Value", f"{currency} {mc_res['p95_end']:,.0f}")
+        st.metric("Tail Value", f"{currency} {mc_res['p5_end']:,.0f}", delta=f"Prob. Loss: {mc_res['prob_loss']:.1f}%", delta_color="inverse")
+        st.metric("Upside Value", f"{currency} {mc_res['p95_end']:,.0f}")
     with mc_c2:
         day_axis = np.arange(0, mc_res["paths"].shape[0])
         fig_mc = go.Figure()
