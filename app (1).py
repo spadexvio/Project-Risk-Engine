@@ -843,51 +843,6 @@ elif st.session_state["page"] == "analytics":
     ])
 
     with sec_tab2:
-        # st.subheader(f"Live Market Context: {current_cfg['name']}")
-        # tf_options = {
-        #     "1D": {"days": 1, "label": "past day"},
-        #     "5D": {"days": 5, "label": "past 5 days"},
-        #     "1M": {"days": 30, "label": "past month"},
-        #     "6M": {"days": 180, "label": "past 6 months"},
-        #     "YTD": {"days": "YTD", "label": "year to date"},
-        #     "1Y": {"days": 365, "label": "past year"},
-        #     "5Y": {"days": 1825, "label": "past 5 years"},
-        #     "MAX": {"days": 3650, "label": "all time"},
-        # }
-        # selected_tf = st.segmented_control("Timeframe", options=list(tf_options.keys()), default="6M", label_visibility="collapsed")
-        # try:
-        #     end_d = datetime.datetime.now()
-        #     tf_info = tf_options.get(selected_tf, tf_options["6M"])
-        #     start_d = datetime.datetime(end_d.year, 1, 1) if tf_info["days"] == "YTD" else end_d - datetime.timedelta(days=tf_info["days"])
-        #     interval = "15m" if selected_tf == "1D" else "1d"
-        #     bench_raw = yf.download(current_cfg["symbol"], start=start_d, end=end_d, interval=interval, progress=False, auto_adjust=True)
-        #     if not bench_raw.empty:
-        #         chart_series = bench_raw["Close"] if "Close" in bench_raw.columns else bench_raw.iloc[:, 0]
-        #         if isinstance(chart_series, pd.DataFrame):
-        #             chart_series = chart_series.squeeze()
-        #         chart_df = chart_series.dropna().reset_index()
-        #         chart_df.columns = ["Date", "Close"]
-        #         start_price, latest_price = chart_df["Close"].iloc[0], chart_df["Close"].iloc[-1]
-        #         abs_change = latest_price - start_price
-        #         pct_change = (abs_change / start_price) * 100
-        #         is_falling = abs_change < 0
-        #         theme_color = "#D93025" if is_falling else "#188038"
-        #         fill_color = "rgba(217, 48, 37, 0.10)" if is_falling else "rgba(24, 128, 56, 0.10)"
-        #         st.markdown(
-        #             f"""<div style="margin-bottom:8px;">
-        #                 <span style="font-size:2rem;font-weight:700;color:#202124;">{latest_price:,.2f}</span>
-        #                 <span style="background-color:{'#FCE8E6' if is_falling else '#E6F4EA'};color:{theme_color};padding:3px 8px;border-radius:4px;font-weight:600;margin-left:10px;">{'↓' if is_falling else '↑'} {abs(pct_change):.2f}%</span>
-        #                 <span style="color:{theme_color};font-weight:600;margin-left:6px;">{'' if is_falling else '+'}{abs_change:,.2f}</span>
-        #                 <span style="color:#5f6368;font-size:0.9rem;margin-left:6px;">{tf_info['label']}</span>
-        #             </div>""",
-        #             unsafe_allow_html=True,
-        #         )
-        #         fig_idx = go.Figure()
-        #         fig_idx.add_trace(go.Scatter(x=chart_df["Date"], y=chart_df["Close"], mode="lines", line=dict(color=theme_color, width=2), fill="tonexty", fillcolor=fill_color))
-        #         fig_idx.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), xaxis=dict(fixedrange=True), yaxis=dict(range=[chart_df["Close"].min() * 0.998, chart_df["Close"].max() * 1.002], fixedrange=True), dragmode=False, hovermode="x unified", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-        #         st.plotly_chart(fig_idx, use_container_width=True, config=CHART_CONFIG)
-        # except Exception as e:
-        #     st.warning(f"Benchmark index chart error: {e}")
 
         st.markdown("---")
         st.subheader(f"{exchange} Sector Performance & Stock Leaders")
