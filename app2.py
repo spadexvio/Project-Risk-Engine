@@ -952,13 +952,8 @@ elif st.session_state["page"] == "analytics":
     #         "JSE Retail & Consumer": {"indices": ["^J213.JO"], "stocks": ["WHL.JO", "SHP.JO", "MRP.JO", "CLS.JO", "PIK.JO", "SPP.JO"]},
     #     },
     # }
-    @st.cache_data
-    def load_nse_bse_sectors(json_path: Path) -> dict:
-        with json_path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
         
-    ALL_EXCHANGE_CONFIGS = load_nse_bse_sectors("stock-sectors-nse-bse.json")
+    ALL_EXCHANGE_CONFIGS = "stock-sectors-nse-bse.json"
     sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["NSE"])
     ticker_to_sector = {}
     for sec_name, sec_data in sector_config.items():
