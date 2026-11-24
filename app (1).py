@@ -1335,26 +1335,60 @@ elif st.session_state["page"] == "analytics":
             # ------------------------------------------------------------------
             st.markdown("---")
             st.markdown("## Stage 2: Proposed Rebalance")
-            r2_c1, r2_c2, r2_c3 = st.columns(3)
+            r2_c1, r2_c2 = st.columns(2)
             with r2_c1:
                 cash_flow_sim = st.number_input(f"Simulate Cash Inflow (+) / Outflow (-) ({currency})", value=0.0, step=50000.0 if currency == "INR" else 1000.0, key="sc_cash_flow")
             with r2_c2:
                 friction_bps = st.slider("Est. Friction Cost (bps on traded notional)", min_value=0, max_value=100, value=15, step=5, key="sc_friction_bps")
-            with r2_c3:
-                added_stocks_raw = st.text_input(
-                    "Add New Stocks to Buy (comma-separated)",
+
+            st.markdown("#### ➕ Add New Stock(s) to Rebalance")
+            if "sc_added_tickers_list" not in st.session_state:
+                st.session_state["sc_added_tickers_list"] = []
+
+            # Build curated suggestion list for the active exchange
+            exchange_suggestions = sorted({
+                stk.split(".")[0].upper()
+                for sec_data in sector_config.values()
+                for stk in sec_data.get("stocks", [])
+            })
+
+            add_c1, add_c2, add_c3, add_c4 = st.columns([2.0, 2.0, 1.3, 1.0])
+            with add_c1:
+                picked_from_list = st.multiselect(
+                    "Pick from Exchange Universe",
+                    options=exchange_suggestions,
+                    default=[t for t in st.session_state["sc_added_tickers_list"] if t in exchange_suggestions],
+                    placeholder="Select stocks (e.g. TCS, INFY)...",
+                    key="sc_pick_universe",
+                )
+            with add_c2:
+                custom_tickers_raw = st.text_input(
+                    "Or Type Custom Ticker(s) (comma-separated)",
                     value="",
-                    placeholder="e.g. TCS, INFY, ITC",
+                    placeholder="e.g. ZOMATO, TRENT, BEL",
                     key="sc_added_stocks",
                 ).strip().upper()
+            with add_c3:
                 default_added_wt = st.number_input(
-                    "Default Target Wt per Added Stock (%)",
+                    "Initial Target Wt (%)",
                     min_value=0.0,
                     max_value=100.0,
                     value=10.0,
                     step=1.0,
                     key="sc_default_added_wt",
                 )
+            with add_c4:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                if st.button("Clear Added", key="sc_clear_added_btn"):
+                    st.session_state["sc_added_tickers_list"] = []
+                    st.rerun()
+
+            custom_list = [p.strip().upper() for p in custom_tickers_raw.split(",") if p.strip()]
+            combined_added = []
+            for item in picked_from_list + custom_list:
+                if item and item != "NAN" and item not in combined_added:
+                    combined_added.append(item)
+            st.session_state["sc_added_tickers_list"] = combined_added
 
             existing_tickers = []
             for t in client_holdings_df["Ticker"]:
@@ -1362,12 +1396,10 @@ elif st.session_state["page"] == "analytics":
                 if tu and tu != "NAN" and tu not in existing_tickers:
                     existing_tickers.append(tu)
 
-            added_tickers = []
-            if added_stocks_raw:
-                for part in added_stocks_raw.split(","):
-                    pu = part.strip().upper()
-                    if pu and pu != "NAN" and pu not in existing_tickers and pu not in added_tickers:
-                        added_tickers.append(pu)
+            added_tickers = [
+                pu for pu in st.session_state.get("sc_added_tickers_list", [])
+                if pu and pu != "NAN" and pu not in existing_tickers
+            ]
 
             clean_tickers = existing_tickers + added_tickers
 
