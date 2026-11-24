@@ -575,9 +575,9 @@ def render_risk_diversification_and_mc_section(
                 showlegend=False,
                 hoverinfo="skip",
             ))
-        fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p95"], mode="lines", name="95th Percentile", line=dict(color="#16A34A", dash="dot", width=2)))
+        fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p95"], mode="lines", name="Upside", line=dict(color="#16A34A", dash="dot", width=2)))
         fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p50"], mode="lines", name="Median (50th Pct)", line=dict(color="#1A2B4C", width=2.5)))
-        fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p5"], mode="lines", name="5th Percentile (Downside)", line=dict(color="#DC2626", dash="dash", width=2)))
+        fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p5"], mode="lines", name="Downside", line=dict(color="#DC2626", dash="dash", width=2)))
         fig_mc.update_layout(
             height=290,
             margin=dict(l=10, r=10, t=20, b=10),
