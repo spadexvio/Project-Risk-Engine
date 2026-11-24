@@ -269,6 +269,129 @@ def sortino_ratio(returns_series, rfr=0.055, target_return=0.0, periods_per_year
     return annualized_excess_return / downside_std
 
 
+
+
+def compute_quant_metrics(ret_series, weights, rfr_annual=0.065, target_return_pct=6.5, periods_per_year=252):
+    """Computes annualized return, annualized volatility, Sharpe (via erk), Sortino, and max drawdown."""
+    s = pd.Series(ret_series).dropna()
+    if s.empty:
+        return {"ann_ret": 0.0, "ann_vol": 0.0, "sharpe": 0.0, "sortino": 0.0, "max_dd": 0.0}
+    ann_ret = float(s.mean() * periods_per_year * 100.0)
+    ann_vol = float(s.std() * np.sqrt(periods_per_year) * 100.0)
+
+    sharpe_val = np.nan
+    if hasattr(erk, "sharpe_ratio"):
+        try:
+            raw_sh = erk.sharpe_ratio(s, rfr_annual, periods_per_year)
+            if isinstance(raw_sh, (pd.Series, np.ndarray)):
+                sharpe_val = float(pd.Series(raw_sh).iloc[0])
+            else:
+                sharpe_val = float(raw_sh)
+        except Exception:
+            sharpe_val = np.nan
+    if np.isnan(sharpe_val) or np.isinf(sharpe_val):
+        rfr_p = rfr_annual / periods_per_year
+        vol_p = s.std()
+        sharpe_val = float(((s.mean() - rfr_p) / vol_p) * np.sqrt(periods_per_year)) if vol_p > 0 else 0.0
+
+    sort_val = sortino_ratio(s, rfr=rfr_annual, target_return=target_return_pct, periods_per_year=periods_per_year)
+    sort_val = 0.0 if (sort_val is None or np.isnan(sort_val) or np.isinf(sort_val)) else float(sort_val)
+
+    cum_idx = (1.0 + s).cumprod()
+    peak = cum_idx.cummax()
+    dd = (cum_idx - peak) / peak
+    max_dd = float(abs(dd.min()) * 100.0) if not dd.empty else 0.0
+    if hasattr(erk, "summary_stats"):
+        try:
+            stats_df = erk.summary_stats(s.to_frame("Port"), rfr_annual)
+            if isinstance(stats_df, pd.DataFrame) and "Max Drawdown" in stats_df.columns:
+                max_dd = float(abs(stats_df["Max Drawdown"].iloc[0]) * 100.0)
+        except Exception:
+            pass
+
+    return {
+        "ann_ret": ann_ret,
+        "ann_vol": ann_vol,
+        "sharpe": sharpe_val,
+        "sortino": sort_val,
+        "max_dd": max_dd,
+    }
+
+
+def run_cholesky_monte_carlo(ret_matrix, weights, initial_val, horizon_days=30, n_sims=2000, rfr_annual=0.065):
+    """Runs Cholesky-correlated Monte Carlo GBM simulation using erk.cholesky_returns when available."""
+    w = np.asarray(weights, dtype=float)
+    if w.sum() > 0:
+        w = w / w.sum()
+    else:
+        w = np.ones(ret_matrix.shape[1]) / max(ret_matrix.shape[1], 1)
+
+    mu_daily = ret_matrix.mean().values
+    cov_daily = ret_matrix.cov().values
+    n_assets = len(mu_daily)
+    steps = max(int(horizon_days), 1)
+    sims = max(int(n_sims), 100)
+
+    paths = None
+    if hasattr(erk, "cholesky_returns"):
+        try:
+            # Try signature similar to erk.cholesky_returns(n_scenarios, mu, sigma, steps_per_year, n_steps, initial_value) or price-based
+            try:
+                res = erk.cholesky_returns(sims, mu_daily, cov_daily, 252, steps, float(initial_val))
+                arr = np.asarray(res, dtype=float)
+                if arr.ndim == 3:
+                    # (steps, sims, assets) -> portfolio value paths (steps, sims)
+                    paths = np.tensordot(arr, w, axes=([2], [0]))
+                elif arr.ndim == 2:
+                    if arr.shape[0] == steps or arr.shape[0] == steps + 1:
+                        paths = arr if arr.shape[1] == sims else arr.T
+            except TypeError:
+                price_hist = (1.0 + ret_matrix).cumprod() * 100.0
+                res2 = erk.cholesky_returns(price_hist, sims, steps, False)
+                arr2 = np.asarray(res2, dtype=float)
+                if arr2.ndim == 3:
+                    port_r = np.tensordot(arr2, w, axes=([2], [0]))
+                    paths = float(initial_val) * np.cumprod(1.0 + port_r, axis=0)
+                elif arr2.ndim == 2:
+                    paths = float(initial_val) * np.cumprod(1.0 + arr2, axis=0)
+        except Exception:
+            paths = None
+
+    if paths is None:
+        rng = np.random.default_rng(42)
+        cov_reg = cov_daily + np.eye(n_assets) * 1e-8
+        try:
+            L = np.linalg.cholesky(cov_reg)
+        except np.linalg.LinAlgError:
+            eigvals, eigvecs = np.linalg.eigh(cov_reg)
+            eigvals = np.maximum(eigvals, 1e-8)
+            L = eigvecs @ np.diag(np.sqrt(eigvals))
+
+        z = rng.standard_normal((steps, sims, n_assets))
+        corr_rets = mu_daily[None, None, :] + np.einsum("tij,kj->tik", z, L)
+        port_daily_sim = np.tensordot(corr_rets, w, axes=([2], [0]))
+        paths = float(initial_val) * np.cumprod(1.0 + port_daily_sim, axis=0)
+
+    paths = np.asarray(paths, dtype=float)
+    if paths.shape[0] == steps:
+        start_row = np.full((1, paths.shape[1]), float(initial_val), dtype=float)
+        paths = np.vstack([start_row, paths])
+
+    terminal_vals = paths[-1, :]
+    terminal_rets_pct = ((terminal_vals - float(initial_val)) / max(float(initial_val), 1.0)) * 100.0
+    return {
+        "paths": paths,
+        "p5": np.percentile(paths, 5, axis=1),
+        "p50": np.percentile(paths, 50, axis=1),
+        "p95": np.percentile(paths, 95, axis=1),
+        "mean_end": float(np.mean(terminal_vals)),
+        "median_end": float(np.median(terminal_vals)),
+        "p5_end": float(np.percentile(terminal_vals, 5)),
+        "p95_end": float(np.percentile(terminal_vals, 95)),
+        "prob_loss": float(np.mean(terminal_rets_pct < 0.0) * 100.0),
+    }
+
+
 def _fpdf_clean(val):
     """Sanitizes strings for FPDF core fonts (latin-1 safe without Unicode crashes)."""
     s = str(val if val is not None else "")
@@ -1218,12 +1341,35 @@ elif st.session_state["page"] == "analytics":
             with r2_c2:
                 friction_bps = st.slider("Est. Friction Cost (bps on traded notional)", min_value=0, max_value=100, value=15, step=5, key="sc_friction_bps")
             with r2_c3:
-                new_ticker_add = st.text_input("Add / Exit Stock Ticker (optional)", value="", placeholder="e.g. TCS", key="sc_new_ticker").strip().upper()
-                new_ticker_target_pct = st.number_input("New Ticker Target Wt (%)", min_value=0.0, max_value=100.0, value=0.0, step=1.0, key="sc_new_ticker_wt")
+                added_stocks_raw = st.text_input(
+                    "Add New Stocks to Buy (comma-separated)",
+                    value="",
+                    placeholder="e.g. TCS, INFY, ITC",
+                    key="sc_added_stocks",
+                ).strip().upper()
+                default_added_wt = st.number_input(
+                    "Default Target Wt per Added Stock (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=10.0,
+                    step=1.0,
+                    key="sc_default_added_wt",
+                )
 
-            clean_tickers = [str(t).strip().upper() for t in client_holdings_df["Ticker"] if str(t).strip() and str(t).strip().upper() != "NAN"]
-            if new_ticker_add and new_ticker_add not in clean_tickers:
-                clean_tickers.append(new_ticker_add)
+            existing_tickers = []
+            for t in client_holdings_df["Ticker"]:
+                tu = str(t).strip().upper()
+                if tu and tu != "NAN" and tu not in existing_tickers:
+                    existing_tickers.append(tu)
+
+            added_tickers = []
+            if added_stocks_raw:
+                for part in added_stocks_raw.split(","):
+                    pu = part.strip().upper()
+                    if pu and pu != "NAN" and pu not in existing_tickers and pu not in added_tickers:
+                        added_tickers.append(pu)
+
+            clean_tickers = existing_tickers + added_tickers
 
             if not clean_tickers:
                 st.warning("Add at least one valid stock ticker in Stage 1 or Stage 2 to compute risk and pre-trade diffs.")
@@ -1258,14 +1404,20 @@ elif st.session_state["page"] == "analytics":
             total_curr_nav = total_curr_equity + float(client_cash)
             curr_wts = (current_vals / total_curr_nav) if total_curr_nav > 0 else np.zeros(len(valid_pairs))
 
-            st.write("**Set Proposed Target Weights (%) — normalized across equities (remaining cash kept/deployed):**")
+            st.write("**Adjust Target Weights (%) for Existing Holdings & Any Newly Added Stocks:**")
             tw_cols = st.columns(min(len(valid_pairs), 5))
             raw_target_pcts = []
-            default_eq_wt = (1.0 / len(valid_pairs)) * 100.0
+            rem_existing_count = max(sum(1 for bt, _ in valid_pairs if bt not in added_tickers), 1)
+            added_total_pct = sum(float(default_added_wt) for bt, _ in valid_pairs if bt in added_tickers)
+            rem_pool_pct = max(0.0, 100.0 - min(added_total_pct, 95.0))
+            default_ex_wt = rem_pool_pct / rem_existing_count
+
             for idx, (bt, _) in enumerate(valid_pairs):
                 with tw_cols[idx % len(tw_cols)]:
-                    init_val = float(new_ticker_target_pct) if (bt == new_ticker_add and new_ticker_target_pct > 0) else round(default_eq_wt, 2)
-                    val_pct = st.number_input(f"Target %: {bt}", min_value=0.0, max_value=100.0, value=init_val, step=1.0, key=f"sc_tw_{bt}")
+                    is_added = bt in added_tickers
+                    init_val = float(default_added_wt) if is_added else round(default_ex_wt, 2)
+                    lbl = f"Target %: {bt} (NEW)" if is_added else f"Target %: {bt}"
+                    val_pct = st.number_input(lbl, min_value=0.0, max_value=100.0, value=init_val, step=1.0, key=f"sc_tw_{bt}")
                     raw_target_pcts.append(val_pct)
 
             post_nav = max(total_curr_nav + float(cash_flow_sim), 1.0)
@@ -1299,7 +1451,7 @@ elif st.session_state["page"] == "analytics":
                 "Est. Friction": np.abs(trade_notional_per_asset) * friction_rate,
             })
 
-            st.write("**Unified Current vs. Proposed Trade Table**")
+            st.write("**Pre-Trade vs. Post-Trade Allocation & Order Diff Table**")
             st.dataframe(
                 unified_blotter_df.style.format({
                     "Current Wt (%)": "{:.2f}%",
@@ -1315,17 +1467,20 @@ elif st.session_state["page"] == "analytics":
             )
 
             # ------------------------------------------------------------------
-            # STAGE 3: PRE-TRADE DIFF & MANDATE GATE
+            # STAGE 3: PRE-TRADE DIFF, BENCHMARK GRAPH, QUANT METRICS & MONTE CARLO
             # ------------------------------------------------------------------
             st.markdown("---")
-            st.markdown("## Stage 3: Pre-Trade Diff & Mandate Gate")
+            st.markdown("## Stage 3: Pre-Trade Diff, Benchmark Comparison & Risk / Monte Carlo")
 
             ret_matrix = p_df[[yt for _, yt in valid_pairs]].pct_change().dropna()
             pre_port_ret = ret_matrix.dot(curr_wts) if curr_wts.sum() > 0 else ret_matrix.iloc[:, 0] * 0.0
             post_port_ret = ret_matrix.dot(prop_wts) if prop_wts.sum() > 0 else ret_matrix.iloc[:, 0] * 0.0
 
-            pre_vol_pct = float(pre_port_ret.std() * np.sqrt(252) * 100.0)
-            post_vol_pct = float(post_port_ret.std() * np.sqrt(252) * 100.0)
+            pre_metrics = compute_quant_metrics(pre_port_ret, curr_wts, rfr_annual=rfr_annual, target_return_pct=target_return_pct)
+            post_metrics = compute_quant_metrics(post_port_ret, prop_wts, rfr_annual=rfr_annual, target_return_pct=target_return_pct)
+
+            pre_vol_pct = pre_metrics["ann_vol"]
+            post_vol_pct = post_metrics["ann_vol"]
 
             q_pct = (1.0 - confidence_level) * 100.0
             pre_var_1d = float(np.percentile(pre_port_ret, q_pct))
@@ -1333,17 +1488,26 @@ elif st.session_state["page"] == "analytics":
             pre_cvar_pct = float(abs(pre_port_ret[pre_port_ret <= pre_var_1d].mean()) * np.sqrt(time_horizon_days) * 100.0) if (pre_port_ret <= pre_var_1d).any() else 0.0
             post_cvar_pct = float(abs(post_port_ret[post_port_ret <= post_var_1d].mean()) * np.sqrt(time_horizon_days) * 100.0) if (post_port_ret <= post_var_1d).any() else 0.0
 
-            # Beta vs benchmark
+            # Benchmark alignment for Portfolio vs Market graph (Pre-Trade & Post-Trade)
             beta_val = 1.0
+            b_cum_pct = None
             try:
                 b_raw = yf.download(current_cfg["symbol"], start=ret_matrix.index[0], end=ret_matrix.index[-1], progress=False)
                 b_ser = b_raw["Close"].squeeze() if isinstance(b_raw, pd.DataFrame) and "Close" in b_raw else pd.Series(dtype=float)
                 b_ret = b_ser.pct_change().dropna()
-                aligned = pd.DataFrame({"p": post_port_ret, "m": b_ret}).dropna()
+                aligned = pd.DataFrame({"pre": pre_port_ret, "post": post_port_ret, "m": b_ret}).dropna()
                 if len(aligned) > 10 and np.var(aligned["m"]) > 0:
-                    beta_val = float(np.cov(aligned["p"], aligned["m"])[0, 1] / np.var(aligned["m"]))
+                    beta_val = float(np.cov(aligned["post"], aligned["m"])[0, 1] / np.var(aligned["m"]))
+                if not aligned.empty:
+                    pre_cum_pct = ((1.0 + aligned["pre"]).cumprod() - 1.0) * 100.0
+                    post_cum_pct = ((1.0 + aligned["post"]).cumprod() - 1.0) * 100.0
+                    b_cum_pct = ((1.0 + aligned["m"]).cumprod() - 1.0) * 100.0
+                else:
+                    pre_cum_pct = ((1.0 + pre_port_ret).cumprod() - 1.0) * 100.0
+                    post_cum_pct = ((1.0 + post_port_ret).cumprod() - 1.0) * 100.0
             except Exception:
-                beta_val = 1.0
+                pre_cum_pct = ((1.0 + pre_port_ret).cumprod() - 1.0) * 100.0
+                post_cum_pct = ((1.0 + post_port_ret).cumprod() - 1.0) * 100.0
 
             pre_max_stock = float(curr_wts.max() * 100.0) if len(curr_wts) else 0.0
             post_max_stock = float(prop_wts.max() * 100.0) if len(prop_wts) else 0.0
@@ -1363,6 +1527,74 @@ elif st.session_state["page"] == "analytics":
             pm3.metric("Max Stock Wt", f"{post_max_stock:.2f}%", delta=f"{post_max_stock - pre_max_stock:+.2f}% vs pre", delta_color="inverse")
             pm4.metric("Max Sector Wt", f"{post_max_sec:.2f}%", delta=f"{post_max_sec - pre_max_sec:+.2f}% vs pre", delta_color="inverse")
             pm5.metric("Turnover / Friction", f"{turnover_pct:.2f}%", delta=f"{currency} {total_friction_amt:,.0f} (Beta {beta_val:.2f})", delta_color="off")
+
+            qm1, qm2, qm3, qm4 = st.columns(4)
+            qm1.metric("Ann. Return (Post)", f"{post_metrics['ann_ret']:+.2f}%", delta=f"{post_metrics['ann_ret'] - pre_metrics['ann_ret']:+.2f}% vs pre")
+            qm2.metric("Sharpe Ratio (erk)", f"{post_metrics['sharpe']:.2f}", delta=f"{post_metrics['sharpe'] - pre_metrics['sharpe']:+.2f} vs pre")
+            qm3.metric("Sortino Ratio", f"{post_metrics['sortino']:.2f}", delta=f"{post_metrics['sortino'] - pre_metrics['sortino']:+.2f} vs pre")
+            qm4.metric("Max Drawdown", f"{post_metrics['max_dd']:.2f}%", delta=f"{post_metrics['max_dd'] - pre_metrics['max_dd']:+.2f}% vs pre", delta_color="inverse")
+
+            # Portfolio vs Market Benchmark Graph (Pre-Trade vs Post-Trade)
+            st.markdown("### 📈 Portfolio vs. Market Benchmark (Pre-Trade vs. Post-Trade)")
+            fig_bm = go.Figure()
+            fig_bm.add_trace(go.Scatter(
+                x=pre_cum_pct.index, y=pre_cum_pct.values,
+                mode="lines", name="Current Portfolio (Pre-Trade)",
+                line=dict(color="#2563EB", width=2)
+            ))
+            fig_bm.add_trace(go.Scatter(
+                x=post_cum_pct.index, y=post_cum_pct.values,
+                mode="lines", name="Proposed Portfolio (Post-Trade)",
+                line=dict(color="#16A34A", width=2.5)
+            ))
+            if b_cum_pct is not None and not b_cum_pct.empty:
+                fig_bm.add_trace(go.Scatter(
+                    x=b_cum_pct.index, y=b_cum_pct.values,
+                    mode="lines", name=f"Benchmark ({current_cfg['name']})",
+                    line=dict(color="#DC2626", width=2, dash="dash")
+                ))
+            fig_bm.update_layout(
+                height=310,
+                margin=dict(l=10, r=10, t=20, b=10),
+                yaxis_title="Cumulative Return (%)",
+                xaxis_title="Date",
+                hovermode="x unified",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig_bm, use_container_width=True, config=CHART_CONFIG)
+
+            # Monte Carlo Simulation (Cholesky via erk) right on this page
+            st.markdown(f"### 🎲 Cholesky Monte Carlo Simulation ({time_horizon_days}D Horizon)")
+            mc_c1, mc_c2 = st.columns([1.2, 2.8])
+            with mc_c1:
+                mc_sims = st.select_slider("Monte Carlo Paths", options=[500, 1000, 2000, 5000], value=1000, key="sc_mc_sims")
+                mc_res = run_cholesky_monte_carlo(
+                    ret_matrix=ret_matrix[[yt for _, yt in valid_pairs]],
+                    weights=prop_wts,
+                    initial_val=post_nav,
+                    horizon_days=int(time_horizon_days),
+                    n_sims=int(mc_sims),
+                    rfr_annual=rfr_annual,
+                )
+                st.metric("Median Projected Value", f"{currency} {mc_res['median_end']:,.0f}")
+                st.metric("5th Pct (Tail) Value", f"{currency} {mc_res['p5_end']:,.0f}", delta=f"Prob. Loss: {mc_res['prob_loss']:.1f}%", delta_color="inverse")
+            with mc_c2:
+                day_axis = np.arange(0, mc_res["paths"].shape[0])
+                fig_mc = go.Figure()
+                fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p95"], mode="lines", name="95th Percentile", line=dict(color="#16A34A", dash="dot")))
+                fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p50"], mode="lines", name="Median (50th Pct)", line=dict(color="#1A2B4C", width=2.5)))
+                fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p5"], mode="lines", name="5th Percentile (Downside)", line=dict(color="#DC2626", dash="dash")))
+                fig_mc.update_layout(
+                    height=260,
+                    margin=dict(l=10, r=10, t=20, b=10),
+                    xaxis_title="Trading Days Ahead",
+                    yaxis_title=f"Portfolio Value ({currency})",
+                    hovermode="x unified",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)"
+                )
+                st.plotly_chart(fig_mc, use_container_width=True, config=CHART_CONFIG)
 
             # ------------------------------------------------------------------
             # STAGE 4: LOG RATIONALE & EXPORT AUDIT PACKET (SINGLE CLIENT)
