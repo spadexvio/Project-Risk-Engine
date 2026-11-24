@@ -954,10 +954,7 @@ elif st.session_state["page"] == "analytics":
     # }
         
     ALL_EXCHANGE_CONFIGS = "stock-sectors-nse-bse.json"
-    if isinstance(ALL_EXCHANGE_CONFIGS, str):
-        p = Path(ALL_EXCHANGE_CONFIGS)
-        raw = p.read_text(encoding="utf-8") if p.exists() else ALL_EXCHANGE_CONFIGS
-        ALL_EXCHANGE_CONFIGS = json.loads(raw)
+    ALL_EXCHANGE_CONFIGS = json.loads(ALL_EXCHANGE_CONFIGS)
     sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["NSE"])
     ticker_to_sector = {}
     for sec_name, sec_data in sector_config.items():
