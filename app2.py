@@ -6,862 +6,963 @@ import datetime
 import io
 import plotly.io as pio
 import plotly.express as px
-import IPython.lib.deepreload # or built-in importlib
+import plotly.graph_objects as go
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
 import json
-
-# Automatically reload imported local modules on every Streamlit run
 import importlib
+from fpdf import FPDF
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    Image as RLImage,
+)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
 import quant_risk_kit as erk
 importlib.reload(erk)
 
 # --- PAGE CONFIGURATION ---
 st.markdown(
-    '<meta name="color-scheme" content="light dark">', 
-    unsafe_allow_html=True
+    '<meta name="color-scheme" content="light dark">',
+    unsafe_allow_html=True,
 )
 st.set_page_config(
     page_title="WIRATOR",
     page_icon="🛡️",
-    layout="wide"
+    layout="wide",
 )
 
-# --- SESSION STATE NAVIGATION MANAGEMENT ---
-if 'page' not in st.session_state:
-    st.session_state['page'] = 'landing'
-if 'exchange' not in st.session_state:
-    st.session_state['exchange'] = None
+# --- SESSION STATE NAVIGATION & WORKSPACE MANAGEMENT ---
+if "page" not in st.session_state:
+    st.session_state["page"] = "landing"
+if "exchange" not in st.session_state:
+    st.session_state["exchange"] = None
+if "use_demo" not in st.session_state:
+    st.session_state["use_demo"] = False
+if "pdf_data" not in st.session_state:
+    st.session_state["pdf_data"] = None
+if "batch_audit_log" not in st.session_state:
+    st.session_state["batch_audit_log"] = []
+
 
 def navigate_to(page_name, exchange=None):
-    st.session_state['page'] = page_name
-    st.session_state['exchange'] = exchange
+    st.session_state["page"] = page_name
+    st.session_state["exchange"] = exchange
+
 
 CHART_CONFIG = {
-    'displayModeBar': False,
-    'modeBarButtonsToRemove': [
-        '2d', 'pan2d', 'select2d', 'lasso2d', 
-        'In2d', 'Out2d', 'autoScale2d', 'resetScale2d'
+    "displayModeBar": False,
+    "modeBarButtonsToRemove": [
+        "2d", "pan2d", "select2d", "lasso2d",
+        "In2d", "Out2d", "autoScale2d", "resetScale2d",
     ],
-    'toImageButtonOptions': {
-        'format': 'png', 
-        'filename': 'wirator_risk_audit',
-        'height': 600,
-        'width': 1000,
-        'scale': 2
+    "toImageButtonOptions": {
+        "format": "png",
+        "filename": "wirator_risk_audit",
+        "height": 600,
+        "width": 1000,
+        "scale": 2,
     },
-    'displaylogo': False
+    "displaylogo": False,
 }
-demo=0
+
+
+def resolve_yf_tickers(raw_tickers, current_cfg):
+    """Resolves exchange suffixes (including EU multi-exchange fallbacks) for Yahoo Finance."""
+    all_eu_suffixes = [".AS", ".DE", ".PA", ".MI", ".MC", ".SW", ".ST", ".BR"]
+    resolved = []
+    for raw_ticker in raw_tickers:
+        rt = str(raw_ticker).strip().upper()
+        if not rt or rt == "NAN":
+            resolved.append("")
+            continue
+        if current_cfg.get("name") == "STOXX Europe 600" and not any(rt.endswith(sfx) for sfx in all_eu_suffixes):
+            found_valid = False
+            for sfx in all_eu_suffixes:
+                test_symbol = f"{rt}{sfx}"
+                try:
+                    test_data = yf.download(test_symbol, period="5d", progress=False)
+                    if not test_data.empty:
+                        resolved.append(test_symbol)
+                        found_valid = True
+                        break
+                except Exception:
+                    continue
+            if not found_valid:
+                resolved.append(f"{rt}{current_cfg.get('suffix', '')}")
+        else:
+            if any(rt.endswith(sfx) for sfx in all_eu_suffixes) or current_cfg.get("name") != "STOXX Europe 600":
+                sfx_to_add = "" if any(rt.endswith(sfx) for sfx in all_eu_suffixes) else current_cfg.get("suffix", "")
+                resolved.append(f"{rt}{sfx_to_add}")
+            else:
+                resolved.append(rt)
+    return resolved
+
+
+def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
+    """Parses portfolio CSVs, filters out 'INF' non-equities, matches masked ISINs, and returns holdings + cost flag."""
+    try:
+        if not is_demo:
+            uploaded_file.seek(0)
+            bytes_data = uploaded_file.read()
+            if not bytes_data:
+                return pd.DataFrame(columns=["Ticker", "Quantity", "Cost Price"]), False
+            safe_buffer = io.BytesIO(bytes_data)
+            raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines="skip")
+            raw_df = raw_df.dropna(how="all").dropna(how="all", axis=1)
+            if raw_df.empty:
+                return pd.DataFrame(columns=["Ticker", "Quantity", "Cost Price"]), False
+        else:
+            raw_df = uploaded_file
+
+        raw_df.columns = raw_df.columns.astype(str).str.strip()
+        possible_id_cols = ["ISIN No", "ISIN", "ISIN NUMBER", "ISIN Code", "Isin", "ISIN_NO", "CIK"]
+        possible_ticker_cols = ["Stock Symbol", "Symbol", "Ticker", "Stock", "Security", "Company", "Scrip"]
+        possible_qty_cols = ["Qty", "Quantity", "qty", "Shares", "Volume", "Units", "Holdings"]
+        possible_cost_cols = ["Average Cost Price", "Cost Price", "Buy Price", "Average Price", "Avg Cost", "Avg_Cost", "Price", "Cost"]
+
+        id_col = next((col for col in possible_id_cols if col in raw_df.columns), None)
+        ticker_col = next((col for col in possible_ticker_cols if col in raw_df.columns), raw_df.columns[0])
+        qty_col = next((col for col in possible_qty_cols if col in raw_df.columns), raw_df.columns[1] if len(raw_df.columns) > 1 else raw_df.columns[0])
+        cost_col = next((col for col in possible_cost_cols if col in raw_df.columns), None)
+
+        has_valid_cost_col = cost_col is not None
+
+        workspace_json_mapping = {
+            "NSE": "nse_isin_map.json",
+            "BSE": "bse_isin_map.json",
+            "US": "sp500_cik_map.json",
+        }
+
+        id_map = {}
+        if selected_workspace in workspace_json_mapping:
+            json_file = workspace_json_mapping[selected_workspace]
+            if os.path.exists(json_file):
+                with open(json_file, "r") as f:
+                    id_map = json.load(f)
+
+        parsed_rows = []
+        valid_cost_entries = 0
+        for _, row in raw_df.iterrows():
+            raw_id = str(row[id_col]).strip().upper() if id_col and pd.notna(row[id_col]) else ""
+            raw_ticker = str(row[ticker_col]).strip().upper().replace("#", "") if pd.notna(row[ticker_col]) else ""
+
+            if raw_id.startswith("INF") or raw_ticker.startswith("INF"):
+                continue
+
+            try:
+                qty = float(row[qty_col])
+            except (ValueError, TypeError):
+                qty = 1.0
+
+            cost_price = np.nan
+            if cost_col and pd.notna(row[cost_col]):
+                try:
+                    val_str = str(row[cost_col]).replace(",", "").replace("₹", "").replace("$", "").strip()
+                    parsed_c = float(val_str)
+                    if parsed_c > 0:
+                        cost_price = parsed_c
+                        valid_cost_entries += 1
+                except (ValueError, TypeError):
+                    cost_price = np.nan
+
+            base_symbol = ""
+            matched = False
+            if raw_id and id_map:
+                clean_id = raw_id.split("X")[0].replace("*", "").strip()
+                if raw_id in id_map:
+                    base_symbol = id_map[raw_id]
+                    matched = True
+                else:
+                    for full_key, sym in id_map.items():
+                        if full_key.startswith(clean_id) and len(clean_id) >= 8:
+                            base_symbol = sym
+                            matched = True
+                            break
+
+            if not matched:
+                base_symbol = raw_ticker
+
+            if base_symbol and base_symbol != "NAN":
+                parsed_rows.append({"Ticker": base_symbol, "Quantity": int(qty), "Cost Price": cost_price})
+
+        holdings_df = pd.DataFrame(parsed_rows)
+        has_cost = bool(has_valid_cost_col and valid_cost_entries > 0)
+        if not holdings_df.empty:
+            st.success("Portfolio successfully loaded!")
+            return holdings_df, has_cost
+    except Exception as e:
+        st.warning(f"Could not parse custom CSV format: {e}. Using fallback portfolio.")
+    return pd.DataFrame(columns=["Ticker", "Quantity", "Cost Price"]), False
+
+
+def get_default_batch_df(current_cfg):
+    """Provides a realistic sample multi-client batch for Model / Client Batch mode."""
+    if current_cfg.get("default_curr") == "INR":
+        return pd.DataFrame([
+            {"Client_ID": "CLT-101", "PAN_Mask": "ABCPK1234M", "Risk_Tier": "Moderate", "Cash": 1500000.0, "Holdings_JSON": json.dumps({"HDFCBANK": 1200, "INFY": 1500, "RELIANCE": 900}), "Mandate_Vol_Cap": 22.0, "Max_Stock_Cap": 15.0, "Rationale": "Balanced core equity exposure aligned with 5Y moderate growth mandate."},
+            {"Client_ID": "CLT-102", "PAN_Mask": "DEFPR5678Q", "Risk_Tier": "Conservative", "Cash": 2500000.0, "Holdings_JSON": json.dumps({"HDFCBANK": 800, "ITC": 3000, "SUNPHARMA": 700}), "Mandate_Vol_Cap": 14.0, "Max_Stock_Cap": 12.0, "Rationale": "Defensive cash-flow & pharma tilt with higher cash buffer for capital preservation."},
+            {"Client_ID": "CLT-103", "PAN_Mask": "GHIST9012L", "Risk_Tier": "Aggressive", "Cash": 800000.0, "Holdings_JSON": json.dumps({"JSWENERGY": 3000, "TATASTEEL": 4000, "RELIANCE": 1200}), "Mandate_Vol_Cap": 32.0, "Max_Stock_Cap": 20.0, "Rationale": "High-beta cyclical & energy tilt suited for aggressive multi-year horizon."},
+            {"Client_ID": "CLT-104", "PAN_Mask": "JKLUV3456N", "Risk_Tier": "Moderate", "Cash": 1000000.0, "Holdings_JSON": json.dumps({"ICICIBANK": 1800, "TCS": 500, "MARUTI": 200}), "Mandate_Vol_Cap": 20.0, "Max_Stock_Cap": 15.0, "Rationale": ""},
+        ])
+    return pd.DataFrame([
+        {"Client_ID": "CLT-101", "PAN_Mask": "XXX-11-1234", "Risk_Tier": "Moderate", "Cash": 25000.0, "Holdings_JSON": json.dumps({"AAPL": 200, "MSFT": 150, "JPM": 180}), "Mandate_Vol_Cap": 22.0, "Max_Stock_Cap": 15.0, "Rationale": "Core large-cap allocation aligned with moderate growth risk profile."},
+        {"Client_ID": "CLT-102", "PAN_Mask": "XXX-11-5678", "Risk_Tier": "Conservative", "Cash": 40000.0, "Holdings_JSON": json.dumps({"JNJ": 220, "PG": 250, "UNH": 100}), "Mandate_Vol_Cap": 14.0, "Max_Stock_Cap": 12.0, "Rationale": "Defensive healthcare & staples tilt with elevated cash reserve."},
+        {"Client_ID": "CLT-103", "PAN_Mask": "XXX-11-9012", "Risk_Tier": "Aggressive", "Cash": 15000.0, "Holdings_JSON": json.dumps({"NVDA": 400, "META": 200, "CAT": 250}), "Mandate_Vol_Cap": 32.0, "Max_Stock_Cap": 20.0, "Rationale": ""},
+    ])
+
+
+def evaluate_mandate_gate(post_vol_pct, post_cvar_pct, max_stock_wt_pct, max_sector_wt_pct, vol_cap_pct, cvar_cap_pct, stock_cap_pct, sector_cap_pct, rationale_text):
+    """Evaluates risk/concentration guardrails and returns status ('Pass', 'Warning', 'Breach') + reasons."""
+    breaches = []
+    warnings = []
+
+    if post_vol_pct > vol_cap_pct:
+        breaches.append(f"Vol {post_vol_pct:.1f}% > Cap {vol_cap_pct:.1f}%")
+    elif post_vol_pct > vol_cap_pct * 0.90:
+        warnings.append(f"Vol {post_vol_pct:.1f}% near Cap {vol_cap_pct:.1f}%")
+
+    if post_cvar_pct > cvar_cap_pct:
+        breaches.append(f"CVaR {post_cvar_pct:.1f}% > Cap {cvar_cap_pct:.1f}%")
+    elif post_cvar_pct > cvar_cap_pct * 0.90:
+        warnings.append(f"CVaR {post_cvar_pct:.1f}% near Cap {cvar_cap_pct:.1f}%")
+
+    if max_stock_wt_pct > stock_cap_pct:
+        breaches.append(f"Max Stock {max_stock_wt_pct:.1f}% > Cap {stock_cap_pct:.1f}%")
+    elif max_stock_wt_pct > stock_cap_pct * 0.90:
+        warnings.append(f"Max Stock {max_stock_wt_pct:.1f}% near Cap {stock_cap_pct:.1f}%")
+
+    if max_sector_wt_pct > sector_cap_pct:
+        breaches.append(f"Max Sector {max_sector_wt_pct:.1f}% > Cap {sector_cap_pct:.1f}%")
+    elif max_sector_wt_pct > sector_cap_pct * 0.90:
+        warnings.append(f"Max Sector {max_sector_wt_pct:.1f}% near Cap {sector_cap_pct:.1f}%")
+
+    missing_rationale = not (rationale_text and str(rationale_text).strip())
+
+    if breaches:
+        status = "Breach"
+    elif warnings:
+        status = "Warning"
+    else:
+        status = "Pass"
+
+    return {
+        "status": status,
+        "breaches": breaches,
+        "warnings": warnings,
+        "missing_rationale": missing_rationale,
+    }
+
+
+def sortino_ratio(returns_series, rfr=0.055, target_return=0.0, periods_per_year=252):
+    """Computes annualized Sortino Ratio directly in app.py."""
+    rfr_period = rfr / periods_per_year
+    target_daily = (target_return / 100.0) / periods_per_year
+    mean_excess_return = returns_series.mean() - rfr_period
+    downside_returns = returns_series[returns_series < target_daily]
+    downside_std = np.sqrt((downside_returns ** 2).mean()) * np.sqrt(periods_per_year)
+    annualized_excess_return = mean_excess_return * periods_per_year
+    if isinstance(downside_std, (pd.Series, np.ndarray)):
+        downside_std = downside_std.replace(0, np.nan)
+    elif downside_std == 0 or np.isnan(downside_std):
+        return np.nan
+    return annualized_excess_return / downside_std
+
+
+def compute_quant_metrics(ret_series, rfr_annual=0.065, target_return_pct=6.5, confidence_level=0.95, horizon_days=30, periods_per_year=252):
+    """Uses erk.summary_stats, erk.var_historic, erk.cvar_historic, erk.var_gaussian & sortino_ratio."""
+    s = pd.Series(ret_series).dropna()
+    if s.empty or (s == 0).all():
+        return {
+            "ann_ret": 0.0, "ann_vol": 0.0, "sharpe": 0.0, "sortino": 0.0,
+            "max_dd": 0.0, "hist_var": 0.0, "hist_cvar": 0.0, "cf_var": 0.0,
+            "summary_df": pd.DataFrame(),
+        }
+
+    # erk.summary_stats for Annualized Return, Annualized Vol, Sharpe Ratio, Max Drawdown, Cornish-Fisher VaR, Historic CVaR
+    stats_df = erk.summary_stats(s.to_frame("Portfolio"), riskfree_rate=rfr_annual, periods_per_year=periods_per_year)
+    ann_ret = float(stats_df["Annualized Return"].iloc[0] * 100.0)
+    ann_vol = float(stats_df["Annualized Vol"].iloc[0] * 100.0)
+    sharpe_val = float(stats_df["Sharpe Ratio"].iloc[0])
+    max_dd = float(abs(stats_df["Max Drawdown"].iloc[0]) * 100.0)
+
+    # Tail risk at user-selected confidence level using erk functions scaled to horizon_days
+    tail_pct = round((1.0 - confidence_level) * 100.0, 4)
+    scale_h = np.sqrt(max(int(horizon_days), 1))
+    hist_var_1d = float(erk.var_historic(s, level=tail_pct))
+    hist_cvar_1d = float(erk.cvar_historic(s, level=tail_pct))
+    cf_var_1d = float(erk.var_gaussian(s, level=tail_pct, modified=True))
+
+    hist_var_h = hist_var_1d * scale_h * 100.0
+    hist_cvar_h = hist_cvar_1d * scale_h * 100.0
+    cf_var_h = cf_var_1d * scale_h * 100.0
+
+    sort_val = sortino_ratio(s, rfr=rfr_annual, target_return=target_return_pct, periods_per_year=periods_per_year)
+    sort_val = 0.0 if (sort_val is None or np.isnan(sort_val) or np.isinf(sort_val)) else float(sort_val)
+
+    return {
+        "ann_ret": ann_ret,
+        "ann_vol": ann_vol,
+        "sharpe": sharpe_val if not np.isnan(sharpe_val) else 0.0,
+        "sortino": sort_val,
+        "max_dd": max_dd,
+        "hist_var": hist_var_h,
+        "hist_cvar": hist_cvar_h,
+        "cf_var": cf_var_h,
+        "summary_df": stats_df,
+    }
+
+
+def compute_risk_and_diversification(ret_matrix, weights, asset_labels):
+    """Uses erk.risk_contribution and erk.enc for both Weight Diversification and Risk Diversification."""
+    w = np.asarray(weights, dtype=float)
+    n_assets = len(asset_labels)
+    if n_assets == 0 or w.sum() <= 0 or ret_matrix.empty:
+        zeros = np.zeros(n_assets)
+        return {
+            "weights_pct": zeros,
+            "risk_contrib_pct": zeros,
+            "weight_enc": 0.0,
+            "risk_enc": 0.0,
+            "table_df": pd.DataFrame({"Ticker": asset_labels, "Weight (%)": zeros, "Risk Contribution (%)": zeros}),
+        }
+
+    w_norm = w / w.sum()
+    covmat = ret_matrix.cov() * 252.0
+    # Regularize slightly if singular so portfolio_vola / risk_contribution never divide by zero
+    cov_reg = covmat + np.eye(n_assets) * 1e-8
+
+    rc_series = erk.risk_contribution(pd.Series(w_norm, index=cov_reg.index), cov_reg)
+    rc_arr = np.asarray(rc_series, dtype=float)
+    rc_sum = rc_arr.sum()
+    rc_norm = (rc_arr / rc_sum) if rc_sum > 0 else w_norm
+
+    weight_enc_val = float(erk.enc(pd.Series(w_norm)))
+    risk_enc_val = float(erk.enc(pd.Series(np.maximum(rc_norm, 0.0))))
+
+    table_df = pd.DataFrame({
+        "Ticker": asset_labels,
+        "Weight (%)": w_norm * 100.0,
+        "Risk Contribution (%)": rc_norm * 100.0,
+    })
+
+    return {
+        "weights_pct": w_norm * 100.0,
+        "risk_contrib_pct": rc_norm * 100.0,
+        "weight_enc": weight_enc_val,
+        "risk_enc": risk_enc_val,
+        "table_df": table_df,
+    }
+
+
+def run_cholesky_monte_carlo(price_matrix, weights, initial_val, horizon_days=30, n_sims=500):
+    """Runs Cholesky Monte Carlo using erk.cholesky_returns(prices, num_steps=..., return_prices=False)."""
+    w = np.asarray(weights, dtype=float)
+    n_cols = price_matrix.shape[1]
+    if n_cols == 0 or initial_val <= 0:
+        arr = np.full((max(int(horizon_days), 1) + 1, 10), float(initial_val))
+        return {
+            "paths": arr, "p5": arr[:, 0], "p50": arr[:, 0], "p95": arr[:, 0],
+            "mean_end": float(initial_val), "median_end": float(initial_val),
+            "p5_end": float(initial_val), "p95_end": float(initial_val), "prob_loss": 0.0,
+        }
+
+    if w.sum() > 0:
+        w = w / w.sum()
+    else:
+        w = np.ones(n_cols) / n_cols
+
+    steps = max(int(horizon_days), 1)
+    sims = max(int(n_sims), 50)
+    # erk.cholesky_returns calls pct_change().dropna() on simulated prices, so request steps + 1 to get `steps` return rows
+    sim_steps = steps + 1
+
+    # Add tiny jitter to prices if any column is completely flat to ensure positive-definite covariance for Cholesky
+    clean_prices = price_matrix.copy()
+    for col in clean_prices.columns:
+        if clean_prices[col].pct_change().dropna().std() == 0:
+            clean_prices[col] = clean_prices[col] * (1.0 + np.linspace(0, 1e-5, len(clean_prices)))
+
+    all_paths = np.zeros((steps + 1, sims), dtype=float)
+    all_paths[0, :] = float(initial_val)
+
+    for s_idx in range(sims):
+        try:
+            # Explicitly pass return_prices=False so erk.cholesky_returns returns simulated returns
+            sim_rets_df = erk.cholesky_returns(clean_prices, num_steps=sim_steps, return_prices=False)
+            port_step_rets = sim_rets_df.values @ w
+            if len(port_step_rets) < steps:
+                port_step_rets = np.pad(port_step_rets, (0, steps - len(port_step_rets)), constant_values=0.0)
+            else:
+                port_step_rets = port_step_rets[:steps]
+            all_paths[1:, s_idx] = float(initial_val) * np.cumprod(1.0 + port_step_rets)
+        except Exception:
+            all_paths[1:, s_idx] = float(initial_val)
+
+    terminal_vals = all_paths[-1, :]
+    terminal_rets_pct = ((terminal_vals - float(initial_val)) / max(float(initial_val), 1.0)) * 100.0
+    return {
+        "paths": all_paths,
+        "p5": np.percentile(all_paths, (1-confidence_level)*100, axis=1),
+        "p50": np.percentile(all_paths, 50, axis=1),
+        "p95": np.percentile(all_paths, confidence_level*100, axis=1),
+        "mean_end": float(np.mean(terminal_vals)),
+        "median_end": float(np.median(terminal_vals)),
+        "p5_end": float(np.percentile(terminal_vals, (1-confidence_level)*100)),
+        "p95_end": float(np.percentile(terminal_vals, confidence_level*100)),
+        "prob_loss": float(np.mean(terminal_rets_pct < 0.0) * 100.0),
+    }
+
+
+def render_risk_diversification_and_mc_section(
+    prefix_key,
+    currency,
+    time_horizon_days,
+    confidence_level,
+    pre_metrics,
+    post_metrics,
+    pre_div,
+    post_div,
+    pre_cum_pct,
+    post_cum_pct,
+    b_cum_pct,
+    benchmark_name,
+    price_matrix_valid,
+    prop_wts,
+    post_nav,
+    turnover_pct,
+    total_friction_amt,
+    beta_val,
+    pre_max_stock,
+    post_max_stock,
+    pre_max_sec,
+    post_max_sec,
+):
+    """Renders identical comprehensive Pre vs Post metrics, Benchmark Graph, Weight/Risk Diversification & Monte Carlo for both Single Client & Batch."""
+    # Row 1: Mandate & Tail Risk KPIs
+    pm1, pm2, pm3, pm4, pm5 = st.columns(5)
+    pm1.metric("Annualized Vol", f"{post_metrics['ann_vol']:.2f}%", delta=f"{post_metrics['ann_vol'] - pre_metrics['ann_vol']:+.2f}% vs pre", delta_color="inverse")
+    pm2.metric(f"{time_horizon_days}D Hist CVaR ({int(confidence_level*100)}%)", f"{post_metrics['hist_cvar']:.2f}%", delta=f"{post_metrics['hist_cvar'] - pre_metrics['hist_cvar']:+.2f}% vs pre", delta_color="inverse")
+    pm3.metric(f"{time_horizon_days}D Hist VaR ({int(confidence_level*100)}%)", f"{post_metrics['hist_var']:.2f}%", delta=f"{post_metrics['hist_var'] - pre_metrics['hist_var']:+.2f}% vs pre", delta_color="inverse")
+    pm4.metric(f"{time_horizon_days}D Mod. CF VaR", f"{post_metrics['cf_var']:.2f}%", delta=f"{post_metrics['cf_var'] - pre_metrics['cf_var']:+.2f}% vs pre", delta_color="inverse")
+    pm5.metric("Turnover / Friction", f"{turnover_pct:.2f}%", delta=f"{currency} {total_friction_amt:,.0f} (Beta {beta_val:.2f})", delta_color="off")
+
+    # Row 2: Return, Risk-Adjusted Ratios, Drawdown & Concentration
+    qm1, qm2, qm3, qm4, qm5 = st.columns(5)
+    qm1.metric("Ann. Return (Post)", f"{post_metrics['ann_ret']:+.2f}%", delta=f"{post_metrics['ann_ret'] - pre_metrics['ann_ret']:+.2f}% vs pre")
+    qm2.metric("Sharpe Ratio (erk)", f"{post_metrics['sharpe']:.2f}", delta=f"{post_metrics['sharpe'] - pre_metrics['sharpe']:+.2f} vs pre")
+    qm3.metric("Sortino Ratio", f"{post_metrics['sortino']:.2f}", delta=f"{post_metrics['sortino'] - pre_metrics['sortino']:+.2f} vs pre")
+    qm4.metric("Max Drawdown", f"{post_metrics['max_dd']:.2f}%", delta=f"{post_metrics['max_dd'] - pre_metrics['max_dd']:+.2f}% vs pre", delta_color="inverse")
+    qm5.metric("Max Stock / Sector", f"{post_max_stock:.1f}% / {post_max_sec:.1f}%", delta=f"Stk {post_max_stock - pre_max_stock:+.1f}% | Sec {post_max_sec - pre_max_sec:+.1f}%", delta_color="off")
+
+    # Row 3: Diversification (ENC on Weights & Risk Contributions via erk.enc)
+    dv1, dv2, dv3, dv4 = st.columns(4)
+    dv1.metric("Weight Diversification (ENC)", f"{post_div['weight_enc']:.1f}%", delta=f"{post_div['weight_enc'] - pre_div['weight_enc']:+.1f}% vs pre")
+    dv2.metric("Risk Diversification (ENC)", f"{post_div['risk_enc']:.1f}%", delta=f"{post_div['risk_enc'] - pre_div['risk_enc']:+.1f}% vs pre")
+    dv3.metric("Pre-Trade Weight ENC", f"{pre_div['weight_enc']:.1f}%")
+    dv4.metric("Pre-Trade Risk ENC", f"{pre_div['risk_enc']:.1f}%")
+
+    # Summary Stats Table from erk.summary_stats (Pre vs Post)
+    if not pre_metrics["summary_df"].empty and not post_metrics["summary_df"].empty:
+        with st.expander("📋 View Full Summary Table (Pre-Trade vs. Post-Trade)", expanded=False):
+            comb_stats = pd.concat([
+                pre_metrics["summary_df"].rename(index={"Portfolio": "Pre-Trade Portfolio"}),
+                post_metrics["summary_df"].rename(index={"Portfolio": "Post-Trade Portfolio"}),
+            ])
+            st.dataframe(comb_stats, use_container_width=True)
+
+    # Weight Distribution vs Risk Contribution Graph & Table (erk.risk_contribution)
+    st.markdown("### ⚖️ Weight Distribution vs. Risk Contribution")
+    rc_col1, rc_col2 = st.columns([1.8, 1.2])
+    with rc_col1:
+        rc_df = post_div["table_df"]
+        fig_rc = go.Figure()
+        fig_rc.add_trace(go.Bar(
+            x=rc_df["Ticker"],
+            y=rc_df["Weight (%)"],
+            name="Portfolio Weight (%)",
+            marker_color="#2563EB",
+        ))
+        fig_rc.add_trace(go.Bar(
+            x=rc_df["Ticker"],
+            y=rc_df["Risk Contribution (%)"],
+            name="Risk Contribution (%)",
+            marker_color="#F59E0B",
+        ))
+        fig_rc.update_layout(
+            barmode="group",
+            height=300,
+            margin=dict(l=10, r=10, t=20, b=10),
+            yaxis_title="Share (%)",
+            xaxis_title="Holding",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig_rc, use_container_width=True, config=CHART_CONFIG)
+    with rc_col2:
+        st.dataframe(
+            post_div["table_df"].style.format({
+                "Weight (%)": "{:.2f}%",
+                "Risk Contribution (%)": "{:.2f}%",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # Pre-Trade vs Post-Trade vs Market Benchmark Graph
+    st.markdown("### 📈 Portfolio vs. Market Benchmark (Pre-Trade vs. Post-Trade)")
+    fig_bm = go.Figure()
+    fig_bm.add_trace(go.Scatter(
+        x=pre_cum_pct.index, y=pre_cum_pct.values,
+        mode="lines", name="Current Portfolio (Pre-Trade)",
+        line=dict(color="#2563EB", width=2)
+    ))
+    fig_bm.add_trace(go.Scatter(
+        x=post_cum_pct.index, y=post_cum_pct.values,
+        mode="lines", name="Proposed Portfolio (Post-Trade)",
+        line=dict(color="#16A34A", width=2.5)
+    ))
+    if b_cum_pct is not None and not b_cum_pct.empty:
+        fig_bm.add_trace(go.Scatter(
+            x=b_cum_pct.index, y=b_cum_pct.values,
+            mode="lines", name=f"Benchmark ({benchmark_name})",
+            line=dict(color="#DC2626", width=2, dash="dash")
+        ))
+    fig_bm.update_layout(
+        height=310,
+        margin=dict(l=10, r=10, t=20, b=10),
+        yaxis_title="Cumulative Return (%)",
+        xaxis_title="Date",
+        hovermode="x unified",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_bm, use_container_width=True, config=CHART_CONFIG)
+
+    # Cholesky Monte Carlo Simulation (via erk.cholesky_returns(..., return_prices=False))
+    st.markdown(f"### 🎲 Cholesky Monte Carlo Simulation ({time_horizon_days}D Horizon)")
+    mc_c1, mc_c2 = st.columns([1.2, 2.8])
+    with mc_c1:
+        mc_sims = st.select_slider("Monte Carlo Paths", options=[200, 500, 1000, 2000], value=500, key=f"{prefix_key}_mc_sims")
+        mc_res = run_cholesky_monte_carlo(
+            price_matrix=price_matrix_valid,
+            weights=prop_wts,
+            initial_val=post_nav,
+            horizon_days=int(time_horizon_days),
+            n_sims=int(mc_sims),
+        )
+        st.metric("Median Projected Value", f"{currency} {mc_res['median_end']:,.0f}")
+        st.metric("Tail Value", f"{currency} {mc_res['p5_end']:,.0f}", delta=f"Prob. Loss: {mc_res['prob_loss']:.1f}%", delta_color="inverse")
+        st.metric("Upside Value", f"{currency} {mc_res['p95_end']:,.0f}")
+    with mc_c2:
+        day_axis = np.arange(0, mc_res["paths"].shape[0])
+        fig_mc = go.Figure()
+        # Plot sample individual simulated paths faintly for visual clarity
+        sample_count = min(25, mc_res["paths"].shape[1])
+        for p_idx in range(sample_count):
+            fig_mc.add_trace(go.Scatter(
+                x=day_axis,
+                y=mc_res["paths"][:, p_idx],
+                mode="lines",
+                line=dict(color="rgba(148, 163, 184, 0.25)", width=1),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+        fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p95"], mode="lines", name="Upside", line=dict(color="#16A34A", dash="dot", width=2)))
+        fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p50"], mode="lines", name="Median (50th Pct)", line=dict(color="#1A2B4C", width=2.5)))
+        fig_mc.add_trace(go.Scatter(x=day_axis, y=mc_res["p5"], mode="lines", name="Downside", line=dict(color="#DC2626", dash="dash", width=2)))
+        fig_mc.update_layout(
+            height=290,
+            margin=dict(l=10, r=10, t=20, b=10),
+            xaxis_title="Trading Days Ahead",
+            yaxis_title=f"Portfolio Value ({currency})",
+            hovermode="x unified",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)"
+        )
+        st.plotly_chart(fig_mc, use_container_width=True, config=CHART_CONFIG)
+
+
+def _fpdf_clean(val):
+    """Sanitizes strings for FPDF core fonts (latin-1 safe without Unicode crashes)."""
+    s = str(val if val is not None else "")
+    replacements = {
+        "\u2014": "-",
+        "\u2013": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2022": "*",
+        "\u20b9": "INR ",
+    }
+    for k, v in replacements.items():
+        s = s.replace(k, v)
+    return s.encode("latin-1", errors="replace").decode("latin-1")
+
+
+def build_audit_packet_pdf(entity_type, workspace_mode, exchange, currency, client_label, reg_no, officer_or_advisor, mandate_limits, diff_summary, gate_result, rationale_text, timestamp):
+    """Generates a timestamped Audit & Suitability Report PDF for Single Client or Batch."""
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(0, 10, _fpdf_clean("WIRATOR - AUDIT & SUITABILITY REPORT"), ln=True, align="C")
+    pdf.set_font("Arial", "I", 8.5)
+    pdf.cell(0, 6, _fpdf_clean(f"Entity: {entity_type} | Workspace: {workspace_mode} | Exchange: {exchange} | {timestamp}"), ln=True, align="C")
+    pdf.ln(6)
+
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 7, _fpdf_clean("1. Mandate, Entity & Client Context"), ln=True)
+    pdf.set_font("Arial", "", 9.5)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Entity Type: {entity_type} | Reg No.: {reg_no} | Signatory: {officer_or_advisor}"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Client / Batch Scope: {client_label} | Currency: {currency}"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Limits -> Vol Cap: {mandate_limits['vol_cap']:.1f}% | CVaR Cap: {mandate_limits['cvar_cap']:.1f}% | Stock Cap: {mandate_limits['stock_cap']:.1f}% | Sector Cap: {mandate_limits['sector_cap']:.1f}%"), ln=True)
+    pdf.ln(4)
+
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 7, _fpdf_clean("2. Pre-Trade Diff & Mandate Gate Result"), ln=True)
+    pdf.set_font("Arial", "", 9.5)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Gate Status: {gate_result['status'].upper()} | Missing Rationale: {'Yes' if gate_result['missing_rationale'] else 'No'}"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Turnover: {diff_summary.get('turnover_pct', 0.0):.2f}% | Est. Friction: {currency} {diff_summary.get('friction_cost', 0.0):,.2f}"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Volatility: {diff_summary.get('pre_vol', 0.0):.2f}% -> {diff_summary.get('post_vol', 0.0):.2f}% | CVaR: {diff_summary.get('pre_cvar', 0.0):.2f}% -> {diff_summary.get('post_cvar', 0.0):.2f}%"), ln=True)
+    pdf.cell(0, 5.5, _fpdf_clean(f"Max Stock Wt: {diff_summary.get('pre_max_stock', 0.0):.2f}% -> {diff_summary.get('post_max_stock', 0.0):.2f}% | Max Sector Wt: {diff_summary.get('pre_max_sector', 0.0):.2f}% -> {diff_summary.get('post_max_sector', 0.0):.2f}%"), ln=True)
+    if gate_result["breaches"]:
+        pdf.multi_cell(0, 5, _fpdf_clean(f"Breaches: {'; '.join(gate_result['breaches'])}"))
+    if gate_result["warnings"]:
+        pdf.multi_cell(0, 5, _fpdf_clean(f"Warnings: {'; '.join(gate_result['warnings'])}"))
+    pdf.ln(4)
+
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 7, _fpdf_clean("3. Investment & Suitability Rationale"), ln=True)
+    pdf.set_font("Arial", "", 9.5)
+    rat_clean = rationale_text.strip() if rationale_text and rationale_text.strip() else "[No suitability/investment rationale logged]"
+    pdf.multi_cell(0, 5.5, _fpdf_clean(rat_clean))
+    pdf.ln(4)
+
+    pdf.set_font("Arial", "B", 11)
+    pdf.cell(0, 7, _fpdf_clean("4. Regulatory & Fiduciary Attestation"), ln=True)
+    pdf.set_font("Arial", "", 8.5)
+    pdf.multi_cell(0, 5, _fpdf_clean(
+        "Generated via WIRATOR Risk & Compliance Engine for SEBI RIA / Boutique PMS governance and pre-trade suitability review. "
+        "Escalation channels via SEBI SCORES and SMART ODR apply where applicable."
+    ))
+    raw_out = pdf.output(dest="S")
+    if isinstance(raw_out, bytes):
+        return raw_out
+    return raw_out.encode("latin-1", errors="replace")
+
+
 # ==============================================================================
-# 1. LANDING PAGE (Centered Logo, Description, Exchange Selection & Auth Wall)
+# 1. LANDING PAGE
 # ==============================================================================
-if st.session_state['page'] == 'landing':
-    
-    # Custom CSS for complete center alignment
+if st.session_state["page"] == "landing":
     st.markdown(
-    """
-    <style>
-    /* 1. Prevent text overflow and stretching on mobile */
-    p, span, div, label {
-        word-break: break-word;
-    }
-
-    /* 2. Force input text colors to remain visible (fix blue text blending into dark/black backgrounds) */
-    input, textarea, select, div[data-baseweb="select"] > div {
-        color: #111827 !important;
-        background-color: #ffffff !important;
-        -webkit-text-fill-color: #111827 !important;
-    }
-
-    li[role="option"] {
-        color: #111827 !important;
-        background-color: #ffffff !important;
-    }
-
-    /* 3. Mobile screen adjustments */
-    @media (max-width: 768px) {
-        .stButton button {
-            width: 100% !important;
+        """
+        <style>
+        p, span, div, label { word-break: break-word; }
+        input, textarea, select, div[data-baseweb="select"] > div {
+            color: #111827 !important;
+            background-color: #ffffff !important;
+            -webkit-text-fill-color: #111827 !important;
         }
-        /* Ensure columns stack gracefully on mobile */
-        [data-testid="column"] {
-            width: 100% !important;
-            flex: 100% !important;
-            min-width: 100% !important;
+        li[role="option"] { color: #111827 !important; background-color: #ffffff !important; }
+        @media (max-width: 768px) {
+            .stButton button { width: 100% !important; }
+            [data-testid="column"] { width: 100% !important; flex: 100% !important; min-width: 100% !important; }
+            .hero-title { font-size: 2.5rem !important; }
+            .hero-subtitle { font-size: 1.1rem !important; white-space: normal !important; letter-spacing: 1px !important; }
+            .slogan-badge { font-size: 1.8rem !important; white-space: normal !important; letter-spacing: 1px !important; }
+            .hero-description { font-size: 1.1rem !important; line-height: 1.5 !important; padding: 0 0.5rem; }
+            .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; }
         }
-        /* Scale down heavy desktop typography for phones */
-        .hero-title {
-            font-size: 2.5rem !important;
+        .stApp {
+            background-color: #1A2B4C;
+            color: #FDFBD4;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
-        .hero-subtitle {
-            font-size: 1.1rem !important;
-            white-space: normal !important;
-            letter-spacing: 1px !important;
+        .block-container { padding-top: 3rem; padding-bottom: 5rem; max-width: 1000px; }
+        .hero-container { text-align: center; padding: 2rem 1rem 1.5rem 1rem; }
+        .hero-title { color: #FDFBD4; font-size: 3.8rem !important; font-weight: 600; letter-spacing: -1px; margin-bottom: 0.2rem; }
+        .hero-subtitle { color: #FDFBD4; font-size: 2.4rem; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 1.2rem; opacity: 0.9; white-space: nowrap; display: flex; justify-content: center; align-items: center; text-align: center; width: 100%; }
+        .slogan-badge { color: #FDFBD4; font-size: 4.25rem; font-weight: 800; letter-spacing: 3px; margin-bottom: 2rem; text-transform: uppercase; white-space: nowrap; }
+        .hero-description { color: #E2E8F0; font-size: 2.2rem; line-height: 1.8; max-width: 800px; margin: 0 auto 2.5rem auto; text-align: center; }
+        .workspace-header { text-align: center; color: #FFFFFF; font-size: 2rem; font-weight: 700; margin-top: 3rem; margin-bottom: 1.8rem; }
+        div.stButton > button {
+            width: 100%;
+            background-color: #1E2E45 !important;
+            color: #FDFBD4 !important;
+            border: 2px solid #FDFBD4 !important;
+            padding: 1.2rem 1rem !important;
+            font-size: 1.15rem !important;
+            font-weight: 700 !important;
+            border-radius: 12px !important;
+            transition: all 0.3s ease-in-out !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
         }
         .slogan-badge {
-            font-size: 1.8rem !important;
-            white-space: normal !important;
-            letter-spacing: 1px !important;
+            color: #FDFBD4;
+            font-size: 3.0 rem;
+            font-weight: 800;
+            letter-spacing: 2px;
+            margin: 0 auto 1.5rem auto;
+            text-transform: uppercase;
+            text-align: center;
+            display: block;
+            width: 100%;
+            white-space: normal;
         }
-        .hero-description {
-            font-size: 1.1rem !important;
-            line-height: 1.5 !important;
-            padding: 0 0.5rem;
+        div.stButton > button:hover {
+            background-color: #FDFBD4 !important;
+            color: #0B192C !important;
+            border-color: #FFFFFF !important;
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(253, 251, 212, 0.25);
         }
-        .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 2rem !important;
-            padding-left: 0.8rem !important;
-            padding-right: 0.8rem !important;
-        }
-    }
-
-    /* Main Background: Sophisticated Dark Midnight Blue */
-    .stApp {
-        background-color: #1A2B4C;
-        color: #FDFBD4;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
-
-    /* Hide default Streamlit header padding */
-    .block-container {
-        padding-top: 3rem;
-        padding-bottom: 5rem;
-        max-width: 1000px;
-    }
-
-    /* Center-aligned Hero Header Styling */
-    .hero-container {
-        text-align: center;
-        padding: 2rem 1rem 1.5rem 1rem;
-    }
-
-    .hero-title {
-        color: #FDFBD4;
-        font-size: 3.8rem !important;
-        font-weight: 600;
-        letter-spacing: -1px;
-        margin-bottom: 0.2rem;
-    }
-
-    .hero-subtitle {
-        color: #FDFBD4;
-        font-size: 2.4rem;
-        font-weight: 500;
-        letter-spacing: 2px;
-        text-transform: uppercase;
-        margin-bottom: 1.2rem;
-        opacity: 0.9;
-        white-space: nowrap;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-        width: 100%;
-    }
-
-    .slogan-badge {
-        color: #FDFBD4;
-        font-size: 4.25rem;
-        font-weight: 800;
-        letter-spacing: 3px;
-        margin-bottom: 2rem;
-        text-transform: uppercase;
-        white-space: nowrap;
-    }
-
-    .hero-description {
-        color: #E2E8F0;
-        font-size: 2.2rem;
-        line-height: 1.8;
-        max-width: 800px;
-        margin: 0 auto 2.5rem auto;
-        text-align: center;
-    }
-
-    /* Accordion / Login Styling */
-    .stSelectbox, div[data-baseweb="accordion"] {
-        background-color: #1E2E45 !important;
-        border-radius: 10px !important;
-        border: 1px solid rgba(253, 251, 212, 0.2) !important;
-    }
-
-    /* Workspace Section Header */
-    .workspace-header {
-        text-align: center;
-        color: #FFFFFF;
-        font-size: 2rem;
-        font-weight: 700;
-        margin-top: 3rem;
-        margin-bottom: 1.8rem;
-    }
-
-    /* Custom Large Buttons (Midnight Blue Hover + Cream Accents) */
-    div.stButton > button {
-        width: 100%;
-        background-color: #1E2E45 !important;
-        color: #FDFBD4 !important;
-        border: 2px solid #FDFBD4 !important;
-        padding: 1.2rem 1rem !important;
-        font-size: 1.15rem !important;
-        font-weight: 700 !important;
-        border-radius: 12px !important;
-        transition: all 0.3s ease-in-out !important;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-    }
-
-    div.stButton > button:hover {
-        background-color: #FDFBD4 !important;
-        color: #0B192C !important;
-        border-color: #FFFFFF !important;
-        transform: translateY(-3px);
-        box-shadow: 0 8px 25px rgba(253, 251, 212, 0.25);
-    }
-
-    /* Center Align Expander Headers */
-    .streamlit-expanderHeader {
-        font-size: 2.1rem !important;
-        color: #FDFBD4 !important;
-        justify-content: center !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-# ------------------------------------------------------------------------------
-# HERO SECTION
-# ------------------------------------------------------------------------------
-    st.markdown(
-    """
-    <div class="hero-container">
-        <div style="font-size: 4rem; margin-bottom: 0.5rem;">🛡️</div>
-        <h1 class="hero-title">WIRATOR</h1>
-        <div class="hero-subtitle">Institutional Portfolio Risk Audit & Monte Carlo Stress Testing</div>
-        <div class="slogan-badge">Optimize. Comply. Grow.</div>
-        <p class="hero-description">
-            <b>WIRATOR</b> is an open-access institutional-grade wealthtech platform for Investment Advisors.
-            It converts portfolio holdings into audit-ready <b>VaR</b>, <b>CVaR</b>, Monte Carlo risk models, macro stress test scenarios,
-            <b>Sharpe Style Factor Attribution</b>, <b>automated SEBI fiduciary audit certificates</b>, tax-loss optimization matrices, and precision rebalancing execution sheets.
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ------------------------------------------------------------------------------
-# CLIENT LOGIN EXPANDER
-# ------------------------------------------------------------------------------
-    # with st.expander("🔑 Client Access / Account Login", expanded=False):
-    #   col_a, col_b, col_c = st.columns([1, 2, 1])
-    #   with col_b:
-    #     st.text_input("Username / Client ID", key="login_user")
-    #     st.text_input("Password", type="password", key="login_pass")
-    #     if st.button("Sign In to Workspace", key="btn_login"):
-    #       st.success("Authenticated successfully.")
-
-# ------------------------------------------------------------------------------
-# STOCK EXCHANGE WORKSPACE SELECTION (LARGE BUTTONS)
-# ------------------------------------------------------------------------------
-    st.markdown(
-        '<div class="workspace-header">Select Stock Exchange Workspace</div>',
+        </style>
+        """,
         unsafe_allow_html=True,
     )
-    
-    # Exchange Selector Buttons — Row 1 (Emerging & US Anchors)
-    r1_col1, r1_col2, r1_col3 = st.columns(3, gap="medium")
-    
+
+    st.markdown(
+        """
+        <div class="hero-container">
+            <div style="font-size: 4rem; margin-bottom: 0.5rem;">🛡️</div>
+            <h1 class="hero-title">WIRATOR</h1>
+            <div class="hero-subtitle">Institutional Portfolio Risk Audit & Compliance Engine</div>
+            <div class="slogan-badge">Sharper Risk. Stronger Proof.</div>
+            <p class="hero-description">
+                Turn every rebalance into a clearer and more defensible decision.
+                See where real risk sits, test <b>forward</b> outcomes before committing capital.
+                Leave with timestamped suitability records that back up your judgment across single clients and batches.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown('<div class="workspace-header">Select Stock Exchange Workspace</div>', unsafe_allow_html=True)
+
+    r1_col1, r1_col2 = st.columns(2, gap="medium")
     with r1_col1:
         if st.button("🇮🇳 National Stock Exchange (NSE)", use_container_width=True):
-            navigate_to('analytics', exchange='NSE')
+            navigate_to("analytics", exchange="NSE")
             st.rerun()
-    
     with r1_col2:
         if st.button("🇮🇳 Bombay Stock Exchange (BSE)", use_container_width=True):
-            navigate_to('analytics', exchange='BSE')
+            navigate_to("analytics", exchange="BSE")
             st.rerun()
-    
-    with r1_col3:
-        if st.button("🇺🇸 US Markets (S&P 500 / Nasdaq)", use_container_width=True):
-            navigate_to('analytics', exchange='US')
-            st.rerun()
-    
-    # Exchange Selector Buttons — Row 2 (UK, Europe & Africa)
-    r2_col1, r2_col2, r2_col3 = st.columns(3, gap="medium")
-    
-    with r2_col1:
-        if st.button("🇬🇧 London Stock Exchange (FTSE 100)", use_container_width=True):
-            navigate_to('analytics', exchange='UK')
-            st.rerun()
-    
-    with r2_col2:
-        if st.button("🇪🇺 European Markets (STOXX 600)", use_container_width=True):
-            navigate_to('analytics', exchange='EU')
-            st.rerun()
-    
-    with r2_col3:
-        if st.button("🇿🇦 Johannesburg Stock Exchange (JSE)", use_container_width=True):
-            navigate_to('analytics', exchange='JSE')
-            st.rerun()
-# ==============================================================================
-# 2. ANALYTICS & AUDIT PAGE ( Exchange Workspace)
-# ==============================================================================
-elif st.session_state['page'] == 'analytics':
-    exchange = st.session_state['exchange']
+    # with r1_col3:
+    #     if st.button("🇺🇸 US Markets (S&P 500 / Nasdaq)", use_container_width=True):
+    #         navigate_to("analytics", exchange="US")
+    #         st.rerun()
 
-    # ------------------------------------------------------------------------------
-# ANALYTICS WORKSPACE STYLING: MIDNIGHT BLUE (#1A2B4C) & CREAM ACCENTS
-# ------------------------------------------------------------------------------
-    # Mobile/Desktop Quick Action prompt right below the header
+    # r2_col1, r2_col2, r2_col3 = st.columns(3, gap="medium")
+    # with r2_col1:
+    #     if st.button("🇬🇧 London Stock Exchange (FTSE 100)", use_container_width=True):
+    #         navigate_to("analytics", exchange="UK")
+    #         st.rerun()
+    # with r2_col2:
+    #     if st.button("🇪🇺 European Markets (STOXX 600)", use_container_width=True):
+    #         navigate_to("analytics", exchange="EU")
+    #         st.rerun()
+    # with r2_col3:
+    #     if st.button("🇿🇦 Johannesburg Stock Exchange (JSE)", use_container_width=True):
+    #         navigate_to("analytics", exchange="JSE")
+    #         st.rerun()
+
+
+# ==============================================================================
+# 2. ANALYTICS, PRE-TRADE MANDATE GATE & AUDIT WORKSPACE
+# ==============================================================================
+elif st.session_state["page"] == "analytics":
+    exchange = st.session_state["exchange"]
+
     st.markdown(
-    """
-    <style>
-    /* ========================================================= */
-    /* 1. GLOBAL APP & TYPOGRAPHY                                */
-    /* ========================================================= */
-    html {
-        zoom: 98% !important;
-    }
-    
-    .stApp {
-        background-color: #FAF8ED !important;
-        color: #1A2B4C !important;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    }
+        """
+        <style>
+        html { zoom: 98% !important; }
+        .stApp { background-color: #FAF8ED !important; color: #1A2B4C !important; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        h1, h2, h3, h4, h5, h6 { color: #1A2B4C !important; font-weight: 700 !important; }
+        .stMarkdown p:not([data-testid="stMetricValue"] p), .stCaption { color: #1A2B4C !important; font-weight: 500; }
 
-    h1, h2, h3, h4, h5, h6 {
-        color: #1A2B4C !important;
-        font-weight: 700 !important;
-    }
+        section[data-testid="stSidebar"] { background-color: #1A2B4C !important; border-right: 1px solid rgba(250, 248, 237, 0.1) !important; }
+        section[data-testid="stSidebar"] label, section[data-testid="stSidebar"] .stMarkdown p, section[data-testid="stSidebar"] span, section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
+            color: #FAFAED !important; -webkit-text-fill-color: #FAFAED !important; font-weight: 500;
+        }
+        section[data-testid="stSidebar"] input, section[data-testid="stSidebar"] textarea, section[data-testid="stSidebar"] div[data-baseweb="select"] span {
+            color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important; font-weight: 600 !important;
+        }
+        .stSidebar [data-testid="stNumberInput"] button { background-color: #FAFAED !important; border: 1px solid #1A2B4C !important; }
+        .stSidebar [data-testid="stNumberInput"] button svg { fill: #1A2B4C !important; }
+        .stSidebar [data-testid="stNumberInput"] button:hover { background-color: #1A2B4C !important; }
+        .stSidebar [data-testid="stNumberInput"] button:hover svg { fill: #FAFAED !important; }
 
-    /* General markdown paragraphs and captions (main area) */
-    .stMarkdown p:not([data-testid="stMetricValue"] p), .stCaption {
-        color: #1A2B4C !important;
-        font-weight: 500;
-    }
+        div[data-testid="stExpander"] { background-color: #1A2B4C !important; border-radius: 12px !important; border: 1px solid rgba(250, 248, 237, 0.15) !important; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); }
+        div[data-testid="stExpander"] summary, div[data-testid="stExpander"] summary *, div[data-testid="stExpander"] summary span, div[data-testid="stExpander"] summary p {
+            color: #FAFAED !important; -webkit-text-fill-color: #FAFAED !important; font-weight: 600 !important; opacity: 1 !important;
+        }
+        div[data-testid="stExpanderDetails"] { background-color: #1A2B4C !important; border-bottom-left-radius: 12px !important; border-bottom-right-radius: 12px !important; padding: 16px !important; }
+        div[data-testid="stExpanderDetails"] *, div[data-testid="stExpanderDetails"] p, div[data-testid="stExpanderDetails"] span, div[data-testid="stExpanderDetails"] label, div[data-testid="stExpanderDetails"] div {
+            color: #FAFAED !important; -webkit-text-fill-color: #FAFAED !important;
+        }
+        div[data-testid="stExpanderDetails"] input, div[data-testid="stExpanderDetails"] textarea, div[data-testid="stExpanderDetails"] div[data-baseweb="input"] input {
+            color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important; background-color: #FAFAED !important; border-radius: 6px !important;
+        }
+        div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button {
+            background-color: #FAFAED !important; color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important; border: 1px solid #1A2B4C !important; border-radius: 8px !important; font-weight: 600 !important;
+        }
+        div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button p, div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button span {
+            color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important;
+        }
 
-    
-    /* ========================================================= */
-    /* 2. SIDEBAR STYLING & INPUTS                               */
-    /* ========================================================= */
-    section[data-testid="stSidebar"] {
-        background-color: #1A2B4C !important;
-        border-right: 1px solid rgba(250, 248, 237, 0.1) !important;
-    }
-    
-    /* All labels and text inside sidebar (EXCLUDING buttons) */
-    section[data-testid="stSidebar"] label, 
-    section[data-testid="stSidebar"] .stMarkdown p, 
-    section[data-testid="stSidebar"] span, 
-    section[data-testid="stSidebar"] h1, 
-    section[data-testid="stSidebar"] h2, 
-    section[data-testid="stSidebar"] h3 {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-        font-weight: 500;
-    }
+        div[data-testid="stMetric"] {
+            background-color: #1A2B4C !important; border-radius: 12px !important; padding: 12px !important;
+            border: 1px solid rgba(250, 248, 237, 0.15) !important; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); text-align: center !important;
+        }
+        div[data-testid="stMetric"] > div { display: flex !important; flex-direction: column !important; align-items: center !important; }
+        div[data-testid="stMetric"] label, div[data-testid="stMetric"] [data-testid="stMetricValue"], div[data-testid="stMetric"] [data-testid="stMetricValue"] div, div[data-testid="stMetric"] [data-testid="stMetricValue"] span, div[data-testid="stMetric"] span, div[data-testid="stMetric"] p {
+            color: #FAFAED !important; -webkit-text-fill-color: #FAFAED !important;
+        }
+        div[data-testid="stMetric"] div[data-testid="stMetricDelta"], div[data-testid="stMetric"] div[data-testid="stMetricDelta"] * {
+            background-color: #FAFAED !important; color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important; border-radius: 999px !important; padding: 2px 10px !important; font-weight: 700 !important;
+        }
+        div[data-testid="stMetric"] div[data-testid="stMetricDelta"] svg { fill: #1A2B4C !important; stroke: #1A2B4C !important; }
 
-    /* Typed text inside sidebar input boxes */
-    section[data-testid="stSidebar"] input, 
-    section[data-testid="stSidebar"] textarea, 
-    section[data-testid="stSidebar"] div[data-baseweb="select"] span {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        font-weight: 600 !important;
-    }
+        div.stRadio div[role="radiogroup"] label, div.stRadio div[role="radiogroup"] label p, div.stRadio span {
+            color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important; font-weight: 500;
+        }
+        div.stTextArea textarea, div.stTextInput input { color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important; }
 
-    /* Sidebar Number Input (- / +) buttons */
-    .stSidebar [data-testid="stNumberInput"] button {
-        background-color: #FAFAED !important;
-        border: 1px solid #1A2B4C !important;
-    }
-    
-    .stSidebar [data-testid="stNumberInput"] button svg {
-        fill: #1A2B4C !important;
-    }
+        div.stButton > button, div.stDownloadButton > button, section[data-testid="stSidebar"] div.stButton > button, div.stFormSubmitButton button {
+            background-color: #FAFAED !important; color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important;
+            border: 1px solid #1A2B4C !important; border-radius: 8px !important; font-weight: 700 !important;
+        }
+        div.stButton > button[kind="primary"], div.stDownloadButton > button[kind="primary"] {
+            color: #FAFAED !important; -webkit-text-fill-color: #FAFAED !important; background-color: #1A2B4C !important;
+        }
+        div.stButton > button:hover, div.stFormSubmitButton button:hover {
+            background-color: #1A2B4C !important; color: #FAFAED !important; -webkit-text-fill-color: #FAFAED !important; border-color: #FAFAED !important;
+        }
 
-    .stSidebar [data-testid="stNumberInput"] button:hover {
-        background-color: #1A2B4C !important;
-    }
+        div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
+            background-color: #1A2B4C !important; border-radius: 8px !important; border: 1px solid rgba(250, 248, 237, 0.12) !important; width: 100% !important; overflow: visible !important;
+        }
+        div[data-testid="stDataFrame"] *, div[data-testid="stDataEditor"] * { color: #FAF8ED !important; }
 
-    .stSidebar [data-testid="stNumberInput"] button:hover svg {
-        fill: #FAFAED !important;
-    }
-    /* ========================================================= */
-    /* FIX: Collapsed Expander Header Text Only                  */
-    /* ========================================================= */
-    div[data-testid="stExpander"] summary,
-    div[data-testid="stExpander"] summary *,
-    div[data-testid="stExpander"] summary span,
-    div[data-testid="stExpander"] summary p {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-        opacity: 1 !important;
-    }
-    /* ========================================================= */
-    /* FIX: Remaining Invisible Texts (Inputs & Expander Headers) */
-    /* ========================================================= */
-    
-    /* 1. Fix text inputs / data editor input cells inside expanders */
-    div[data-testid="stExpanderDetails"] input,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="input"] input {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        background-color: #FAFAED !important;
-    }
+        div[data-testid="stFileUploader"] { background-color: #FAFAED !important; border: 1px solid #1A2B4C !important; border-radius: 8px !important; padding: 8px !important; }
+        div[data-testid="stFileUploader"] small, div[data-testid="stFileUploader"] span { color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important; }
 
-    /* 2. Fix collapsed expander header text (e.g. "Execution, Wealth Drag & Tax Optimization") */
-    div[data-testid="stExpander"] summary,
-    div[data-testid="stExpander"] summary *,
-    div[data-testid="stExpander"] summary span,
-    div[data-testid="stExpander"] summary p {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        opacity: 1 !important;
-    }
+        body, .stApp, div[data-baseweb="popover"], div[data-baseweb="menu"], ul[role="listbox"] { background-color: #FAFAED !important; color: #1A2B4C !important; }
+        div[data-baseweb="popover"] *, div[data-baseweb="menu"] *, ul[role="listbox"] * { color: #1A2B4C !important; -webkit-text-fill-color: #1A2B4C !important; }
+        li[role="option"]:hover, div[role="option"]:hover { background-color: #1A2B4C !important; color: #FAFAED !important; -webkit-text-fill-color: #FAFAED !important; }
 
-    /* 3. Ensure all text inside expander details blocks is cream */
-    div[data-testid="stExpanderDetails"] p,
-    div[data-testid="stExpanderDetails"] span,
-    div[data-testid="stExpanderDetails"] li,
-    div[data-testid="stExpanderDetails"] label {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-    }
-    /* ========================================================= */
-    /* FIX: Download Button Inside Expanders                     */
-    /* ========================================================= */
-    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button {
-        background-color: #FAFAED !important;
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        border: 1px solid #1A2B4C !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        opacity: 1 !important;
-        visibility: visible !important;
-    }
+        .gate-strip {
+            background-color: #1A2B4C;
+            color: #FAFAED;
+            border-radius: 10px;
+            padding: 12px 16px;
+            border-left: 6px solid #38BDF8;
+            margin: 10px 0 16px 0;
+        }
+        .gate-pass { border-left-color: #22C55E !important; }
+        .gate-warn { border-left-color: #F59E0B !important; }
+        .gate-breach { border-left-color: #EF4444 !important; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button p,
-    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button span {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        font-weight: 600 !important;
-    }
-
-    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button:hover {
-        background-color: #1A2B4C !important;
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-        border-color: #FAFAED !important;
-    }
-
-    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button:hover p,
-    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button:hover span {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-    }
-    /* ========================================================= */
-    /* FIX: Input Fields & Number Inputs Inside Expanders        */
-    /* ========================================================= */
-    div[data-testid="stExpanderDetails"] input,
-    div[data-testid="stExpanderDetails"] textarea,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="select"] {
-        background-color: #FAFAED !important;
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        border-radius: 6px !important;
-    }
-
-    div[data-testid="stExpanderDetails"] input *,
-    div[data-testid="stExpanderDetails"] textarea * {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-    }
-
-    /* Number input step buttons (+ / -) inside expanders */
-    div[data-testid="stExpanderDetails"] [data-testid="stNumberInput"] button {
-        background-color: #FAFAED !important;
-        border: 1px solid #1A2B4C !important;
-    }
-
-    div[data-testid="stExpanderDetails"] [data-testid="stNumberInput"] button svg {
-        fill: #1A2B4C !important;
-    }
-    /* ========================================================= */
-    /* FIX: Streamlit Alert / Info / Success Boxes inside Expanders */
-    /* ========================================================= */
-    div[data-testid="stExpanderDetails"] div.stAlert,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="notification"],
-    div[data-testid="stExpanderDetails"] [class*="st-key-"] div[role="alert"] {
-        background-color: #0F1C33 !important;
-        border: 1px solid rgba(250, 248, 237, 0.2) !important;
-        border-radius: 8px !important;
-    }
-
-    div[data-testid="stExpanderDetails"] div.stAlert *,
-    div[data-testid="stExpanderDetails"] div[data-baseweb="notification"] *,
-    div[data-testid="stExpanderDetails"] [class*="st-key-"] div[role="alert"] * {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-        background-color: transparent !important;
-    }
-    /* ========================================================= */
-    /* FIX: Radio Button Options & Labels Inside Expanders       */
-    /* ========================================================= */
-    div[data-testid="stExpanderDetails"] div.stRadio div[role="radiogroup"] label,  
-    div[data-testid="stExpanderDetails"] div.stRadio div[role="radiogroup"] label p,  
-    div[data-testid="stExpanderDetails"] div.stRadio span {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-    }
-    /* ========================================================= */
-    /* 3. CARDS, METRICS & EXPANDERS                             */
-    /* ========================================================= */
-    
-    /* Universal Metric Cards (Applies to all metric cards everywhere) */
-    div[data-testid="stMetric"] {
-        background-color: #1A2B4C !important;
-        border-radius: 12px !important;
-        padding: 12px !important;
-        border: 1px solid rgba(250, 248, 237, 0.15) !important;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-        text-align: center !important;
-    }
-
-    div[data-testid="stMetric"] > div {
-        display: flex !important;
-        flex-direction: column !important;
-        align-items: center !important;
-    }
-
-    /* Force explicit cream color on every label, value, and text span inside metrics */
-    div[data-testid="stMetric"] label,
-    div[data-testid="stMetric"] [data-testid="stMetricValue"],
-    div[data-testid="stMetric"] [data-testid="stMetricValue"] div,
-    div[data-testid="stMetric"] [data-testid="stMetricValue"] span,
-    div[data-testid="stMetric"] span,
-    div[data-testid="stMetric"] p {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-    }
-
-    /* Expander Container Header */
-    div[data-testid="stExpander"] {
-        background-color: #1A2B4C !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(250, 248, 237, 0.15) !important;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    }
-
-    div[data-testid="stExpander"] summary span,
-    div[data-testid="stExpander"] summary p,
-    div[data-testid="stExpander"] summary {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-        font-weight: 600 !important;
-    }
-
-    /* Expander Expanded Content Area */
-    div[data-testid="stExpanderDetails"] {
-        background-color: #1A2B4C !important;
-        border-bottom-left-radius: 12px !important;
-        border-bottom-right-radius: 12px !important;
-        padding: 16px !important;
-    }
-
-    /* Comprehensive text fix for everything inside expander details */
-    div[data-testid="stExpanderDetails"] *,
-    div[data-testid="stExpanderDetails"] p,
-    div[data-testid="stExpanderDetails"] span,
-    div[data-testid="stExpanderDetails"] label,
-    div[data-testid="stExpanderDetails"] div,
-    div[data-testid="stExpanderDetails"] .stMarkdown,
-    div[data-testid="stExpanderDetails"] .stMarkdown p,
-    div[data-testid="stExpanderDetails"] .stCaption,
-    div[data-testid="stExpanderDetails"] h1,
-    div[data-testid="stExpanderDetails"] h2,
-    div[data-testid="stExpanderDetails"] h3,
-    div[data-testid="stExpanderDetails"] h4,
-    div[data-testid="stExpanderDetails"] h5,
-    div[data-testid="stExpanderDetails"] h6 {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-    }
-
-    /* FIX: Metric Delta Badges */
-    div[data-testid="stMetric"] div[data-testid="stMetricDelta"],
-    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] * {
-        background-color: #FAFAED !important;
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        border-radius: 999px !important;
-        padding: 2px 10px !important;
-        font-weight: 700 !important;
-    }
-
-    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] svg {
-        fill: #1A2B4C !important;
-        stroke: #1A2B4C !important;
-    }
-    
-    /* ========================================================= */
-    /* 4. FORM ELEMENTS & BUTTONS                                */
-    /* ========================================================= */
-    /* Radio button options text visibility */
-    div.stRadio div[role="radiogroup"] label,  
-    div.stRadio div[role="radiogroup"] label p,  
-    div.stRadio span {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        font-weight: 500;
-    }
-
-    /* Force text area and text input typed text to #1A2B4C */
-    div.stTextArea textarea, div.stTextInput input {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-    }
-
-    /* Styled Home / Custom Buttons & Sidebar Buttons */
-    div.stButton > button,
-    section[data-testid="stSidebar"] div.stButton > button,
-    section[data-testid="stSidebar"] button[kind="secondary"], 
-    section[data-testid="stSidebar"] button[kind="primary"], 
-    div.stFormSubmitButton button {
-        background-color: #FAFAED !important;
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        border: 1px solid #1A2B4C !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-    }
-
-    /* FIX: Force inner p and span inside ALL buttons (including sidebar) to navy */
-    div.stButton > button p,
-    div.stButton > button span,
-    section[data-testid="stSidebar"] div.stButton > button p,
-    section[data-testid="stSidebar"] div.stButton > button span,
-    section[data-testid="stSidebar"] button[kind="secondary"] p,
-    section[data-testid="stSidebar"] button[kind="secondary"] span,
-    section[data-testid="stSidebar"] button[kind="primary"] p,
-    section[data-testid="stSidebar"] button[kind="primary"] span,
-    div.stFormSubmitButton button p, 
-    div.stFormSubmitButton button span {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-        font-weight: 600 !important;
-    }
-
-    /* Hover state for all buttons */
-    div.stButton > button:hover,
-    section[data-testid="stSidebar"] div.stButton > button:hover,
-    section[data-testid="stSidebar"] button[kind="secondary"]:hover,
-    section[data-testid="stSidebar"] button[kind="primary"]:hover,
-    div.stFormSubmitButton button:hover {
-        background-color: #1A2B4C !important;
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-        border-color: #FAFAED !important;
-    }
-
-    div.stButton > button:hover p,
-    div.stButton > button:hover span,
-    section[data-testid="stSidebar"] div.stButton > button:hover p,
-    section[data-testid="stSidebar"] div.stButton > button:hover span,
-    section[data-testid="stSidebar"] button[kind="secondary"]:hover p,
-    section[data-testid="stSidebar"] button[kind="secondary"]:hover span,
-    section[data-testid="stSidebar"] button[kind="primary"]:hover p,
-    section[data-testid="stSidebar"] button[kind="primary"]:hover span,
-    div.stFormSubmitButton button:hover p, 
-    div.stFormSubmitButton button:hover span {
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-    }
-
-
-    /* ========================================================= */
-    /* 5. DATAFRAME & DATA EDITOR TOOLBAR FIXES                  */
-    /* ========================================================= */
-    div[data-testid="stDataFrame"],
-    div[data-testid="stDataEditor"] {
-        background-color: #1A2B4C !important;
-        border-radius: 8px !important;
-        border: 1px solid rgba(250, 248, 237, 0.12) !important;
-        box-shadow: 0 4px 2px rgba(0, 0, 0, 0.2);
-        width: 100% !important;
-        overflow: visible !important;
-    }
-
-    div[data-testid="stDataFrame"] *,
-    div[data-testid="stDataEditor"] * {
-        color: #FAF8ED !important;
-    }
-
-    div[data-testid="stElementToolbar"],
-    div[data-testid="stDataEditor"] > div:first-child,
-    div[data-testid="stDataFrame"] > div:first-child {
-        background-color: #1A2B4C !important;
-        border-top-left-radius: 10px !important;
-        border-top-right-radius: 10px !important;
-        padding: 4px 8px !important;
-    }
-
-    div[data-testid="stElementToolbar"] button,
-    div[data-testid="stDataEditor"] button,
-    button[aria-label="Add row"],
-    button[title="Add row"],
-    button[aria-label="Download as CSV"] {
-        background-color: #0F1C33 !important;
-        color: #FAF8ED !important;
-        border: 1px solid #FAF8ED !important;
-        border-radius: 6px !important;
-        opacity: 1 !important;
-        margin: 2px !important;
-        visibility: visible !important;
-    }
-
-    div[data-testid="stElementToolbar"] button svg,
-    div[data-testid="stDataEditor"] button svg,
-    button[aria-label="Add row"] svg {
-        fill: #FAF8ED !important;
-        stroke: #FAF8ED !important;
-        color: #FAF8ED !important;
-    }
-
-    div[role="tooltip"],
-    div[data-baseweb="tooltip"] {
-        background-color: #1A2B4C !important;
-        color: #FAF8ED !important;
-        border: 1px solid #FAF8ED !important;
-    }
-    
-    div[role="tooltip"] *,
-    div[data-baseweb="tooltip"] * {
-        color: #FAF8ED !important;
-    }
-
-    /* ========================================================= */
-    /* CLEAN FILE UPLOADER FIX                                   */
-    /* ========================================================= */
-    div[data-testid="stFileUploader"] {
-        background-color: #FAFAED !important;
-        border: 1px solid #1A2B4C !important;
-        border-radius: 8px !important;
-        padding: 8px !important;
-    }
-
-    div[data-testid="stFileUploader"] small,
-    div[data-testid="stFileUploader"] span {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-    }
-
-    div[data-testid="stFileUploader"] button {
-        background-color: #1A2B4C !important;
-        color: #FAFAED !important;
-        border: 1px solid #FAFAED !important;
-        border-radius: 6px !important;
-        visibility: visible !important;
-        display: inline-block !important;
-        opacity: 1 !important;
-    }
-
-    div[data-testid="stFileUploader"] button * {
-        background-color: #FAF8ED !important;
-        color: #1A2B4C !important;
-    }
-
-    div[data-testid="stFileUploader"] button:hover {
-        background-color: #FAF8ED !important;
-        color: #1A2B4C !important;
-        border-color: #1A2B4C !important;
-    }
-
-    div[data-testid="stFileUploader"] button:hover * {
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-    }
-
-    /* ========================================================= */
-    /* FORCE GLOBAL LIGHT/WHITE BACKGROUND ON MOBILE POPOVERS    */
-    /* ========================================================= */
-    body, .stApp, div[data-baseweb="popover"], div[data-baseweb="menu"], ul[role="listbox"] {
-        background-color: #FAFAED !important;
-        color: #1A2B4C !important;
-    }
-
-    div[data-baseweb="popover"] *, 
-    div[data-baseweb="menu"] *, 
-    ul[role="listbox"] * {
-        background-color: transparent !important;
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-    }
-
-    li[role="option"], div[role="option"] {
-        background-color: #FAFAED !important;
-        color: #1A2B4C !important;
-        -webkit-text-fill-color: #1A2B4C !important;
-    }
-
-    li[role="option"]:hover, div[role="option"]:hover,
-    li[role="option"][aria-selected="true"], div[role="option"][aria-selected="true"] {
-        background-color: #1A2B4C !important;
-        color: #FAFAED !important;
-        -webkit-text-fill-color: #FAFAED !important;
-    }
-
-    /* Force chart container to expand 100% */
-    div[data-testid="stPlotlyChart"] {
-        width: 100% !important;
-        max-width: 100% !important;
-    }
-    div[data-testid="stPlotlyChart"] > div {
-        width: 100% !important;
-    }
-
-    /* Forcefully reduce sidebar vertical padding and element gaps */
-    section[data-testid="stSidebar"] .block-container {
-        padding-top: 0.5rem !important;
-        padding-bottom: 1rem !important;
-    }
-    
-    /* Tighten spacing specifically for sidebar widget wrappers */
-    section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
-        gap: 0.4rem !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-    # Top Bar Navigation
+    # Top Navigation Header
     top_col1, top_col2 = st.columns([6, 1])
     with top_col1:
-        st.title(f"📈 {exchange} Workspace — Portfolio Risk Engine")
+        st.title(f"📈 {exchange} Workspace — Portfolio Risk & Mandate Gate Engine")
     with top_col2:
         if st.button("🏠 Home"):
-            navigate_to('landing')
+            navigate_to("landing")
             st.rerun()
 
-    # Exchange Specific Configuration
-    # Exchange Specific Configuration with robust benchmark symbols & fallbacks
     exchange_config = {
-        'NSE': {'symbol': '^NSEI', 'fallback': 'NIFTYBEES.NS', 'name': 'Nifty 50 Index', 'suffix': '.NS', 'default_curr': 'INR'},
-        'BSE': {'symbol': '^BSESN', 'fallback': 'SETF.NS', 'name': 'SENSEX Index', 'suffix': '.NS', 'default_curr': 'INR'},
-        'JSE': {'symbol': '^JN00.JO', 'fallback': 'STX40.JO', 'name': 'JSE Top 40 Index', 'suffix': '.JO', 'default_curr': 'ZAR'},
-        'US':  {'symbol': '^GSPC', 'fallback': 'SPY', 'name': 'S&P 500 Index', 'suffix': '', 'default_curr': 'USD'},
-        'UK':  {'symbol': '^FTSE', 'fallback': 'ISF.L', 'name': 'FTSE 100 Index', 'suffix': '.L', 'default_curr': 'GBP'},
-        'EU':  {'symbol': '^STOXX', 'fallback': 'EXS1.DE', 'name': 'STOXX Europe 600', 'suffix': '.DE', 'default_curr': 'EUR'}
+        "NSE": {"symbol": "^NSEI", "fallback": "NIFTYBEES.NS", "name": "Nifty 50 Index", "suffix": ".NS", "default_curr": "INR"},
+        "BSE": {"symbol": "^BSESN", "fallback": "SETF.NS", "name": "SENSEX Index", "suffix": ".NS", "default_curr": "INR"},
+        "JSE": {"symbol": "^JN00.JO", "fallback": "STX40.JO", "name": "JSE Top 40 Index", "suffix": ".JO", "default_curr": "ZAR"},
+        "US":  {"symbol": "^GSPC", "fallback": "SPY", "name": "S&P 500 Index", "suffix": "", "default_curr": "USD"},
+        "UK":  {"symbol": "^FTSE", "fallback": "ISF.L", "name": "FTSE 100 Index", "suffix": ".L", "default_curr": "GBP"},
+        "EU":  {"symbol": "^STOXX", "fallback": "EXS1.DE", "name": "STOXX Europe 600", "suffix": ".DE", "default_curr": "EUR"},
     }
-    
-    current_cfg = exchange_config.get(exchange, exchange_config['NSE'])
+    current_cfg = exchange_config.get(exchange, exchange_config["NSE"])
 
-   # --- LIVE INDEX CHART SECTION ---
+    ALL_EXCHANGE_CONFIGS = {
+        "NSE": {
+            "Nifty IT": {"indices": ["^CNXIT"], "stocks": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS", "MPHASIS.NS", "LTTS.NS"]},
+            "Nifty Bank": {"indices": ["^NSEBANK"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "BANKBARODA.NS", "PNB.NS", "INDUSINDBK.NS", "AUBANK.NS", "IDFCFIRSTB.NS"]},
+            "Nifty Auto": {"indices": ["^CNXAUTO"], "stocks": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS", "TVSMOTOR.NS", "BHARATFORG.NS", "BOSCHLTD.NS", "MRF.NS"]},
+            "Nifty FMCG": {"indices": ["^CNXFMCG"], "stocks": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "TATACONSUM.NS", "DABUR.NS", "GODREJCP.NS", "MARICO.NS", "COLPAL.NS", "VBL.NS"]},
+            "Nifty Energy": {"indices": ["^CNXENERGY"], "stocks": ["RELIANCE.NS", "ONGC.NS", "BPCL.NS", "NTPC.NS", "POWERGRID.NS", "IOC.NS", "GAIL.NS", "ADANIGREEN.NS", "TATAPOWER.NS", "COALINDIA.NS"]},
+            "Nifty Pharma": {"indices": ["^CNXPHARMA"], "stocks": ["SUNPHARMA.NS", "CIPLA.NS", "DRREDDY.NS", "DIVISLAB.NS", "LUPIN.NS", "APOLLOHOSP.NS", "BIOCON.NS", "TORNTPHARM.NS", "ZYDUSLIFE.NS", "MANKIND.NS"]},
+        },
+        "BSE": {
+            "BSE IT": {"indices": ["^BSESIT.BO"], "stocks": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS"]},
+            "BSE Bankex": {"indices": ["^BSEBANK.NS"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "BANKBARODA.NS", "PNB.NS"]},
+            "BSE Healthcare": {"indices": ["^BSEHC.NS"], "stocks": ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "APOLLOHOSP.NS", "LUPIN.NS"]},
+            "BSE Auto": {"indices": ["^BSEAUTO.NS"], "stocks": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS"]},
+            "BSE FMCG": {"indices": ["^BSEFMCG.NS"], "stocks": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "DABUR.NS"]},
+            "BSE Metal": {"indices": ["^BSEMT.NS"], "stocks": ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS"]},
+            "BSE Oil & Gas": {"indices": ["^BSEOIL.NS"], "stocks": ["RELIANCE.NS", "ONGC.NS", "IOC.NS", "BPCL.NS"]},
+            "BSE Power & Utilities": {"indices": ["^BSEPOWER.NS"], "stocks": ["NTPC.NS", "POWERGRID.NS", "ADANIPOWER.NS", "TATAPOWER.NS"]},
+            "BSE Realty": {"indices": ["^BSERLTY.NS"], "stocks": ["DLF.NS", "GODREJPROP.NS", "OBEROIRLTY.NS", "PRESTIGE.NS"]},
+            "BSE Capital Goods & Industrials": {"indices": ["^BSECG.NS"], "stocks": ["LT.NS", "BEL.NS", "SIEMENS.NS", "ABB.NS"]},
+        },
+        "US": {
+            "Technology": {"indices": ["^NDX", "^GSPC"], "stocks": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL", "CRM", "ADBE"]},
+            "Financials": {"indices": ["^IXFN", "^GSPC"], "stocks": ["JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW", "V", "MA"]},
+            "Healthcare": {"indices": ["^IXHC", "^GSPC"], "stocks": ["UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR", "ISRG", "BMY"]},
+            "Consumer Discretionary & Retail": {"indices": ["^GSPC"], "stocks": ["HD", "MCD", "NKE", "SBUX", "TJX", "LOW", "BKNG", "TGT", "CMG"]},
+            "Consumer Staples": {"indices": ["^GSPC"], "stocks": ["WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "CL"]},
+            "Communication Services & Media": {"indices": ["^GSPC"], "stocks": ["NFLX", "DIS", "CMCSA", "VZ", "T", "TMUS", "EA"]},
+            "Energy & Industrials": {"indices": ["^IXID", "^GSPC"], "stocks": ["XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE", "COP", "SLB"]},
+            "Utilities & Real Estate": {"indices": ["^GSPC"], "stocks": ["NEE", "DUK", "SO", "PLD", "AMT", "EQIX", "SPG"]},
+        },
+        "UK": {
+            "Energy & Commodities": {"indices": ["^FTSE"], "stocks": ["SHEL.L", "BP.L", "GLEN.L", "RIO.L", "AAL.L", "ANTO.L"]},
+            "Banking & Finance": {"indices": ["^FTSE"], "stocks": ["HSBA.L", "LLOY.L", "BARC.L", "NWG.L", "PRU.L"]},
+            "Healthcare & Consumer": {"indices": ["^FTSE"], "stocks": ["AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"]},
+            "Consumer Goods & Retail": {"indices": ["^FTSE"], "stocks": ["ULVR.L", "BATS.L", "DGE.L", "ABF.L", "TSCO.L"]},
+            "Technology & Telecoms": {"indices": ["^FTSE"], "stocks": ["REL.L", "SGE.L", "VOD.L", "AAF.L"]},
+            "Aerospace, Industrials & Defense": {"indices": ["^FTSE"], "stocks": ["BA.L", "RR.L", "CRH.L", "SMIN.L"]},
+        },
+        "EU": {
+            "Technology & Industrials": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "IFX.DE", "AD.AS"]},
+            "Luxury & Consumer Goods": {"indices": ["^STOXX", "^FCHI"], "stocks": ["MC.PA", "OR.PA", "RMS.PA", "KER.PA", "ABI.BR", "HEIA.AS"]},
+            "Financials & Automakers": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"]},
+            "Healthcare & Pharmaceuticals": {"indices": ["^STOXX", "^SSMI"], "stocks": ["NOVN.SW", "ROG.SW", "NESN.SW", "SAN.PA", "BAYN.DE", "MRK.DE"]},
+            "Energy & Utilities": {"indices": ["^STOXX", "^FCHI"], "stocks": ["TTE.PA", "ENI.MI", "IBE.MC", "ENEL.MI", "RWE.DE", "EOAN.DE"]},
+            "Telecoms & Infrastructure": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["DTE.DE", "ORA.PA", "TEF.MC", "VOD.L", "NOKIA.HE"]},
+        },
+        "JSE": {
+            "JSE Mining & Resources": {"indices": ["^J210.JO"], "stocks": ["AGL.JO", "BHP.JO", "GFI.JO", "ANG.JO", "IMP.JO", "SSW.JO", "AMS.JO"]},
+            "JSE Financials": {"indices": ["^J212.JO"], "stocks": ["FSR.JO", "SBK.JO", "ABG.JO", "NED.JO", "SLM.JO", "CPI.JO", "INP.JO"]},
+            "JSE Tech & Telecoms": {"indices": ["^J211.JO"], "stocks": ["NPN.JO", "PRX.JO", "MTN.JO", "VOD.JO", "TEL.JO"]},
+            "JSE Retail & Consumer": {"indices": ["^J213.JO"], "stocks": ["WHL.JO", "SHP.JO", "MRP.JO", "CLS.JO", "PIK.JO", "SPP.JO"]},
+        },
+    }
+    sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["NSE"])
+    ticker_to_sector = {}
+    for sec_name, sec_data in sector_config.items():
+        for stk in sec_data["stocks"]:
+            base_s = stk.split(".")[0].upper()
+            ticker_to_sector[base_s] = sec_name
+            ticker_to_sector[stk.upper()] = sec_name
+
+    # --- LIVE INDEX CHART SECTION ---
     st.subheader(f"Live Market Context: {current_cfg['name']}")
-    
-    # Timeframe selector pill options
+
     tf_options = {
         "1D": {"days": 1, "label": "past day"},
         "5D": {"days": 5, "label": "past 5 days"},
@@ -870,70 +971,61 @@ elif st.session_state['page'] == 'analytics':
         "YTD": {"days": "YTD", "label": "year to date"},
         "1Y": {"days": 365, "label": "past year"},
         "5Y": {"days": 1825, "label": "past 5 years"},
-        "MAX": {"days": 3650, "label": "all time"}
+        "MAX": {"days": 3650, "label": "all time"},
     }
 
-    # Time period buttons bar
     col_tf, _ = st.columns([3, 1])
     with col_tf:
         selected_tf = st.segmented_control(
-            "Timeframe", 
-            options=list(tf_options.keys()), 
-            default="6M", 
-            label_visibility="collapsed"
+            "Timeframe",
+            options=list(tf_options.keys()),
+            default="6M",
+            label_visibility="collapsed",
         )
 
     with st.spinner(f"Fetching live benchmark data for {current_cfg['name']}..."):
         try:
-            import plotly.graph_objects as go
-
             end_d = datetime.datetime.now()
             tf_info = tf_options.get(selected_tf, tf_options["6M"])
-            
-            # Determine start date based on selected timeframe
+
             if tf_info["days"] == "YTD":
                 start_d = datetime.datetime(end_d.year, 1, 1)
             else:
                 start_d = end_d - datetime.timedelta(days=tf_info["days"])
-            
-            # Fetch data with appropriate interval (1m/5m for 1D, daily for others)
+
             interval = "15m" if selected_tf == "1D" else "1d"
             bench_raw = yf.download(
-                current_cfg['symbol'], 
-                start=start_d, 
-                end=end_d, 
+                current_cfg["symbol"],
+                start=start_d,
+                end=end_d,
                 interval=interval,
                 progress=False,
-                auto_adjust=True
+                auto_adjust=True,
             )
-            
+
             if not bench_raw.empty:
-                if 'Close' in bench_raw.columns:
-                    chart_series = bench_raw['Close']
+                if "Close" in bench_raw.columns:
+                    chart_series = bench_raw["Close"]
                 else:
                     chart_series = bench_raw.iloc[:, 0]
-                
+
                 if isinstance(chart_series, pd.DataFrame):
                     chart_series = chart_series.squeeze()
-                
-                chart_df = chart_series.dropna().reset_index()
-                date_col = chart_df.columns[0]
-                chart_df.columns = ['Date', 'Close']
 
-                # Calculations for Price, Absolute Change & Percentage Change
-                start_price = chart_df['Close'].iloc[0]
-                latest_price = chart_df['Close'].iloc[-1]
+                chart_df = chart_series.dropna().reset_index()
+                chart_df.columns = ["Date", "Close"]
+
+                start_price = chart_df["Close"].iloc[0]
+                latest_price = chart_df["Close"].iloc[-1]
                 abs_change = latest_price - start_price
                 pct_change = (abs_change / start_price) * 100
                 is_falling = abs_change < 0
 
-                # Format colors and arrows matching Google Finance
-                theme_color = '#D93025' if is_falling else '#188038'
-                fill_color = 'rgba(217, 48, 37, 0.10)' if is_falling else 'rgba(24, 128, 56, 0.10)'
-                arrow = '↓' if is_falling else '↑'
-                sign = '' if is_falling else '+'
+                theme_color = "#D93025" if is_falling else "#188038"
+                fill_color = "rgba(217, 48, 37, 0.10)" if is_falling else "rgba(24, 128, 56, 0.10)"
+                arrow = "↓" if is_falling else "↑"
+                sign = "" if is_falling else "+"
 
-                # Display Google Finance Header stats
                 st.markdown(
                     f"""
                     <div style="margin-top: -10px; margin-bottom: 10px;">
@@ -949,23 +1041,21 @@ elif st.session_state['page'] == 'analytics':
                         </span>
                     </div>
                     """,
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
 
-                # Chart bounds for clean dynamic zoom
-                y_min = chart_df['Close'].min() * 0.998
-                y_max = chart_df['Close'].max() * 1.002
+                y_min = chart_df["Close"].min() * 0.998
+                y_max = chart_df["Close"].max() * 1.002
 
-                # Build Plotly Line Area Chart
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=chart_df['Date'],
-                    y=chart_df['Close'],
-                    mode='lines',
+                    x=chart_df["Date"],
+                    y=chart_df["Close"],
+                    mode="lines",
                     line=dict(color=theme_color, width=2),
-                    fill='tonexty',
+                    fill="tonexty",
                     fillcolor=fill_color,
-                    hovertemplate="%{x}<br><b>Price:</b> %{y:,.2f}<extra></extra>"
+                    hovertemplate="%{x}<br><b>Price:</b> %{y:,.2f}<extra></extra>",
                 ))
 
                 fig.update_layout(
@@ -978,457 +1068,104 @@ elif st.session_state['page'] == 'analytics':
                     dragmode=False,
                     hovermode="x unified",
                     plot_bgcolor="rgba(0,0,0,0)",
-                    paper_bgcolor="rgba(0,0,0,0)"
+                    paper_bgcolor="rgba(0,0,0,0)",
                 )
-                
+
                 st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
             else:
                 st.warning("Market benchmark data temporarily unavailable.")
         except Exception as e:
             st.warning(f"Benchmark market index chart error: {str(e)}")
-            
-    # --- SIDEBAR CONTROL PANEL ---
-    st.sidebar.header(f"1. Configuration ({exchange})")
-    
-    # Currency Dropdown Menu
-    currency = st.sidebar.selectbox(
-        "Denominated Currency", 
-        ["INR", "ZAR", "USD", "EUR", "GBP"], 
-        index=["INR", "ZAR", "USD", "EUR", "GBP"].index(current_cfg['default_curr'])
-    )
-    
-    # Number Input for Capital (No slider)
-    initial_capital = st.sidebar.number_input(
-        label=f"Initial Capital ({currency})",
-        min_value=1000.0,
-        value=100000.0,
-        step=10000.0,
-        format="%.2f"
-    )
 
-    time_horizon_days = st.sidebar.number_input("Holding Period (Days)", min_value=1, max_value=365*4, value=30, step=1)
-    confidence_level = st.sidebar.selectbox("VaR Confidence Level", [0.90, 0.95, 0.99], index=1)
-
-    uploaded_file = st.sidebar.file_uploader(f"Upload {exchange} Portfolio CSV", type=["csv"]) 
-
-    target_return_pct = st.sidebar.number_input(
-    "Target Return (% p.a. for Sortino)",
-    min_value=-50.0,
-    max_value=100.0,
-    value=0.0,
-    step=0.5,
-    help="Minimum acceptable return per annum used to calculate downside deviation.",
-     )
-    # demo=0
-    # if exchange in ["BSE", "NSE"]:
-    #     if st.sidebar.button("📂 Load Demo Portfolio"):
-    #         uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
-    #         demo=1
-
-    if "use_demo" not in st.session_state:
-        st.session_state.use_demo = False
-
-    if exchange in ["BSE", "NSE"]:
-        if st.sidebar.button("📁 Load Demo Portfolio"):
-            st.session_state.use_demo = True
-    
-        if uploaded_file is not None:
-            # If the user uploads their own CSV later, override the demo
-            st.session_state.use_demo = False
-        elif st.session_state.use_demo:
-            uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
-
-# ==============================================================================
-# DYNAMIC SECTOR PERFORMANCE & STOCK DRILL-DOWN (NSE / BSE / JSE)
-# ==============================================================================
-
-    st.markdown("---")
-    if "run_sec1" not in st.session_state:
-      st.session_state.run_sec1 = (
-          False  # Default state: closed until clicked
-      )
-    
-    with st.expander(
-        "📊 Load Sector Performance & Stock Screener", key="btn_sec1"
-    ):
-    #   st.session_state.run_sec1 = True
-    
-    # if st.session_state.run_sec1:
-        st.header(f"📊 {exchange} Sector Performance & Stock Drill-Down Analysis")
-        
-        # 1. Exchange-Specific Sector Configurations
-        ALL_EXCHANGE_CONFIGS = {
-            "NSE": {
-                "Nifty IT": {
-                    "indices": ["^CNXIT"],
-                    "stocks": [
-                        "TCS.NS",
-                        "INFY.NS",
-                        "WIPRO.NS",
-                        "HCLTECH.NS",
-                        "TECHM.NS",
-                        "LTIM.NS",
-                        "PERSISTENT.NS",
-                        "COFORGE.NS",
-                        "MPHASIS.NS",
-                        "LTTS.NS",
-                    ],
-                },
-                "Nifty Bank": {
-                    "indices": ["^NSEBANK"],
-                    "stocks": [
-                        "HDFCBANK.NS",
-                        "ICICIBANK.NS",
-                        "SBIN.NS",
-                        "KOTAKBANK.NS",
-                        "AXISBANK.NS",
-                        "BANKBARODA.NS",
-                        "PNB.NS",
-                        "INDUSINDBK.NS",
-                        "AUBANK.NS",
-                        "IDFCFIRSTB.NS",
-                    ],
-                },
-                "Nifty Auto": {
-                    "indices": ["^CNXAUTO"],
-                    "stocks": [
-                        "TATAMOTORS.NS",
-                        "MARUTI.NS",
-                        "M&M.NS",
-                        "BAJAJ-AUTO.NS",
-                        "HEROMOTOCO.NS",
-                        "EICHERMOT.NS",
-                        "TVSMOTOR.NS",
-                        "BHARATFORG.NS",
-                        "BOSCHLTD.NS",
-                        "MRF.NS",
-                    ],
-                },
-                "Nifty FMCG": {
-                    "indices": ["^CNXFMCG"],
-                    "stocks": [
-                        "HINDUNILVR.NS",
-                        "ITC.NS",
-                        "NESTLEIND.NS",
-                        "BRITANNIA.NS",
-                        "TATACONSUM.NS",
-                        "DABUR.NS",
-                        "GODREJCP.NS",
-                        "MARICO.NS",
-                        "COLPAL.NS",
-                        "VBL.NS",
-                    ],
-                },
-                "Nifty Energy": {
-                    "indices": ["^CNXENERGY"],
-                    "stocks": [
-                        "RELIANCE.NS",
-                        "ONGC.NS",
-                        "BPCL.NS",
-                        "NTPC.NS",
-                        "POWERGRID.NS",
-                        "IOC.NS",
-                        "GAIL.NS",
-                        "ADANIGREEN.NS",
-                        "TATAPOWER.NS",
-                        "COALINDIA.NS",
-                    ],
-                },
-                "Nifty Pharma": {
-                    "indices": ["^CNXPHARMA"],
-                    "stocks": [
-                        "SUNPHARMA.NS",
-                        "CIPLA.NS",
-                        "DRREDDY.NS",
-                        "DIVISLAB.NS",
-                        "LUPIN.NS",
-                        "APOLLOHOSP.NS",
-                        "BIOCON.NS",
-                        "TORNTPHARM.NS",
-                        "ZYDUSLIFE.NS",
-                        "MANKIND.NS",
-                    ],
-                },
-            },
-            "BSE": {
-                "BSE IT": {
-                    "indices": ["^BSESIT.BO", "^BSESIT"],
-                    "stocks": [
-                        "TCS.NS",
-                        "INFY.NS",
-                        "WIPRO.NS",
-                        "HCLTECH.NS",
-                        "TECHM.NS",
-                        "LTIM.NS",
-                        "PERSISTENT.NS",
-                        "COFORGE.NS",
-                    ],
-                },
-                "BSE Bankex": {
-                    "indices": ["^BSEBANK.NS", "^BSEBANK"],
-                    "stocks": [
-                        "HDFCBANK.NS",
-                        "ICICIBANK.NS",
-                        "SBIN.NS",
-                        "KOTAKBANK.NS",
-                        "AXISBANK.NS",
-                        "BANKBARODA.NS",
-                        "PNB.NS",
-                    ],
-                },
-                "BSE Healthcare": {
-                    "indices": ["^BSEHC.NS", "^BSEHC"],
-                    "stocks": [
-                        "SUNPHARMA.NS",
-                        "DRREDDY.NS",
-                        "CIPLA.NS",
-                        "DIVISLAB.NS",
-                        "APOLLOHOSP.NS",
-                        "LUPIN.NS",
-                    ],
-                },
-                "BSE Auto": {
-                    "indices": ["^BSEAUTO.NS", "^BSEAUTO"],
-                    "stocks": [
-                        "TATAMOTORS.NS",
-                        "MARUTI.NS",
-                        "M&M.NS",
-                        "BAJAJ-AUTO.NS",
-                        "HEROMOTOCO.NS",
-                        "EICHERMOT.NS",
-                    ],
-                },
-                "BSE FMCG": {
-                    "indices": ["^BSEFMCG.NS"],
-                    "stocks": [
-                        "HINDUNILVR.NS",
-                        "ITC.NS",
-                        "NESTLEIND.NS",
-                        "BRITANNIA.NS",
-                        "DABUR.NS",
-                    ],
-                },
-                "BSE Metal": {
-                "indices": ["^BSEMT.NS"],
-                "stocks": [
-                    "TATASTEEL.NS",
-                    "JSWSTEEL.NS",
-                    "HINDALCO.NS",
-                    "VEDL.NS",
-                    ],
-                },
-                "BSE Oil & Gas": {
-                    "indices": ["^BSEOIL.NS"],
-                    "stocks": [
-                        "RELIANCE.NS",
-                        "ONGC.NS",
-                        "IOC.NS",
-                        "BPCL.NS",
-                    ],
-                },
-                "BSE Power & Utilities": {
-                    "indices": ["^BSEPOWER.NS"],
-                    "stocks": [
-                        "NTPC.NS",
-                        "POWERGRID.NS",
-                        "ADANIPOWER.NS",
-                        "TATAPOWER.NS",
-                    ],
-                },
-                "BSE Realty": {
-                    "indices": ["^BSERLTY.NS"],
-                    "stocks": [
-                        "DLF.NS",
-                        "GODREJPROP.NS",
-                        "OBEROIRLTY.NS",
-                        "PRESTIGE.NS",
-                    ],
-                },
-                "BSE Capital Goods & Industrials": {
-                    "indices": ["^BSECG.NS"],
-                    "stocks": [
-                        "LT.NS",
-                        "BEL.NS",
-                        "SIEMENS.NS",
-                        "ABB.NS",
-                    ],
-                },
-            },
-            "US": {
-                "Technology": {
-                    "indices": ["^NDX", "^GSPC"],
-                    "stocks": [
-                        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL", "CRM", "ADBE"
-                    ]
-                },
-                "Financials": {
-                    "indices": ["^IXFN", "^GSPC"],
-                    "stocks": [
-                        "JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW", "V", "MA"
-                    ]
-                },
-                "Healthcare": {
-                    "indices": ["^IXHC", "^GSPC"],
-                    "stocks": [
-                        "UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR", "ISRG", "BMY"
-                    ]
-                },
-                "Consumer Discretionary & Retail": {
-                    "indices": ["^GSPC"],
-                    "stocks": [
-                        "HD", "MCD", "NKE", "SBUX", "TJX", "LOW", "BKNG", "TGT", "CMG"
-                    ]
-                },
-                "Consumer Staples": {
-                    "indices": ["^GSPC"],
-                    "stocks": [
-                        "WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "CL"
-                    ]
-                },
-                "Communication Services & Media": {
-                    "indices": ["^GSPC"],
-                    "stocks": [
-                        "NFLX", "DIS", "CMCSA", "VZ", "T", "TMUS", "EA"
-                    ]
-                },
-                "Energy & Industrials": {
-                    "indices": ["^IXID", "^GSPC"],
-                    "stocks": [
-                        "XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE", "COP", "SLB"
-                    ]
-                },
-                "Utilities & Real Estate": {
-                    "indices": ["^GSPC"],
-                    "stocks": [
-                        "NEE", "DUK", "SO", "PLD", "AMT", "EQIX", "SPG"
-                    ]
-                }
-            },
-            "UK": {
-                "Energy & Commodities": {
-                    "indices": ["^FTSE"],
-                    "stocks": [
-                        "SHEL.L", "BP.L", "GLEN.L", "RIO.L", "AAL.L", "ANTO.L"
-                    ]
-                },
-                "Banking & Finance": {
-                    "indices": ["^FTSE"],
-                    "stocks": [
-                        "HSBA.L", "LLOY.L", "BARC.L", "NWG.L", "NWG.L", "PRU.L"
-                    ]
-                },
-                "Healthcare & Consumer": {
-                    "indices": ["^FTSE"],
-                    "stocks": [
-                        "AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"
-                    ]
-                },
-                "Consumer Goods & Retail": {
-                    "indices": ["^FTSE"],
-                    "stocks": [
-                        "ULVR.L", "BATS.L", "DGE.L", "ABF.L", "TSCO.L"
-                    ]
-                },
-                "Technology & Telecoms": {
-                    "indices": ["^FTSE"],
-                    "stocks": [
-                        "REL.L", "SGE.L", "VOD.L", "AAF.L"
-                    ]
-                },
-                "Aerospace, Industrials & Defense": {
-                    "indices": ["^FTSE"],
-                    "stocks": [
-                        "BA.L", "RR.L", "CRH.L", "SMIN.L"
-                    ]
-                }
-            },
-            "EU": {
-                "Technology & Industrials": {
-                    "indices": ["^STOXX", "^GDAXI"],
-                    "stocks": [
-                        "ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "IFX.DE", "AD.AS"
-                    ]
-                },
-                "Luxury & Consumer Goods": {
-                    "indices": ["^STOXX", "^FCHI"],
-                    "stocks": [
-                        "MC.PA", "OR.PA", "RMS.PA", "KER.PA", "ABI.BR", "HEIA.AS"
-                    ]
-                },
-                "Financials & Automakers": {
-                    "indices": ["^STOXX", "^GDAXI"],
-                    "stocks": [
-                        "ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"
-                    ]
-                },
-                "Healthcare & Pharmaceuticals": {
-                    "indices": ["^STOXX", "^SSMI"],
-                    "stocks": [
-                        "NOVN.SW", "ROG.SW", "NESN.SW", "SAN.PA", "BAYN.DE", "MRK.DE"
-                    ]
-                },
-                "Energy & Utilities": {
-                    "indices": ["^STOXX", "^FCHI"],
-                    "stocks": [
-                        "TTE.PA", "ENI.MI", "IBE.MC", "ENEL.MI", "RWE.DE", "EOAN.DE"
-                    ]
-                },
-                "Telecoms & Infrastructure": {
-                    "indices": ["^STOXX", "^GDAXI"],
-                    "stocks": [
-                        "DTE.DE", "ORA.PA", "TEF.MC", "VOD.L", "NOKIA.HE"
-                    ]
-                }
-            },
-            "JSE": {
-                "JSE Mining & Resources": {
-                    "indices": ["^J210.JO"],
-                    "stocks": [
-                        "AGL.JO",
-                        "BHP.JO",
-                        "GFI.JO",
-                        "ANG.JO",
-                        "IMP.JO",
-                        "SSW.JO",
-                        "AMS.JO",
-                    ],
-                },
-                "JSE Financials": {
-                    "indices": ["^J212.JO"],
-                    "stocks": [
-                        "FSR.JO",
-                        "SBK.JO",
-                        "ABG.JO",
-                        "NED.JO",
-                        "SLM.JO",
-                        "CPI.JO",
-                        "INP.JO",
-                    ],
-                },
-                "JSE Tech & Telecoms": {
-                    "indices": ["^J211.JO"],
-                    "stocks": ["NPN.JO", "PRX.JO", "MTN.JO", "VOD.JO", "TEL.JO"],
-                },
-                "JSE Retail & Consumer": {
-                    "indices": ["^J213.JO"],
-                    "stocks": [
-                        "WHL.JO",
-                        "SHP.JO",
-                        "MRP.JO",
-                        "CLS.JO",
-                        "PIK.JO",
-                        "SPP.JO",
-                    ],
-                },
-            },
-        }
-        
-        # Load chosen exchange sector configuration dynamically
-        sector_config = ALL_EXCHANGE_CONFIGS.get(
-            exchange, ALL_EXCHANGE_CONFIGS["BSE"]
+    # ==========================================================================
+    # 0. TOP-LEVEL ENTITY, RISK PARAMETERS & WORKSPACE MODE SWITCH
+    # ==========================================================================
+    st.markdown("### 🏛️ Entity, Risk Parameters & Workspace")
+    cfg_c1, cfg_c2, cfg_c3, cfg_c4 = st.columns([2.2, 1.3, 1.3, 1.4])
+    with cfg_c1:
+        entity_type = st.selectbox(
+            "Entity Type",
+            [
+                "Boutique PMS (Principal Officer)",
+                "Non-Individual SEBI RIA",
+                "Individual SEBI RIA",
+            ],
+            key="top_entity_type",
         )
-        
-        # 2. Timeframe Selection
+    with cfg_c2:
+        confidence_level = st.selectbox(
+            "VaR Confidence",
+            [0.90, 0.95, 0.99],
+            index=1,
+            key="top_var_conf",
+        )
+    with cfg_c3:
+        time_horizon_days = st.number_input(
+            "Horizon (Days)",
+            min_value=1,
+            max_value=365 * 4,
+            value=30,
+            step=1,
+            key="top_horizon_days",
+        )
+    with cfg_c4:
+        target_return_pct = st.number_input(
+            "Target / RFR (% p.a.)",
+            min_value=-50.0,
+            max_value=100.0,
+            value=6.5 if exchange in ["NSE", "BSE"] else 4.5,
+            step=0.5,
+            key="top_target_return",
+        )
+
+    workspace_mode = st.radio(
+        "Workspace",
+        ["Single Client Audit", "Model Portfolio & Client Batch"],
+        horizontal=True,
+        key="workspace_mode_selector",
+    )
+
+    # Sidebar Configuration (Currency, Capital, CSV/Demo Upload, Feedback)
+    st.sidebar.header(f"1. Configuration ({exchange})")
+    currency = st.sidebar.selectbox(
+        "Denominated Currency",
+        ["INR", "ZAR", "USD", "EUR", "GBP"],
+        index=["INR", "ZAR", "USD", "EUR", "GBP"].index(current_cfg["default_curr"]),
+    )
+    initial_capital = st.sidebar.number_input(
+        label=f"Initial Capital / Cash Reference ({currency})",
+        min_value=1000.0,
+        value=25000000.0 if currency == "INR" else 250000.0,
+        step=100000.0 if currency == "INR" else 5000.0,
+        format="%.2f",
+    )
+    uploaded_file = st.sidebar.file_uploader(f"Upload {exchange} Portfolio CSV", type=["csv"])
+
+    # if exchange in ["BSE", "NSE"]:
+    #     if st.sidebar.button("📁 Load Demo Portfolio"):
+    #         st.session_state["use_demo"] = True
+    #     if uploaded_file is not None:
+    #         st.session_state["use_demo"] = False
+    #     elif st.session_state["use_demo"] and os.path.exists("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv"):
+    #         uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
+
+    rfr_dict = {"NSE": 0.065, "BSE": 0.065, "US": 0.045, "UK": 0.045, "EU": 0.030, "JSE": 0.0725}
+    rfr_annual = rfr_dict.get(exchange, 0.05)
+
+    # ==========================================================================
+    # SECONDARY TABS
+    # ==========================================================================
+    st.markdown("---")
+    sec_tab1, sec_tab2, sec_tab3 = st.tabs([
+        "🧭 Stage 1–4: Rebalance, Mandate Gate & Audit",
+        "📊 Market Context (Sectors & Leaders)",
+        "📉 Fee & Tax Optimization",
+    ])
+
+    with sec_tab2:
+        st.subheader(f"{exchange} Sector Performance & Stock Leaders")
+        sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["BSE"])
+
         st.subheader("Select Time Horizon")
         timeframe = st.radio(
             "Choose period:",
@@ -1436,7 +1173,7 @@ elif st.session_state['page'] == 'analytics':
             horizontal=True,
             key="sector_idx_tf",
         )
-        
+
         timeframe_days_map = {
             "1 Month": 21,
             "3 Months": 63,
@@ -1444,25 +1181,21 @@ elif st.session_state['page'] == 'analytics':
             "1 Year": 252,
         }
         lookback_days = timeframe_days_map[timeframe]
-        
-        # 3. Gather Tickers
+
         all_tickers_to_fetch = []
         stock_to_sector_map = {}
-        
+
         for sector_name, data in sector_config.items():
             all_tickers_to_fetch.extend(data["indices"])
             all_tickers_to_fetch.extend(data["stocks"])
             for stock in data["stocks"]:
                 stock_to_sector_map[stock] = sector_name
-        
-        # Dedup list
+
         all_tickers_to_fetch = list(set(all_tickers_to_fetch))
-        
-        # 4. Fetch Market Data Matrix
+
         end_date = datetime.datetime.now()
         start_date = end_date - datetime.timedelta(days=400)
-        
-        
+
         @st.cache_data(ttl=3600)
         def fetch_sector_price_matrix(tickers, start, end):
             try:
@@ -1472,16 +1205,13 @@ elif st.session_state['page'] == 'analytics':
                 return df
             except Exception:
                 return pd.DataFrame()
-        
-        
+
         price_df = fetch_sector_price_matrix(all_tickers_to_fetch, start_date, end_date)
-        
-        # 5. Calculate Sector Returns & Individual Stock Performance
+
         sector_returns = {}
         stock_returns_dict = {}
-        
+
         if not price_df.empty:
-            # A. Calculate Individual Stock Growth Rates
             for col in price_df.columns:
                 series = price_df[col].dropna()
                 if len(series) >= lookback_days:
@@ -1490,8 +1220,7 @@ elif st.session_state['page'] == 'analytics':
                     if s_start > 0:
                         ret = ((s_end - s_start) / s_start) * 100
                         stock_returns_dict[col] = ret
-        
-            # B. Calculate Aggregate Sector Growth
+
             for sector_name, data in sector_config.items():
                 sec_stock_rets = [
                     stock_returns_dict[stk]
@@ -1500,15 +1229,13 @@ elif st.session_state['page'] == 'analytics':
                 ]
                 if sec_stock_rets:
                     sector_returns[sector_name] = np.mean(sec_stock_rets)
-        
-        # 6. Sector Performance Tables & Charts
+
         perf_df = pd.DataFrame(
             list(sector_returns.items()), columns=["Sector", "Growth (%)"]
-        )
-        perf_df = perf_df.sort_values(by="Growth (%)", ascending=False)
-        
+        ).sort_values(by="Growth (%)", ascending=False)
+
         col1, col2 = st.columns(2, gap="large")
-        
+
         with col1:
             st.subheader(f"🟢 Top Performing Sectors ({timeframe})")
             st.dataframe(
@@ -1527,12 +1254,10 @@ elif st.session_state['page'] == 'analytics':
             )
             fig_top_sec.update_layout(dragmode=False)
             st.plotly_chart(fig_top_sec, use_container_width=True)
-        
+
         with col2:
             st.subheader(f"🔴 Worst Performing Sectors ({timeframe})")
-            worst_sec_df = perf_df.tail(5).sort_values(
-                by="Growth (%)", ascending=True
-            )
+            worst_sec_df = perf_df.tail(5).sort_values(by="Growth (%)", ascending=True)
             st.dataframe(
                 worst_sec_df.style.format({"Growth (%)": "{:+.2f}%"}),
                 use_container_width=True,
@@ -1549,18 +1274,14 @@ elif st.session_state['page'] == 'analytics':
             )
             fig_worst_sec.update_layout(dragmode=False)
             st.plotly_chart(fig_worst_sec, use_container_width=True)
-        
-        # 7. TOP 10 BEST & WORST INDIVIDUAL STOCKS ANALYSIS
+
         st.markdown("---")
         st.subheader(f"📌 Top 10 Best & Worst Stock Performers ({exchange})")
-        
-        # Convert individual stock returns into a DataFrame
-        all_stocks_in_exchange = []
+
+        all_stocks_in_exchange = set()
         for sector_data in sector_config.values():
-            all_stocks_in_exchange.extend(sector_data["stocks"])
-        
-        all_stocks_in_exchange = set(all_stocks_in_exchange)
-        
+            all_stocks_in_exchange.update(sector_data["stocks"])
+
         stock_perf_list = [
             {
                 "Ticker": stk,
@@ -1571,15 +1292,13 @@ elif st.session_state['page'] == 'analytics':
             if stk in all_stocks_in_exchange
         ]
         if stock_perf_list:
-            stock_perf_df = pd.DataFrame(stock_perf_list).sort_values(
-            by="Return (%)", ascending=False
-            )
+            stock_perf_df = pd.DataFrame(stock_perf_list).sort_values(by="Return (%)", ascending=False)
         else:
             stock_perf_df = pd.DataFrame(columns=["Ticker", "Sector", "Return (%)"])
-        
+
         stock_perf_df["Ticker"] = stock_perf_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
         st_col1, st_col2 = st.columns(2, gap="large")
-        
+
         with st_col1:
             st.markdown("### 🚀 Top 10 Best Performing Stocks")
             top10_stocks = stock_perf_df.head(10).reset_index(drop=True)
@@ -1598,12 +1317,10 @@ elif st.session_state['page'] == 'analytics':
             )
             fig_top_stocks.update_layout(dragmode=False)
             st.plotly_chart(fig_top_stocks, use_container_width=True)
-        
+
         with st_col2:
             st.markdown("### 📉 Top 10 Worst Performing Stocks")
-            worst10_stocks = stock_perf_df.tail(10).sort_values(
-                by="Return (%)", ascending=True
-            ).reset_index(drop=True)
+            worst10_stocks = stock_perf_df.tail(10).sort_values(by="Return (%)", ascending=True).reset_index(drop=True)
             st.dataframe(
                 worst10_stocks.style.format({"Return (%)": "{:+.2f}%"}),
                 use_container_width=True,
@@ -1619,47 +1336,30 @@ elif st.session_state['page'] == 'analytics':
             )
             fig_worst_stocks.update_layout(dragmode=False)
             st.plotly_chart(fig_worst_stocks, use_container_width=True)
-    
-    # ==============================================================================
-    # 8. INDIVIDUAL SECTOR DRILL-DOWN (DROPDOWN SELECTOR & GRAPH)
-    # ==============================================================================
+
         st.markdown("---")
         st.subheader("🔎 Detailed Sector Drill-Down")
-        
-        # Dropdown menu populated dynamically with available sectors for the chosen exchange
         available_sectors = list(sector_config.keys())
-        selected_sector = st.selectbox(
-            "Choose a Sector to Analyze:", options=available_sectors
-        )
-        
+        selected_sector = st.selectbox("Choose a Sector to Analyze:", options=available_sectors)
+
         if selected_sector:
-            # Retrieve stocks configured for the selected sector
             sector_stocks = sector_config[selected_sector]["stocks"]
-        
-            # Filter stock performance results for the selected sector
             sector_stocks_perf = [
                 {"Ticker": stk, "Return (%)": stock_returns_dict.get(stk, np.nan)}
                 for stk in sector_stocks
                 if stk in stock_returns_dict
             ]
-            #sector_stocks_perf["Ticker"] = sector_stocks_perf["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
-            sector_drill_df = pd.DataFrame(sector_stocks_perf).sort_values(
-                by="Return (%)", ascending=False
-            )
-            sector_drill_df["Ticker"] = sector_drill_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
+            sector_drill_df = pd.DataFrame(sector_stocks_perf).sort_values(by="Return (%)", ascending=False)
             if not sector_drill_df.empty:
+                sector_drill_df["Ticker"] = sector_drill_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
                 sd_col1, sd_col2 = st.columns([1, 1.5], gap="large")
-        
                 with sd_col1:
-                    st.markdown(
-                        f"### Performance Breakdown: **{selected_sector}** ({timeframe})"
-                    )
+                    st.markdown(f"### Performance Breakdown: **{selected_sector}** ({timeframe})")
                     st.dataframe(
                         sector_drill_df.style.format({"Return (%)": "{:+.2f}%"}),
                         use_container_width=True,
                         hide_index=True,
                     )
-        
                 with sd_col2:
                     fig_sector_drill = px.bar(
                         sector_drill_df,
@@ -1674,2083 +1374,936 @@ elif st.session_state['page'] == 'analytics':
                     st.plotly_chart(fig_sector_drill, use_container_width=True)
             else:
                 st.info(f"No price data available for stocks in {selected_sector}.")
-    
-    # --- WORKFLOW: CSV PARSING & EDITABLE HOLDINGS TABLE ---
-    flag = 0
-    if uploaded_file is None:
-        flag = 1
-    if uploaded_file is not None or flag == 1:
-        try:
+
+    with sec_tab3:
+        st.subheader("📉 Strategy Fee, Cash & Execution Drag Calculator")
+        is_pms_role = "PMS" in entity_type
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            horizon_years = st.number_input("Investment Horizon (Years)", min_value=1, max_value=30, value=10, step=1, key="wd_horizon")
+        with d2:
+            expected_cagr = st.number_input("Expected Gross CAGR (%)", min_value=1.0, max_value=30.0, value=14.0, step=0.5, key="wd_cagr") / 100.0
+        with d3:
+            expense_diff = st.number_input("Annual Fee + Friction Drag (% p.a.)" if is_pms_role else "Expense Ratio Diff (% p.a.)", min_value=0.1, max_value=5.0, value=1.75 if is_pms_role else 1.0, step=0.1, key="wd_diff") / 100.0
+
+        net_cagr = max(expected_cagr - expense_diff, -0.99)
+        yrs = np.arange(0, int(horizon_years) + 1)
+        net_w = initial_capital * ((1.0 + net_cagr) ** yrs)
+        gross_w = initial_capital * ((1.0 + expected_cagr) ** yrs)
+        drag_val = float(gross_w[-1] - net_w[-1])
+        drag_pct = (drag_val / float(gross_w[-1]) * 100.0) if gross_w[-1] else 0.0
+
+        dm1, dm2, dm3 = st.columns(3)
+        dm1.metric("Net-of-Fee / Friction Value", f"{currency} {net_w[-1]:,.2f}")
+        dm2.metric("Gross Strategy Potential", f"{currency} {gross_w[-1]:,.2f}")
+        dm3.metric("Total Compounded Drag", f"{currency} {drag_val:,.2f}", delta=f"-{drag_pct:.1f}% drag", delta_color="inverse")
+        st.line_chart(pd.DataFrame({"Year": yrs, "Net of Fee & Friction": net_w, "Gross Strategy Trajectory": gross_w}).set_index("Year"))
+
+        st.markdown("---")
+        st.subheader("🛡️ Tax Liabilities & Optimization (India)")
+        if exchange not in ["NSE", "BSE"]:
+            st.info("ℹ️ Tax audit optimization is currently available for NSE / BSE workspaces.")
+        else:
+            tax_cost_missing = False
+            base_tax_df = pd.DataFrame([
+                {"Instrument": "HDFCBANK", "Avg_Cost": 1520.0, "Qty": 100, "Holding_Days": 420},
+                {"Instrument": "INFY", "Avg_Cost": 1480.0, "Qty": 120, "Holding_Days": 180},
+                {"Instrument": "TATASTEEL", "Avg_Cost": 165.0, "Qty": 500, "Holding_Days": 90},
+            ])
             if uploaded_file is not None:
-                def parse_uploaded_portfolio(uploaded_file, selected_workspace):
-                    """
-                    Parses portfolio CSVs, filters out 'INF' non-equities, 
-                    matches partially masked ISINs prefix-wise, and outputs base stock symbols & quantities.
-                    """
-                    try:
-                        if st.session_state.use_demo == False:
-                            uploaded_file.seek(0)
-                            bytes_data = uploaded_file.read()
-                            
-                            if not bytes_data:
-                                return pd.DataFrame(columns=['Ticker', 'Quantity'])
-                                
-                            safe_buffer = io.BytesIO(bytes_data)
-                            raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
-                            raw_df = raw_df.dropna(how='all').dropna(how='all', axis=1)
-                            
-                            if raw_df.empty:
-                                return pd.DataFrame(columns=['Ticker', 'Quantity'])
-                        else:
-                            raw_df = uploaded_file
-                
-                        # Normalize column headers
-                        raw_df.columns = raw_df.columns.astype(str).str.strip()
-                
-                        # Identify key columns flexibly
-                        possible_id_cols = ['ISIN No', 'ISIN', 'ISIN NUMBER', 'ISIN Code', 'Isin', 'ISIN_NO', 'CIK']
-                        possible_ticker_cols = ['Stock Symbol', 'Symbol', 'Ticker', 'Stock', 'Security', 'Company', 'Scrip']
-                        possible_qty_cols = ['Qty', 'Quantity', 'qty', 'Shares', 'Volume', 'Units', 'Holdings']
-                        possible_cost_cols = ['Average Cost Price', 'Cost Price', 'Buy Price', 'Average Price', 'Price', 'Cost']
-                
-                        id_col = next((col for col in possible_id_cols if col in raw_df.columns), None)
-                        ticker_col = next((col for col in possible_ticker_cols if col in raw_df.columns), raw_df.columns[0])
-                        qty_col = next((col for col in possible_qty_cols if col in raw_df.columns), raw_df.columns[1] if len(raw_df.columns) > 1 else raw_df.columns[0])
-                        cost_col = next((col for col in possible_cost_cols if col in raw_df.columns), None)
-                
-                        # Map workspaces to JSON files
-                        workspace_json_mapping = {
-                            "NSE": "nse_isin_map.json",
-                            "BSE": "bse_isin_map.json",
-                            "US": "sp500_cik_map.json"
-                        }
-                
-                        id_map = {}
-                        if selected_workspace in workspace_json_mapping:
-                            json_file = workspace_json_mapping[selected_workspace]
-                            if os.path.exists(json_file):
-                                with open(json_file, 'r') as f:
-                                    id_map = json.load(f)
-                
-                        parsed_rows = []
-                        for _, row in raw_df.iterrows():
-                            raw_id = str(row[id_col]).strip().upper() if id_col and pd.notna(row[id_col]) else ""
-                            raw_ticker = str(row[ticker_col]).strip().upper().replace('#', '') if pd.notna(row[ticker_col]) else ""
-                            
-                            # --- GUARD 1: Ignore INF (Mutual Funds/ETFs) ---
-                            if raw_id.startswith('INF') or raw_ticker.startswith('INF'):
-                                continue
-                
-                            try:
-                                qty = float(row[qty_col])
-                            except (ValueError, TypeError):
-                                qty = 1.0
-
-                            cost_price = 0.0
-                            if cost_col and pd.notna(row[cost_col]):
-                                try:
-                                    val_str = str(row[cost_col]).replace(',', '').replace('₹', '').replace('$', '').strip()
-                                    cost_price = float(val_str)
-                                except (ValueError, TypeError):
-                                    cost_price = 0.0
-                
-                            base_symbol = ""
-                
-                            # --- GUARD 2: Prefix / Partial ISIN Matching for masked codes (e.g. INE171A01XXX) ---
-                            matched = False
-                            if raw_id and id_map:
-                                # Clean out trailing X's or asterisks used for masking
-                                clean_id = raw_id.split('X')[0].replace('*', '').strip()
-                                
-                                # Direct match first
-                                if raw_id in id_map:
-                                    base_symbol = id_map[raw_id]
-                                    matched = True
-                                else:
-                                    # Prefix search against JSON keys
-                                    for full_key, sym in id_map.items():
-                                        if full_key.startswith(clean_id) and len(clean_id) >= 8:
-                                            base_symbol = sym
-                                            matched = True
-                                            break
-                
-                            # 3. Fallback to raw ticker symbol if ISIN lookup didn't trigger
-                            if not matched:
-                                base_symbol = raw_ticker
-                
-                            if base_symbol and base_symbol != 'NAN':
-                                parsed_rows.append({'Ticker': base_symbol, 'Quantity': int(qty), 'Cost Price': cost_price})
-                
-                        holdings_df = pd.DataFrame(parsed_rows)
-                        if not holdings_df.empty:
-                            st.success("Portfolio successfully loaded!")
-                            return holdings_df
-                
-                    except Exception as e:
-                        st.warning(f"Could not parse custom CSV format: {e}. Using fallback portfolio.")
-                holdings_df = parse_uploaded_portfolio(uploaded_file, exchange)
-                 #return pd.DataFrame(columns=['Ticker', 'Quantity'])
-            else:
-                holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
-
-
-            st.write("### 📝 Interactive Holdings Adjuster")
-            st.info("Add/Edit stocks & quantities directly in the table below to dynamically trigger stress-test calculations.")
-            
-            # EDITABLE DATA TABLE
-            edited_df = st.data_editor(
-                holdings_df,
-                num_rows="dynamic",
-                use_container_width=True,
-                key="holdings_editor"
-            )
-
-
-
-            # Re-format Tickers with exchange suffix for Yahoo Finance
-            # edited_df['yf_ticker'] = edited_df['Ticker'].astype(str).str.strip() + current_cfg['suffix']
-            # active_tickers = edited_df['yf_ticker'].tolist()
-
-            # Re-format Tickers with exchange suffix for Yahoo Finance
-            all_eu_suffixes = ['.AS', '.DE', '.PA', '.MI', '.MC', '.SW', '.ST', '.BR']
-            
-            resolved_tickers = []
-            for raw_ticker in edited_df['Ticker'].astype(str).str.strip():
-                raw_ticker_upper = raw_ticker.upper()
-                
-                # If it's the EU workspace and doesn't already have a recognized suffix
-                if current_cfg.get('name') == 'STOXX Europe 600' and not any(raw_ticker_upper.endswith(sfx) for sfx in all_eu_suffixes):
-                    found_valid = False
-                    for sfx in all_eu_suffixes:
-                        test_symbol = f"{raw_ticker_upper}{sfx}"
-                        try:
-                            # Quick lightweight check to see if data exists for this suffix
-                            test_data = yf.download(test_symbol, period="5d", progress=False)
-                            if not test_data.empty:
-                                resolved_tickers.append(test_symbol)
-                                found_valid = True
-                                break
-                        except Exception:
-                            continue
-                            
-                    # If none of the suffixes worked, fallback to appending the default or raw
-                    if not found_valid:
-                        resolved_tickers.append(f"{raw_ticker_upper}{current_cfg.get('suffix', '')}")
-                else:
-                    # For US, UK, BSE, NSE, or already suffixed tickers
-                    if any(raw_ticker_upper.endswith(sfx) for sfx in all_eu_suffixes) or current_cfg.get('name') != 'STOXX Europe 600':
-                        sfx_to_add = "" if any(raw_ticker_upper.endswith(sfx) for sfx in all_eu_suffixes) else current_cfg.get('suffix', '')
-                        resolved_tickers.append(f"{raw_ticker_upper}{sfx_to_add}")
+                parsed_for_tax, has_cost_col = parse_uploaded_portfolio(uploaded_file, exchange, is_demo=st.session_state["use_demo"])
+                if not parsed_for_tax.empty:
+                    if not has_cost_col or parsed_for_tax["Cost Price"].isna().all():
+                        tax_cost_missing = True
                     else:
-                        resolved_tickers.append(raw_ticker_upper)
-            
-            edited_df['yf_ticker'] = resolved_tickers
-            active_tickers = edited_df['yf_ticker'].tolist()
-
-            if len(active_tickers) > 0 and edited_df['Quantity'].sum() > 0:
-                with st.spinner("Fetching stock prices & building full portfolio risk matrix..."):
-                    end_date = datetime.datetime.now()
-                    start_date = end_date - datetime.timedelta(days=365 * 5)
-
-        # 1. Download price data for all universe tickers
-                    price_data = yf.download(active_tickers, start=start_date, end=end_date)['Close']
-
-        # Handle single series edge cases
-                    if isinstance(price_data, pd.Series):
-                        price_data = price_data.to_frame()
-
-        # Clean invalid or empty columns
-                        price_data = price_data.dropna(how='all', axis=1)
-
-        # Safety Check to prevent out-of-bounds iloc crash
-                    if price_data.empty:
-                        st.error("Price data download returned no valid records for the given tickers.")
-                    else:
-                        price_data = price_data.ffill().bfill()
-                        latest_prices = price_data.iloc[-1]
-
-            # 2. Map latest prices safely to user holdings
-            # (Matches symbol or fallback if user CSV uses standard stock symbols)
-                        edited_df['Latest Price'] = edited_df['yf_ticker'].map(latest_prices)
-            
-            # Fill missing prices with 0 to prevent downstream calculation explosions
-                        edited_df['Latest Price'] = edited_df['Latest Price'].fillna(0.0)
-                        edited_df['Position Value'] = edited_df['Quantity'] * edited_df['Latest Price']
-                        total_portfolio_market_val = edited_df['Position Value'].sum()
-
-                        st.dataframe(edited_df[["Ticker","Quantity","Latest Price"]], hide_index=True, use_container_width=True)
-
-            # 3. Create full 516x1 universe matrix
-                        universe_tickers = price_data.columns.tolist()
-                        full_universe_df = pd.DataFrame(index=universe_tickers)
-
-            # 4. Map user position values into the full universe
-                        user_position_series = edited_df.groupby('yf_ticker')['Position Value'].sum()
-                        full_universe_df['Position Value'] = user_position_series
-                        full_universe_df['Position Value'] = full_universe_df['Position Value'].fillna(0.0)
-
-            # 5. Compute full zero-filled vector w (516 x 1)
-                        if total_portfolio_market_val > 0:
-                            full_universe_df['Weight'] = full_universe_df['Position Value'] / total_portfolio_market_val
-                        else:
-                            full_universe_df['Weight'] = 0.0
-
-                        weights = full_universe_df['Weight'].values
-                        if len(active_tickers) == 1:
-                          # Force single stock weight to 100% (1.0) if only 1 ticker is active
-                          weights = np.array([1.0])
-
-                    # Compute Daily Returns
-                returns = price_data.pct_change().dropna()
-                # portfolio_daily_returns = returns.dot(weights)
-                # --- SAFE SINGLE-STOCK VS MULTI-STOCK PORTFOLIO METRICS ---
-                if len(active_tickers) == 1:
-                  # Single-stock fallback: 100% weight, direct series assignment
-                  portfolio_daily_returns = returns[active_tickers[0]]
-                  # portfolio_variance = portfolio_daily_returns.var() * 252
-                  # portfolio_std = portfolio_daily_returns.std() * (252**0.5)
-                else:
-                  # Multi-stock matrix calculations
-                  portfolio_daily_returns = returns.dot(weights)
-                  # cov_matrix = returns.cov() * 252
-                  # portfolio_variance = weights.T @ cov_matrix @ weights
-                  # portfolio_std = np.sqrt(portfolio_variance)
-
-                cum_returns = (1 + portfolio_daily_returns["2024-01-01":]).cumprod() - 1      #.rolling(window=63).apply(lambda x: (1 + x).prod() - 1)
-                #cum_rolling_returns = cum_rolling_returns.replace([np.inf, -np.inf], np.nan).fillna(0.0)
-
-# --- ADD BENCHMARK OVERLAY (RED LINE) ---
-                benchmark_symbol = current_cfg.get("symbol", "^NSEI")
-                bench_df = yf.download(
-                    benchmark_symbol,
-                    start=cum_returns.index[0],
-                    end=cum_returns.index[-1],
-                    progress=False,
-                )
-                
-                if isinstance(bench_df, pd.DataFrame) and "Close" in bench_df:
-                    bench_series = bench_df["Close"]
-                    if isinstance(bench_series, pd.DataFrame):
-                        bench_series = bench_series.squeeze()
-                    bench_daily_ret = bench_series.pct_change().dropna()
-                    bench_cum_returns = (1 + bench_daily_ret).cumprod() - 1
-                else:
-                    bench_cum_returns = pd.Series(0, index=cum_returns.index)
-                
-                # Build Combined Figure
-                import plotly.graph_objects as go
-                
-                fig = go.Figure()
-                
-                # Add Portfolio Trace (Blue Line)
-                fig.add_trace(
-                    go.Scatter(
-                        x=cum_returns.index,
-                        y=cum_returns.values,
-                        mode="lines",
-                        name="Portfolio Return",
-                        line=dict(color="#1f77b4", width=2),
-                    )
-                )
-                
-                # Add Live Benchmark Trace (Red Line)
-                fig.add_trace(
-                    go.Scatter(
-                        x=bench_cum_returns.index,
-                        y=bench_cum_returns.values,
-                        mode="lines",
-                        name=f"Market Index ({current_cfg.get('name', 'Benchmark')})",
-                        line=dict(color="#FF0000", width=2, dash="solid"),
-                    )
-                )
-                
-                # Format Y-axis & Hover Timeline
-                fig.update_layout(
-                    title="Cumulative Portfolio vs. Market Performance",
-                    yaxis_tickformat=".2%",
-                    hovermode="x unified",
-                    xaxis_title="Date",
-                    yaxis_title="Return",
-                    dragmode=False,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                )
-                
-                # Render in Streamlit
-                #st.plotly_chart(fig, use_container_width=True)
-                #fig = px.line(cum_returns,title="Cumulative Portfolio Returns",labels={"value": "Cumulative Return", "index": "Date"},)
-
-# 3. Format Y-axis as percentage and enable hover timeline
-                fig.update_layout(
-                #yaxis_tickformat=".2%",
-                hovermode="x unified",
-                xaxis_title="Date",
-                yaxis_title="Return",
-                dragmode=False
-                )
-
-# 4. Render in Streamlit
-                st.plotly_chart(fig, use_container_width=True, key="portfolio_vs_market_chart")
-                fig_bytes = pio.to_image(fig, format='png', width=700, height=450)
-
-# --- STATISTICAL RISK CALCULATIONS ---
-
-                # VaR Percentage & Monetary Loss
-                var_percentile = (1 - confidence_level) * 100
-                var_pct = np.percentile(portfolio_daily_returns, var_percentile) 
-                var_amount = abs(var_pct) * initial_capital * np.sqrt(time_horizon_days)
-
-                # CVaR (Expected Shortfall) Percentage & Monetary Loss
-                cvar_pct = portfolio_daily_returns[portfolio_daily_returns <= var_pct].mean() * np.sqrt(time_horizon_days)
-                cvar_amount = abs(cvar_pct) * initial_capital
-
-                # Sharpe Ratio (6.5% baseline RFR)
-                rfr_dict = {
-                    'NSE': 0.065,  # India baseline ~6.5%
-                    'BSE': 0.065,  # India baseline ~6.5%
-                    'US':  0.045,  # US baseline ~4.5%
-                    'UK':  0.045,  # UK baseline ~4.5%
-                    'EU':  0.030,  # Eurozone baseline ~3.0%
-                    'JSE': 0.0725  # South Africa baseline ~7.25%
-                }
-                rfr_annual = rfr_dict.get(exchange, 0.05)
-                rfr_daily = rfr_annual / 252
-                #sharpe = ((portfolio_daily_returns.mean() - rfr_daily) / portfolio_daily_returns.std()) * np.sqrt(252)
-                if len(active_tickers) == 1:
-                  sharpe = (
-                      (portfolio_daily_returns.mean() - rfr_daily)
-                      / portfolio_daily_returns.std()
-                  ) * np.sqrt(252)
-                  weight_entropy = 0.0  # Entropy of 100% weight in single asset is 0
-                  risk_contri = np.array([1.0])
-                  risk_entropy = 0.0
-                else:
-                    sharpe = erk.sharpe_ratio(portfolio_daily_returns, rfr_daily*252, 252)
-                    weight_entropy = erk.enc(weights)
-                    risk_contri = erk.risk_contribution(weights, np.cov(returns.T))
-                    risk_entropy = erk.enc(risk_contri)
-# Sortino
-                #target_return_daily = (target_return_pct / 100.0) / 252.0
-                
-                def sortino_ratio(returns: pd.Series | pd.DataFrame, rfr: float = 0.055,target_return: float = 0.0,periods_per_year: int = 252,) -> float | pd.Series:
-                      """Calculates the Annualized Sortino Ratio for a given returns series or DataFrame"""
-  # Adjust risk-free rate to period frequency
-                      rfr_period = rfr / periods_per_year
-                      target_return = (target_return/100.0)/periods_per_year
-
-  # Calculate excess returns above risk-free rate
-                      mean_excess_return = returns.mean() - rfr_period
-
-  # Isolate downside returns (returns below target threshold)
-                      downside_returns = returns[returns < target_return]
-
-  # Calculate Downside Deviation (annualized)
-                      downside_std = np.sqrt((downside_returns**2).mean()) * np.sqrt(periods_per_year)
-
-  # Annualize expected excess returns
-                      annualized_excess_return = mean_excess_return * periods_per_year
-
-  # Avoid division by zero if downside deviation is 0
-                      if isinstance(downside_std, (pd.Series, np.ndarray)):
-                            downside_std = downside_std.replace(0, np.nan)
-                      elif downside_std == 0:
-                            return np.nan
-
-                      return annualized_excess_return / downside_std
-                
-                sortino = sortino_ratio(portfolio_daily_returns, rfr=rfr_daily*252, target_return=target_return_pct, periods_per_year=252)
-
-# Expected Returns 
-                res = erk.backtest_ws(returns, 252, erk.weight_fix, weights = weights)
-                btr = pd.DataFrame({"Results":res})
-                exp_ret = erk.summary_stats(btr.dropna(), rfr_daily, 252)["Annualized Return"]
-                exp_vol = erk.summary_stats(btr.dropna(), rfr_daily, 252)["Annualized Vol"]
-                exp_dd = erk.summary_stats(btr.dropna(), rfr_daily, 252)["Max Drawdown"]
-
-                if isinstance(exp_dd, (pd.Series, np.ndarray)):
-                  exp_dd = float(exp_dd.iloc[0])
-                else:
-                  exp_dd = float(exp_dd)
-
-                if isinstance(exp_ret, (pd.Series, np.ndarray)):
-                  exp_ret = float(exp_ret.iloc[0])
-                else:
-                  exp_ret = float(exp_ret)
-
-                if isinstance(exp_vol, (pd.Series, np.ndarray)):
-                  exp_vol = float(exp_vol.iloc[0])
-                else:
-                  exp_vol = float(exp_vol)
-
-# --- CALCULATE PORTFOLIO BETA AGAINST BENCHMARK ---
-                if "bench_daily_ret" in locals() and not bench_daily_ret.empty:
-                    aligned_data = pd.DataFrame(
-                        {"portfolio": portfolio_daily_returns, "market": bench_daily_ret}
-                    ).dropna()
-                    if len(aligned_data) > 5:
-                        cov_matrix = np.cov(
-                            aligned_data["portfolio"], aligned_data["market"]
-                        )
-                        portfolio_beta = cov_matrix[0, 1] / cov_matrix[1, 1]
-                    else:
-                        portfolio_beta = 1.0
-                else:
-                    portfolio_beta = 1.0
-                
-                # --- QUANTITATIVE PORTFOLIO SCORE (0-100) ---
-                # 1. Sharpe Ratio component (Max 25 pts)
-                norm_sharpe = min(max(sharpe / 2.0, 0), 1) * 25
-                
-                # 2. Sortino Ratio component (Max 25 pts)
-                norm_sortino = min(max(sortino / 3.0, 0), 1) * 25
-                
-                # 3. Maximum Drawdown component (Max 25 pts - penalizing high drawdowns)
-                norm_drawdown = max(1 - abs(exp_dd) / 0.5, 0) * 25
-                
-                # 4. Beta component (Max 25 pts - rewarding stability/close market tracking)
-                beta_diff = abs(portfolio_beta - 1.0)
-                norm_beta = max(1 - beta_diff / 1.5, 0) * 25
-                
-                portfolio_score = round(
-                    norm_sharpe + norm_sortino + norm_drawdown + norm_beta, 1
-                )
-
-                
-                # --- RENDER PORTFOLIO SCORE CARD ---
-                _, center_col, _ = st.columns([1, 2, 1])
-
-                with center_col:
-                    st.metric(
-                        label="⭐ Quantitative Portfolio Score",
-                        value=f"{portfolio_score} / 100",
-                        delta=f"Beta: {portfolio_beta:.2f}",
-                    )
-                
-                st.markdown("---")
-                st.write("### 🛡️ Returns")
-
-                res3_col1, res3_col2, res3_col3 = st.columns(3)
-
-                res3_col1.metric(
-                    label="Annualized Expected Return",
-                    value=f"{abs(exp_ret)*100:.2f}%", 
-                    #delta=f"-{currency} {var_amount:,.2f}", 
-                    #delta_color="inverse"
-                )
-                
-                res3_col2.metric(
-                    label="Annualized Volatility", 
-                    value=f"{abs(exp_vol)*100:.2f}%", 
-                    #delta=f"-{currency} {cvar_amount:,.2f}", 
-                    #delta_color="inverse"
-                )
-                
-                res3_col3.metric(
-                    label="Maximum Drawdown", 
-                    value=f"{abs(exp_dd)*100:.2f}%"
-                )
-
-                st.markdown("---")
-                st.write("### 🛡️ Value at Risk (VaR) & Downside Metrics")
-                
-                res_col1, res_col2, res_col3 = st.columns(3)
-                
-                res_col1.metric(
-                    label=f"Historical VaR ({int(confidence_level*100)}%) ({time_horizon_days} days)", 
-                    value=f"{abs(var_pct)*100 * np.sqrt(time_horizon_days):.2f}%", 
-                    delta=f"-{currency} {var_amount:,.2f}", 
-                    delta_color="inverse"
-                )
-                
-                res_col2.metric(
-                    label="CVaR / Expected Shortfall", 
-                    value=f"{abs(cvar_pct)*100:.2f}%", 
-                    delta=f"-{currency} {cvar_amount:,.2f}", 
-                    delta_color="inverse"
-                )
-                
-                res_col3.metric(
-                    label="Annualized Sharpe Ratio", 
-                    value=f"{sharpe:.2f}"
-                )
-
-                res2_col1, res2_col2, res2_col3 = st.columns(3)
-
-                res2_col1.metric(
-                    label=f"Portfolio - Diversification ({int(confidence_level*100)}%)", 
-                    value=f"{abs(weight_entropy):.2f}%", 
-                    #delta=f"-{currency} {var_amount:,.2f}", 
-                    #delta_color="inverse"
-                )
-                
-                res2_col2.metric(
-                    label="Risk - Diversification", 
-                    value=f"{abs(risk_entropy):.2f}%", 
-                    #delta=f"-{currency} {cvar_amount:,.2f}", 
-                    #delta_color="inverse"
-                )
-                
-                res2_col3.metric(
-                    label="Sortino Ratio", 
-                    value=f"{sortino:.2f}"
-                )
-
-                # --- WEIGHT & RISK CONTRIBUTION BAR PLOTS ---
-                st.markdown("---")
-                st.write("### 📊 Portfolio Weight vs. Risk Contribution Breakdown")
-                
-                # Extract non-zero positions for clean plotting
-                active_tickers = [
-                    t for t, w in zip(universe_tickers, weights) if w > 0.0001
-                ]
-                active_weights = [
-                    w for w in weights if w > 0.0001
-                ]
-                active_risk_contri = [
-                    rc for w, rc in zip(weights, risk_contri) if w > 0.0001
-                ]
-                
-                # Create side-by-side columns
-                r_col1, r_col2 = st.columns(2, gap="large")
-                
-                with r_col1:
-                    fig_weights = px.bar(
-                        x=active_tickers,
-                        y=active_weights,
-                        labels={"x": "Stock", "y": "Portfolio Weight"},
-                        title="Asset Weight Distribution",
-                        color=active_weights,
-                        color_continuous_scale="Blues",
-                    )
-                    fig_weights.update_layout(
-                        yaxis_tickformat=".2%",
-                        showlegend=False,
-                        hovermode="x unified",
-                        dragmode=False
-                    )
-                    st.plotly_chart(
-                        fig_weights,
-                        use_container_width=True,
-                        key="weight_entropy_bar_plot",
-                    )
-                
-                with r_col2:
-                    fig_risk = px.bar(
-                        x=active_tickers,
-                        y=active_risk_contri,
-                        labels={"x": "Stock", "y": "Risk Contribution"},
-                        title="Risk Contribution Breakdown",
-                        color=active_risk_contri,
-                        color_continuous_scale="Reds",
-                    )
-                    fig_risk.update_layout(
-                        yaxis_tickformat=".2%",
-                        showlegend=False,
-                        hovermode="x unified",
-                        dragmode=False
-                    )
-                    st.plotly_chart(
-                        fig_risk,
-                        use_container_width=True,
-                        key="risk_contribution_bar_plot",
-                    )
-                fig_weights_bytes = pio.to_image(fig_weights, format='png', width=700, height=450)
-                fig_risk_bytes = pio.to_image(fig_risk, format='png', width=700, height=450)
-
-                # # --- MONTE CARLO RISK STRESS RESULTS (METRICS ONLY) ---
-                # st.markdown("---")
-                # st.write(f"### 🎲 Monte Carlo Risk Audit ({time_horizon_days}-Day Horizon)")
-
-                # num_sims = 1000
-                # mean_ret = portfolio_daily_returns.mean()
-                # std_ret = portfolio_daily_returns.std()
-
-                # # Calculate Monte Carlo scenarios without graph output
-                # simulated_ending_values = np.zeros(num_sims)
-                # for i in range(num_sims):
-                #     daily_sims = np.random.normal(mean_ret, std_ret, time_horizon_days)
-                #     simulated_ending_values[i] = initial_capital * np.exp(np.sum(daily_sims))
-
-                # mc_var_95 = np.percentile(simulated_ending_values, 5)
-                # max_expected_loss = initial_capital - mc_var_95
-                # prob_loss_10pct = (np.sum(simulated_ending_values < (initial_capital * 0.90)) / num_sims) * 100
-
-                # --- MONTE CARLO RISK STRESS RESULTS (USING QUANT_RISK_KIT GBM) ---
-                st.markdown("---")
-                st.write(f"### 🎲 10,000 Path Monte Carlo Risk Audit ({time_horizon_days}-Day Horizon)")
-                
-                # 1. Parameter setup for GBM
-                num_sims = 10000
-                # n_years = time_horizon_days / 252.0  # Convert holding horizon days to annual fraction
-                # mean_ret = portfolio_daily_returns.mean()
-                # std_ret = portfolio_daily_returns.std()
-                
-                # # Annualize daily parameters for Geometric Brownian Motion
-                # mu_annual = mean_ret * 252.0
-                # sigma_annual = std_ret * (252.0 ** 0.5)
-                
-                # # 2. Call your custom quant_risk_kit GBM simulation function
-                # # Generates 10,000 scenario price paths starting at initial_capital
-                # gbm_paths = erk.gbm(
-                #     n_years=n_years,
-                #     n_scenarios=num_sims,
-                #     mu=mu_annual,
-                #     sigma=sigma_annual,
-                #     steps_per_year=252,
-                #     s_0=initial_capital,
-                #     prices=True
-                # )
-
-                sim_rets = erk.cholesky_returns(price_data, num_sims, False)
-                # portfolio_multipliers = (sim_prices / sim_prices.iloc[0]).dot(weights)
-                # gbm_paths = portfolio_multipliers*initial_capital
-                port_sim_rets = sim_rets.dot(weights)
-                #port_sim_rets = erk.cholesky_returns(port_sim_prices,num_steps=1000,return_prices=False)
-                # 3. Extract ending values from the final step of all 10,000 simulated paths
-                # simulated_ending_values = gbm_paths.iloc[-1].values
-                
-                # 4. Compute Risk Metrics
-                mc_var_95 = np.percentile(port_sim_rets, (1-confidence_level) * 100)*initial_capital*np.sqrt(time_horizon_days)
-                max_expected_loss = np.abs(mc_var_95)
-                prob_loss_10pct = (np.sum(port_sim_rets < (-0.10)) / num_sims) * 100.0
-
-                mc_col1, mc_col2, mc_col3 = st.columns(3)
-                
-                mc_col1.metric(
-                    label=f"Max Expected Loss ({time_horizon_days}-Day)", 
-                    value=f"{currency} {max_expected_loss:,.2f}"
-                )
-                
-                mc_col2.metric(
-                    label=f"Projected Portfolio Tail Value ({time_horizon_days}-Day)", 
-                    value=f"{currency} {initial_capital-np.abs(mc_var_95):,.2f}"
-                )
-                
-                mc_col3.metric(
-                    label="Probability of >10% Capital Drawdown(1-Day)", 
-                    value=f"{prob_loss_10pct:.1f}%"
-                )
-
-
-                with st.expander(
-                        "🛡️ Macro Stress Testing, Basel Backtesting & SEBI Regulatory Compliance", expanded=False
-                    ):
-                    st.markdown("---")
-                    st.header("⚡ Macro Stress Testing & Scenario Analysis")
-                    st.info("Simulate portfolio capital erosion under sudden extreme market shock scenarios.")
-                    
-                    col_shock1, col_shock2 = st.columns([1, 2])
-                    
-                    with col_shock1:
-                        market_shock_pct = st.slider(
-                            "Market Benchmark Shock (%)", 
-                            min_value=-50.0, 
-                            max_value=0.0, 
-                            value=-15.0, 
-                            step=1.0,
-                            help="Simulate an instantaneous drop in the broader market index."
-                        )
-                    
-                    # Compute portfolio sensitivity (using portfolio beta if available, default to 1.0)
-                    # If you have a calculated portfolio beta variable, use it here; otherwise, standard beta is 1.0
-                    portfolio_beta = locals().get('portfolio_beta', 1.0) 
-                    
-                    # Calculate stressed losses
-                    stressed_portfolio_drop_pct = market_shock_pct * portfolio_beta
-                    stressed_loss_amount = initial_capital * (stressed_portfolio_drop_pct / 100.0)
-                    stressed_final_value = initial_capital + stressed_loss_amount
-                    
-                    with col_shock2:
-                        st.metric(
-                            label=f"Stressed Portfolio Valuation ({market_shock_pct}% Market Crash)",
-                            value=f"₹{stressed_final_value:,.2f}",
-                            delta=f"{stressed_portfolio_drop_pct:.2f}% (₹{stressed_loss_amount:,.2f})",
-                            delta_color="inverse"
-                        )
-    
-                    def var_backtest_traffic_light(
-                            actual_returns, var_series, alpha=0.05, window=250
-                        ):
-                          """Calculates Basel traffic light exceptions over a rolling window."""
-                          # Identify breaches (where actual loss exceeds VaR threshold)
-                          # Assuming VaR is stored as a negative return threshold (e.g., -0.02)
-                          breaches = actual_returns.tail(window) < var_series.tail(window)
-                          num_exceptions = breaches.sum()
-                        
-                          if num_exceptions <= 4:
-                            zone = "Green"
-                            status = "Acceptable accuracy (Zone 0-4)"
-                          elif 5 <= num_exceptions <= 9:
-                            zone = "Yellow"
-                            status = "Requires review / potential model tuning (Zone 5-9)"
-                          else:
-                            zone = "Red"
-                            status = "Model rejection / high breach frequency (Zone 10+)"
-                        
-                          return {
-                              "exceptions": int(num_exceptions),
-                              "zone": zone,
-                              "status": status,
-                          }
-    
-                    # Calculate rolling historical VaR (e.g., 250-day rolling window, 95% confidence)
-                    rolling_var = (
-                        portfolio_daily_returns.rolling(window=250)
-                        .quantile(0.05)
-                        .dropna()
-                    )
-                    
-                    # Align your actual returns with the exact same dates
-                    aligned_actuals = portfolio_daily_returns.loc[rolling_var.index]
-                    
-                    # Run the traffic light check
-                    result = var_backtest_traffic_light(
-                        aligned_actuals, rolling_var, alpha=0.05, window=250
-                    )
-    
-                    st.subheader("🛡️ Regulatory VaR Backtesting (Basel Traffic Light)")
-    
-                    # Display metrics side by side
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                      st.metric(
-                          label="Lookback Window", value=f"{len(aligned_actuals)} Trading Days"
-                      )
-                    with col2:
-                      st.metric(label="Model Exceptions", value=result["exceptions"])
-                    with col3:
-                      st.metric(label="Traffic Light Zone", value=result["zone"])
-                    
-                    # Color-coded warning/success banner based on the zone
-                    if result["zone"] == "Green":
-                      st.success(f"🟢 **Green Zone (0–4 Exceptions):** {result['status']}")
-                    elif result["zone"] == "Yellow":
-                      st.warning(f"🟡 **Yellow Zone (5–9 Exceptions):** {result['status']}")
-                    else:
-                      st.error(f"🔴 **Red Zone (10+ Exceptions):** {result['status']}")
-    
-                    import datetime
-                    from fpdf import FPDF
-                    
-                    import datetime
-                    from fpdf import FPDF
-                    
-                    
-                    # ==========================================
-                    # 1. PDF GENERATOR: SEBI RIA (INDIVIDUAL & NON-INDIVIDUAL)
-                    # ==========================================
-                    def generate_sebi_ria_audit_pdf(entity_subtype, client_name, ria_reg_no, score, profile, portfolio_vol, max_limit, heavy_holdings, q_answers, timestamp):
-                        pdf = FPDF()
-                        pdf.add_page()
-                        
-                        # Header
-                        pdf.set_font("Arial", "B", 15)
-                        pdf.cell(0, 10, "SEBI RIA COMPLIANCE & SUITABILITY AUDIT RECORD", ln=True, align="C")
-                        pdf.set_font("Arial", "I", 9)
-                        pdf.cell(0, 6, f"Generated via WIRATOR Risk Engine | Entity: {entity_subtype} | Timestamp: {timestamp}", ln=True, align="C")
-                        pdf.ln(8)
-                        
-                        # Client & Advisor Details
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, "1. Client & Advisory Identification", ln=True)
-                        pdf.set_font("Arial", "", 10)
-                        pdf.cell(0, 6, f"Advisory Entity Category: {entity_subtype}", ln=True)
-                        pdf.cell(0, 6, f"Client Identifier / Name: {client_name}", ln=True)
-                        pdf.cell(0, 6, f"SEBI RIA Registration No.: {ria_reg_no}", ln=True)
-                        pdf.cell(0, 6, f"Assessed Risk Score: {score} / 100 -> Mapped Profile: {profile}", ln=True)
-                        pdf.ln(5)
-                        
-                        # Questionnaire Log
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, "2. Documented Risk Profiling Responses", ln=True)
-                        pdf.set_font("Arial", "", 9)
-                        for q, ans in q_answers.items():
-                            pdf.multi_cell(0, 5, f"- {q}: {ans}")
-                        pdf.ln(5)
-                        
-                        # Suitability & Volatility Check
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, "3. Portfolio Suitability & Risk Threshold Check", ln=True)
-                        pdf.set_font("Arial", "", 10)
-                        status = "BREACH (Rebalancing Required)" if portfolio_vol > max_limit else "PASSED (Within Mandate)"
-                        pdf.cell(0, 6, f"Portfolio Annualized Volatility: {portfolio_vol*100:.2f}% | Permissible Ceiling: {max_limit*100:.0f}%", ln=True)
-                        pdf.cell(0, 6, f"Suitability Status: {status}", ln=True)
-                        pdf.ln(5)
-                        
-                        # Concentration Check
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, "4. Single-Issuer Concentration Check (10% Threshold)", ln=True)
-                        pdf.set_font("Arial", "", 10)
-                        if len(heavy_holdings) > 0:
-                            for ticker, wt in heavy_holdings:
-                                pdf.cell(0, 6, f"WARNING: {ticker} exceeds 10% limit ({wt*100:.2f}% allocation)", ln=True)
-                        else:
-                            pdf.cell(0, 6, "PASSED: All holdings are within the 10% single-issuer concentration guideline.", ln=True)
-                        pdf.ln(5)
-                        
-                        # Fiduciary Disclosures
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, "5. Fiduciary & Regulatory Disclosures", ln=True)
-                        pdf.set_font("Arial", "", 9)
-                        pdf.multi_cell(0, 5, (
-                            "1. Direct Plan Compliance: All recommended securities/schemes are evaluated strictly on a zero-commission basis.\n"
-                            "2. Fee Transparency: Advisory fees adhere to SEBI (Investment Advisers) Regulations fee caps.\n"
-                            "3. Client-Level Segregation: Distribution and advisory arms are strictly segregated (mandatory for Non-Individual RIAs).\n"
-                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES or SMART ODR."
-                        ))
-                        
-                        return pdf.output(dest="S").encode("latin-1")
-                    
-                    
-                    # ==========================================
-                    # 2. PDF GENERATOR: BOUTIQUE PMS (PRINCIPAL OFFICER)
-                    # ==========================================
-                    def generate_sebi_pms_audit_pdf(client_name, pms_reg_no, principal_officer, pms_type, approach_name, initial_capital, is_accredited, portfolio_vol, target_vol_cap, max_stock_cap, heavy_holdings, benchmark_name, timestamp):
-                        pdf = FPDF()
-                        pdf.add_page()
-                        
-                        # Header
-                        pdf.set_font("Arial", "B", 15)
-                        pdf.cell(0, 10, "SEBI PMS MANDATE & RISK GOVERNANCE AUDIT RECORD", ln=True, align="C")
-                        pdf.set_font("Arial", "I", 9)
-                        pdf.cell(0, 6, f"Generated via WIRATOR Risk Engine | Principal Officer Review | Timestamp: {timestamp}", ln=True, align="C")
-                        pdf.ln(8)
-                        
-                        # PMS & Client Identification
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, "1. Portfolio Manager & Mandate Identification", ln=True)
-                        pdf.set_font("Arial", "", 10)
-                        pdf.cell(0, 6, f"Client Identifier / Account Mask: {client_name}", ln=True)
-                        pdf.cell(0, 6, f"SEBI PMS Registration No.: {pms_reg_no} | Principal Officer: {principal_officer}", ln=True)
-                        pdf.cell(0, 6, f"Mandate Type: {pms_type} | Investment Approach: {approach_name}", ln=True)
-                        pdf.cell(0, 6, f"Benchmark Index: {benchmark_name}", ln=True)
-                        pdf.ln(5)
-                        
-                        # Minimum Ticket Size Eligibility Check
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, "2. Regulatory Capital Threshold Verification (INR 50 Lakhs)", ln=True)
-                        pdf.set_font("Arial", "", 10)
-                        min_req = 5000000  # INR 50,00,000
-                        if is_accredited:
-                            cap_status = f"EXEMPT / ELIGIBLE (Accredited Investor Status Verified | Capital: INR {initial_capital:,.0f})"
-                        elif initial_capital >= min_req:
-                            cap_status = f"PASSED (Capital INR {initial_capital:,.0f} meets INR 50,00,000 minimum threshold)"
-                        else:
-                            cap_status = f"BREACH (Capital INR {initial_capital:,.0f} is below INR 50,00,000 statutory minimum)"
-                        pdf.cell(0, 6, f"Ticket Size Status: {cap_status}", ln=True)
-                        pdf.ln(5)
-                        
-                        # Strategy Volatility & Risk Guardrail Check
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, "3. Investment Approach Risk & Volatility Guardrail", ln=True)
-                        pdf.set_font("Arial", "", 10)
-                        vol_status = "BREACH (Exceeds Strategy Risk Band)" if portfolio_vol > target_vol_cap else "PASSED (Within Disclosure Document Risk Band)"
-                        pdf.cell(0, 6, f"Portfolio Annualized Volatility: {portfolio_vol*100:.2f}% | Strategy Ceiling: {target_vol_cap*100:.0f}%", ln=True)
-                        pdf.cell(0, 6, f"Mandate Risk Status: {vol_status}", ln=True)
-                        pdf.ln(5)
-                        
-                        # Single-Security Concentration Check
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, f"4. Mandate Concentration Check ({max_stock_cap*100:.0f}% Internal / Disclosure Cap)", ln=True)
-                        pdf.set_font("Arial", "", 10)
-                        if len(heavy_holdings) > 0:
-                            for ticker, wt in heavy_holdings:
-                                pdf.cell(0, 6, f"WARNING: {ticker} exceeds {max_stock_cap*100:.0f}% strategy cap ({wt*100:.2f}% allocation)", ln=True)
-                        else:
-                            pdf.cell(0, 6, f"PASSED: All securities comply with the {max_stock_cap*100:.0f}% single-security strategy limit.", ln=True)
-                        pdf.ln(5)
-                        
-                        # PMS Regulatory & Governance Disclosures
-                        pdf.set_font("Arial", "B", 11)
-                        pdf.cell(0, 8, "5. PMS Regulatory & Governance Attestations", ln=True)
-                        pdf.set_font("Arial", "", 9)
-                        pdf.multi_cell(0, 5, (
-                            "1. Asset Segregation & Custody: Client funds and securities are held in segregated bank/demat accounts via an independent SEBI-registered Custodian.\n"
-                            "2. Fee & High-Water Mark (HWM): Management and performance fees (if applicable) are computed strictly on a High-Water Mark basis as per the Disclosure Document.\n"
-                            "3. Direct Onboarding & Benchmarking: Performance is tracked against the SEBI-mandated strategy benchmark (TWRR methodology).\n"
-                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES or SMART ODR."
-                        ))
-                        
-                        return pdf.output(dest="S").encode("latin-1")
-                    
-                    
-                    # ==========================================
-                    # 3. UI RENDERER: SEBI RIA AUDIT
-                    # ==========================================
-                    def render_sebi_ria_audit(entity_subtype, holdings_df, initial_capital, weights, exp_vol=0.18):
-                        st.header(f"⚖️ SEBI RIA Compliance & Fiduciary Audit ({entity_subtype})")
-                        st.info("Automated suitability scoring, concentration checks, and auditable record generation aligned with SEBI (Investment Advisers) Regulations.")
-                    
-                        # 1. Client & Advisor Metadata
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            client_name = st.text_input("Client Identifier / PAN Mask", value="Retail Client Demo (XXXX1234X)")
-                        with col_b:
-                            ria_reg_no = st.text_input("SEBI RIA Registration No. (Optional)", value="INA0000XXXXX")
-                    
-                        if "Non-Individual" in entity_subtype:
-                            st.caption("ℹ️ **Non-Individual RIA Note:** Ensure client-level segregation between advisory and distribution services is maintained at the group/family level.")
-                    
-                        # 2. Scored Risk Profiling Questionnaire
-                        st.subheader("1. Client Risk Profiling Questionnaire (SEBI Suitability Log)")
-                        q1 = st.radio(
-                            "Q1. Primary Investment Horizon:",
-                            ["Less than 2 years (10 pts)", "2 to 5 years (20 pts)", "More than 5 years (30 pts)"],
-                            horizontal=True
-                        )
-                        q2 = st.radio(
-                            "Q2. Reaction to a sudden 20% portfolio drawdown:",
-                            ["Sell immediately to prevent further loss (5 pts)", "Hold and wait for recovery (15 pts)", "Invest additional capital at lower prices (25 pts)"],
-                            horizontal=True
-                        )
-                        q3 = st.radio(
-                            "Q3. Primary Investment Objective:",
-                            ["Capital preservation & steady income (5 pts)", "Balanced growth & inflation protection (15 pts)", "Aggressive long-term wealth creation (25 pts)"],
-                            horizontal=True
-                        )
-                        q4 = st.radio(
-                            "Q4. Emergency Liquidity & Income Stability:",
-                            ["Less than 3 months emergency fund (5 pts)", "3 to 6 months emergency fund (10 pts)", "6+ months emergency fund & stable cashflow (20 pts)"],
-                            horizontal=True
-                        )
-                    
-                        def extract_pts(text):
-                            return int(text.split("(")[1].split(" ")[0])
-                    
-                        total_score = extract_pts(q1) + extract_pts(q2) + extract_pts(q3) + extract_pts(q4)
-                    
-                        if total_score <= 45:
-                            mapped_profile = "Conservative (Max 12% Volatility)"
-                            max_limit = 0.12
-                        elif total_score <= 75:
-                            mapped_profile = "Moderate (Max 22% Volatility)"
-                            max_limit = 0.22
-                        else:
-                            mapped_profile = "Aggressive (Max 35% Volatility)"
-                            max_limit = 0.35
-                    
-                        st.info(f"**Calculated Risk Score:** `{total_score} / 100`  |  **Assigned Risk Category:** `{mapped_profile}`")
-                    
-                        # 3. Suitability & Volatility Assessment
-                        st.subheader("2. Suitability & Volatility Threshold Assessment")
-                        portfolio_vol = exp_vol
-                        if portfolio_vol > max_limit:
-                            st.error(f"🚨 **Compliance Breach:** Portfolio volatility ({portfolio_vol*100:.1f}%) exceeds the permissible limit ({max_limit*100:.0f}%) for a **{mapped_profile.split(' ')[0]}** profile. Rebalancing is required before advice sign-off.")
-                        else:
-                            st.success(f"✅ **Suitability Verified:** Portfolio volatility ({portfolio_vol*100:.1f}%) is within permissible bounds for a **{mapped_profile.split(' ')[0]}** mandate.")
-                    
-                        # 4. Prudential Concentration Limits
-                        st.subheader("3. Prudential Concentration Limits (Single Issuer)")
-                        max_single_stock_allowed = 0.10
-                        tickers = holdings_df['Ticker'].tolist()
-                        heavy_holdings = [(ticker, wt) for ticker, wt in zip(tickers, weights) if wt > max_single_stock_allowed]
-                    
-                        if len(heavy_holdings) > 0:
-                            st.warning("⚠️ **Concentration Warning:** The following assets exceed the 10% single-issuer limit:")
-                            for ticker, wt in heavy_holdings:
-                                st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
-                        else:
-                            st.success("✅ **Diversification Check Passed:** No single asset exceeds the 10% concentration threshold.")
-                    
-                        # 5. Conflict of Interest & Grievance Disclosure
-                        st.subheader("4. Fiduciary & Grievance Disclosures")
-                        st.markdown("""
-                    - **Direct Plan Verification:** Certified that all recommended mutual fund schemes are analyzed under **Direct Plans** (zero-commission).
-                    - **Fee Disclosure:** Advisory fee structure validated in accordance with SEBI fee ceilings (Fixed Fee / AUM Cap).
-                    - **Grievance Redressal (SCORES / ODR):** Client informed of escalation rights via SEBI SCORES and SMART ODR.
-                        """)
-                    
-                        # 6. Timestamped Sign-Off & PDF Audit Export
-                        audit_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        q_answers = {
-                            "Investment Horizon": q1,
-                            "Drawdown Tolerance": q2,
-                            "Investment Objective": q3,
-                            "Liquidity Cushion": q4
-                        }
-                    
-                        pdf_bytes = generate_sebi_ria_audit_pdf(
-                            entity_subtype=entity_subtype,
-                            client_name=client_name,
-                            ria_reg_no=ria_reg_no,
-                            score=total_score,
-                            profile=mapped_profile,
-                            portfolio_vol=portfolio_vol,
-                            max_limit=max_limit,
-                            heavy_holdings=heavy_holdings,
-                            q_answers=q_answers,
-                            timestamp=audit_timestamp
-                        )
-                    
-                        st.download_button(
-                            label="📄 Download Timestamped SEBI RIA Audit Certificate (PDF)",
-                            data=pdf_bytes,
-                            file_name=f"SEBI_RIA_Audit_{client_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
-                            mime="application/pdf"
-                        )
-                    
-                    
-                    # ==========================================
-                    # 4. UI RENDERER: BOUTIQUE PMS AUDIT
-                    # ==========================================
-                    def render_sebi_pms_audit(holdings_df, initial_capital, weights, exp_vol=0.18):
-                        st.header("🏛️ SEBI PMS Mandate & Principal Officer Risk Audit")
-                        st.info("Portfolio mandate adherence, minimum ticket-size validation, strategy risk limits, and Disclosure Document governance aligned with SEBI (Portfolio Managers) Regulations.")
-                    
-                        # 1. PMS Firm & Principal Officer Metadata
-                        col_a, col_b, col_c = st.columns(3)
-                        with col_a:
-                            client_name = st.text_input("PMS Client Account / PAN Mask", value="HNI Client Account (XXXX9876X)")
-                        with col_b:
-                            pms_reg_no = st.text_input("SEBI PMS Registration No.", value="INP0000XXXXX")
-                        with col_c:
-                            principal_officer = st.text_input("Principal Officer Name", value="Principal Officer (NISM-XXI-B)")
-                    
-                        # 2. Investment Approach & Mandate Parameters
-                        st.subheader("1. Investment Approach & Mandate Configuration")
-                        col_m1, col_m2, col_m3 = st.columns(3)
-                        with col_m1:
-                            pms_type = st.selectbox("PMS Mandate Type:", ["Discretionary PMS", "Non-Discretionary PMS", "Advisory PMS"])
-                        with col_m2:
-                            approach_name = st.text_input("Investment Approach Name:", value="Core Concentrated Flexi-Cap")
-                        with col_m3:
-                            benchmark_name = st.selectbox("SEBI Strategy Benchmark:", ["BSE 500 TRI", "NIFTY 50 TRI", "NIFTY Midcap 150 TRI", "CRISIL Composite Bond Index"])
-                    
-                        # 3. Statutory Minimum Investment Check (INR 50 Lakhs)
-                        st.subheader("2. Statutory Minimum Ticket Size Check (₹50 Lakhs)")
-                        is_accredited = st.checkbox("Client holds valid SEBI Accredited Investor Certificate (exempt from ₹50L floor)")
-                        min_pms_capital = 5000000  # ₹50,00,000
-                    
-                        if is_accredited:
-                            st.success(f"✅ **Accredited Investor Exemption:** Capital check bypassed via valid SEBI Accreditation (Portfolio Value: `₹{initial_capital:,.0f}`).")
-                        elif initial_capital >= min_pms_capital:
-                            st.success(f"✅ **Ticket Size Compliant:** Portfolio capital (`₹{initial_capital:,.0f}`) meets the `₹50,00,000` minimum threshold.")
-                        else:
-                            st.error(f"🚨 **Regulatory Threshold Alert:** Portfolio capital (`₹{initial_capital:,.0f}`) is below the statutory `₹50,00,000` PMS minimum (unless accredited).")
-                    
-                        # 4. Strategy Risk & Concentration Guardrails (Disclosure Document Limits)
-                        st.subheader("3. Strategy Volatility & Concentration Guardrails")
-                        col_g1, col_g2 = st.columns(2)
-                        with col_g1:
-                            target_vol_pct = st.slider("Disclosure Document Volatility Ceiling (%)", min_value=10, max_value=45, value=25, step=1)
-                            target_vol_cap = target_vol_pct / 100.0
-                        with col_g2:
-                            max_stock_pct = st.slider("Single-Security Mandate Cap (%)", min_value=5, max_value=25, value=15, step=1)
-                            max_stock_cap = max_stock_pct / 100.0
-                    
-                        portfolio_vol = exp_vol
-                        if portfolio_vol > target_vol_cap:
-                            st.error(f"🚨 **Mandate Risk Breach:** Portfolio annualized volatility (`{portfolio_vol*100:.1f}%`) exceeds the `{target_vol_pct}%` ceiling stated for **{approach_name}**.")
-                        else:
-                            st.success(f"✅ **Strategy Risk Aligned:** Portfolio annualized volatility (`{portfolio_vol*100:.1f}%`) is within the `{target_vol_pct}%` mandate ceiling.")
-                    
-                        tickers = holdings_df['Ticker'].tolist()
-                        heavy_holdings = [(ticker, wt) for ticker, wt in zip(tickers, weights) if wt > max_stock_cap]
-                    
-                        if len(heavy_holdings) > 0:
-                            st.warning(f"⚠️ **Mandate Concentration Warning:** The following holdings exceed the `{max_stock_pct}%` internal/disclosure limit:")
-                            for ticker, wt in heavy_holdings:
-                                st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
-                        else:
-                            st.success(f"✅ **Concentration Check Passed:** No single security exceeds the `{max_stock_pct}%` mandate limit.")
-                    
-                        # 5. PMS Custody, HWM Fee & Governance Disclosures
-                        st.subheader("4. Principal Officer Governance & Custody Attestations")
-                        st.markdown("""
-                    - **Independent Custodian & Asset Segregation:** Client securities and funds are ring-fenced in individual demat/bank accounts overseen by a SEBI-registered Custodian (no pooling of client assets).
-                    - **High-Water Mark (HWM) & Fee Transparency:** Performance-linked fees (if opted) adhere strictly to High-Water Mark computation and Disclosure Document fee schedules.
-                    - **Benchmarking & TWRR Reporting:** Performance attribution is benchmarked against the strategy's SEBI-mandated TRI benchmark using Time-Weighted Rate of Return (TWRR).
-                    - **Grievance Redressal (SCORES / ODR):** Client escalation pathways via SEBI SCORES (`scores.sebi.gov.in`) and SMART ODR are documented in the PMS Agreement.
-                        """)
-                    
-                        # 6. Timestamped Sign-Off & PDF Audit Export
-                        audit_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        pdf_bytes = generate_sebi_pms_audit_pdf(
-                            client_name=client_name,
-                            pms_reg_no=pms_reg_no,
-                            principal_officer=principal_officer,
-                            pms_type=pms_type,
-                            approach_name=approach_name,
-                            initial_capital=initial_capital,
-                            is_accredited=is_accredited,
-                            portfolio_vol=portfolio_vol,
-                            target_vol_cap=target_vol_cap,
-                            max_stock_cap=max_stock_cap,
-                            heavy_holdings=heavy_holdings,
-                            benchmark_name=benchmark_name,
-                            timestamp=audit_timestamp
-                        )
-                    
-                        st.download_button(
-                            label="📄 Download Timestamped SEBI PMS Governance Audit (PDF)",
-                            data=pdf_bytes,
-                            file_name=f"SEBI_PMS_Audit_{client_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
-                            mime="application/pdf"
-                        )
-                    
-                    
-                    # ==========================================
-                    # 5. MAIN ROUTER FUNCTION (ENTRY POINT)
-                    # ==========================================
-                    def render_compliance_module(holdings_df, initial_capital, weights, exp_vol=0.18):
-                        st.markdown("---")
-                        entity_role = st.radio(
-                            "Select Your Regulatory Entity / Practice Type:",
-                            [
-                                "Boutique PMS Firm (Principal Officer)",
-                                "Non-Individual SEBI RIA (Corporate / Partnership)",
-                                "Individual SEBI RIA"
-                            ],
-                            horizontal=True
-                        )
-                    
-                        if entity_role == "Boutique PMS Firm (Principal Officer)":
-                            render_sebi_pms_audit(holdings_df, initial_capital, weights, exp_vol=exp_vol)
-                        else:
-                            render_sebi_ria_audit(entity_role, holdings_df, initial_capital, weights, exp_vol=exp_vol)
-                    
-                    
-                    # Call the router function in your main app:
-                    render_compliance_module(holdings_df, initial_capital, weights, exp_vol=exp_vol)
-
-                with st.expander(
-                        " Excecution, Wealth Drag & Tax Optimization", expanded=False
-                    ):
-                    
-                    
-                    def render_portfolio_rebalancing(holdings_df, initial_capital, entity_role="Individual SEBI RIA"):
-                        st.markdown("---")
-                        is_pms = "PMS" in entity_role
-                    
-                        if is_pms:
-                            st.header("⚖️ Model Approach Rebalancing & Execution Blotter")
-                            st.info("Align client mandate allocations to model approach targets, estimate turnover & execution friction, and export an order blotter for OMS/custodian review.")
-                        else:
-                            st.header("⚖️ Automated Portfolio Rebalancing & Trade Execution Generator")
-                            st.info("Align your portfolio back to target asset weights and generate exact execution orders (Buy/Sell) for client advisory sign-off.")
-                    
-                        n_assets = len(holdings_df)
-                        if n_assets == 0:
-                            st.warning("Please load or upload a portfolio first.")
-                            return
-                    
-                        # Optional friction assumption (STT, exchange/SEBI charges, stamp duty, brokerage/slippage)
-                        friction_bps = st.slider(
-                            "Estimated Execution & Friction Cost (bps on traded notional)",
-                            min_value=0,
-                            max_value=100,
-                            value=15 if is_pms else 10,
-                            step=5,
-                            key="rebal_friction_bps"
-                        )
-                        friction_rate = friction_bps / 10000.0
-                    
-                        default_weight = 1.0 / n_assets
-                        st.write("**Specify Target Allocation Weights (Automatically normalized to 100%):**")
-                    
-                        # Interactive target weight inputs arranged in columns
-                        target_weights = []
-                        cols = st.columns(min(n_assets, 4))
-                    
-                        for i, (_, row) in enumerate(holdings_df.iterrows()):
-                            ticker = row["Ticker"] if "Ticker" in row and pd.notna(row["Ticker"]) else f"Asset {i}"
-                            col_idx = i % len(cols)
-                            with cols[col_idx]:
-                                tw = st.number_input(
-                                    f"Target %: {ticker}",
-                                    min_value=0.0,
-                                    max_value=100.0,
-                                    value=float(default_weight * 100),
-                                    step=1.0,
-                                    key=f"tw_{i}_{ticker}"
-                                )
-                                target_weights.append(tw / 100.0)
-                    
-                        target_weights = pd.Series(target_weights, dtype=float)
-                        if target_weights.sum() > 0:
-                            target_weights = target_weights / target_weights.sum()
-                        else:
-                            target_weights = pd.Series([default_weight] * n_assets, dtype=float)
-                    
-                        # Extract current weights safely
-                        if "Weight" in holdings_df.columns and len(holdings_df["Weight"]) == n_assets:
-                            curr_weights = pd.Series(holdings_df["Weight"].values, dtype=float)
-                            if curr_weights.sum() > 0 and not np.isclose(curr_weights.sum(), 1.0):
-                                curr_weights = curr_weights / curr_weights.sum()
-                        else:
-                            curr_weights = pd.Series([default_weight] * n_assets, dtype=float)
-                    
-                        tickers = (
-                            holdings_df["Ticker"].astype(str).tolist()
-                            if "Ticker" in holdings_df.columns
-                            else [f"Asset {i}" for i in range(n_assets)]
-                        )
-                    
-                        rebal_df = pd.DataFrame({
-                            "Ticker": tickers,
-                            "Current Weight (%)": curr_weights.values * 100.0,
-                            "Target Weight (%)": target_weights.values * 100.0,
-                            "Current Value (INR)": curr_weights.values * initial_capital,
-                            "Target Value (INR)": target_weights.values * initial_capital,
+                        base_tax_df = pd.DataFrame({
+                            "Instrument": parsed_for_tax["Ticker"],
+                            "Avg_Cost": parsed_for_tax["Cost Price"],
+                            "Qty": parsed_for_tax["Quantity"].clip(lower=1),
+                            "Holding_Days": int(time_horizon_days),
                         })
-                    
-                        rebal_df["Difference (INR)"] = rebal_df["Target Value (INR)"] - rebal_df["Current Value (INR)"]
-                        rebal_df["Action"] = rebal_df["Difference (INR)"].apply(
-                            lambda x: "BUY" if x > 1.0 else ("SELL" if x < -1.0 else "HOLD")
-                        )
-                        rebal_df["Execution Amount (INR)"] = rebal_df.apply(
-                            lambda r: abs(r["Difference (INR)"]) if r["Action"] != "HOLD" else 0.0,
-                            axis=1
-                        )
-                        rebal_df["Est. Friction Cost (INR)"] = rebal_df["Execution Amount (INR)"] * friction_rate
-                    
-                        total_turnover = rebal_df["Execution Amount (INR)"].sum()
-                        est_total_friction = rebal_df["Est. Friction Cost (INR)"].sum()
-                        turnover_pct = (total_turnover / initial_capital * 100.0) if initial_capital > 0 else 0.0
-                    
-                        m1, m2, m3 = st.columns(3)
-                        with m1:
-                            st.metric("Total Rebalance Turnover", f"₹{total_turnover:,.2f}", delta=f"{turnover_pct:.2f}% of portfolio", delta_color="off")
-                        with m2:
-                            st.metric("Est. Execution Friction", f"₹{est_total_friction:,.2f}")
-                        with m3:
-                            active_orders = int((rebal_df["Action"] != "HOLD").sum())
-                            st.metric("Active Orders", f"{active_orders} / {n_assets}")
-                    
-                        st.dataframe(
-                            rebal_df.style.format({
-                                "Current Weight (%)": "{:.2f}%",
-                                "Target Weight (%)": "{:.2f}%",
-                                "Current Value (INR)": "₹{:,.2f}",
-                                "Target Value (INR)": "₹{:,.2f}",
-                                "Difference (INR)": "₹{:,.2f}",
-                                "Execution Amount (INR)": "₹{:,.2f}",
-                                "Est. Friction Cost (INR)": "₹{:,.2f}",
-                            }),
-                            use_container_width=True
-                        )
-                    
-                        csv_data = rebal_df.to_csv(index=False).encode("utf-8")
-                        st.download_button(
-                            label="📥 Download Trade Execution Orders (CSV)",
-                            data=csv_data,
-                            file_name=f"Rebalancing_Orders_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
-                            mime="text/csv"
-                        )
-                    
-                    
-                    def render_wealth_drag_calculator(initial_capital, entity_role="Individual SEBI RIA"):
-                        st.markdown("---")
-                        is_pms = "PMS" in entity_role
-                    
-                        if is_pms:
-                            st.header("📉 Strategy Fee, Cash & Execution Drag Calculator")
-                            st.info("Compare gross strategy compounding against net-of-fee and friction/cash-drag compounding over your investment horizon.")
-                            label_a = "Net-of-Fee / Friction Value"
-                            label_b = "Gross Strategy Potential"
-                            label_drag = "Total Compounded Fee & Friction Drag"
-                            col3_label = "Annual Fee + Friction Drag (% p.a.)"
-                            default_drag_pct = 1.75
-                            series_a_name = "Net of Fee & Friction"
-                            series_b_name = "Gross Strategy Trajectory"
-                        else:
-                            st.header("📉 Direct Plan vs. Regular Plan Wealth Drag Calculator")
-                            st.info("Demonstrate the compounding wealth lost to distributor commissions in Regular mutual fund plans over long investment horizons.")
-                            label_a = "Regular Plan Final Value"
-                            label_b = "Direct Plan Final Value (Fiduciary)"
-                            label_drag = "Total Wealth Lost to Commissions"
-                            col3_label = "Expense Ratio Diff (Regular - Direct %)"
-                            default_drag_pct = 1.0
-                            series_a_name = "Regular Plan (With Commission)"
-                            series_b_name = "Direct Plan (Zero Commission)"
-                    
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            horizon_years = st.number_input("Investment Horizon (Years)", min_value=1, max_value=30, value=10, step=1, key="wd_horizon")
-                        with col2:
-                            expected_cagr = st.number_input("Expected Gross CAGR (%)", min_value=1.0, max_value=30.0, value=14.0, step=0.5, key="wd_cagr") / 100.0
-                        with col3:
-                            expense_diff = st.number_input(
-                                col3_label,
-                                min_value=0.1,
-                                max_value=5.0,
-                                value=default_drag_pct,
-                                step=0.1,
-                                key="wd_diff"
-                            ) / 100.0
-                    
-                        # Ensure net/regular CAGR does not drop below -99%
-                        net_cagr = max(expected_cagr - expense_diff, -0.99)
-                        gross_cagr = expected_cagr
-                    
-                        years = np.arange(0, int(horizon_years) + 1)
-                        net_wealth = initial_capital * ((1.0 + net_cagr) ** years)
-                        gross_wealth = initial_capital * ((1.0 + gross_cagr) ** years)
-                        wealth_drag = gross_wealth - net_wealth
-                    
-                        final_net = float(net_wealth[-1])
-                        final_gross = float(gross_wealth[-1])
-                        total_drag = float(wealth_drag[-1])
-                        drag_pct_of_gross = (total_drag / final_gross * 100.0) if final_gross != 0 else 0.0
-                    
-                        col_m1, col_m2, col_m3 = st.columns(3)
-                        with col_m1:
-                            st.metric(label_a, f"₹{final_net:,.2f}")
-                        with col_m2:
-                            st.metric(label_b, f"₹{final_gross:,.2f}")
-                        with col_m3:
-                            st.metric(
-                                label_drag,
-                                f"₹{total_drag:,.2f}",
-                                delta=f"-{drag_pct_of_gross:.1f}% drag",
-                                delta_color="inverse"
-                            )
-                    
-                        chart_df = pd.DataFrame({
-                            "Year": years,
-                            series_a_name: net_wealth,
-                            series_b_name: gross_wealth
-                        }).set_index("Year")
-                    
-                        st.line_chart(chart_df)
-                    
-                    entity_role = st.radio(
-                        "Select Your Regulatory Entity / Practice Type:",
-                        [
-                            "Boutique PMS Firm (Principal Officer)",
-                            "Non-Individual SEBI RIA (Corporate / Partnership)",
-                            "Individual SEBI RIA",
-                        ],
-                        horizontal=True,
-                        key="entity_role",
-                    )
-                    # Pass entity_role from your compliance/session state if available
-                    active_entity_role = st.session_state.get("entity_role", "Individual SEBI RIA")
-                    render_portfolio_rebalancing(holdings_df, initial_capital, entity_role=active_entity_role)
-                    render_wealth_drag_calculator(initial_capital, entity_role=active_entity_role)
-    
-                     # -------------------------------------------------------------------
-              # 🛡️️ TAX Liabilities & Optimization Section
-              # -------------------------------------------------------------------
-                    st.markdown("---")
-                    st.header("🛡️ TAX Liabilities & Optimization")
-    
-              # 1. Base Summary Table (Static / Current Upload View)
-                    if exchange in ["US", "UK", "EU", "JSE"]:
-                      st.info("ℹ️ Tax audit optimization is currently available only in India.")
+
+            if tax_cost_missing:
+                st.error("❌ Cost cannot be read: Average Cost Price is missing in the uploaded CSV. Because only live market prices are available, capital gains tax liabilities cannot be calculated.")
+            else:
+                edited_tax_df = st.data_editor(base_tax_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="tax_editor_tab")
+                if not edited_tax_df.empty:
+                    valid_cost_series = pd.to_numeric(edited_tax_df["Avg_Cost"], errors="coerce")
+                    if valid_cost_series.isna().any() or (valid_cost_series <= 0).any():
+                        st.error("❌ Cost cannot be read: One or more rows have missing or zero Average Cost. Tax liability cannot be calculated without valid cost basis.")
                     else:
-                        if flag==1:  #No CSV is uploaded, stocks added on the portal
-                            st.info(f"👈 Please upload a {exchange} portfolio CSV file from the left sidebar to generate the tax audit.")
-                        else:
-                            df_base = holdings_df.copy()
-                            ticker_col = (
-                            'Instrument'
-                            if 'Instrument' in df_base.columns
-                            else df_base.columns[0]
-                              )
-                            cost_col = (
-                            'Avg. cost'
-                            if 'Cost Price' in df_base.columns
-                            else (
-                              'Avg_Cost'
-                            if 'Avg_Cost' in df_base.columns
-                            else 'Buy_Price'
-                            )
-                            )
-                            qty_col = (
-                            'Qty.'
-                            if 'Qty.' in df_base.columns
-                            else ('Qty' if 'Qty' in df_base.columns else 'Quantity')
-                            )
-                            if 'Holding_Days' not in df_base.columns:
-                                df_base['Holding_Days'] = time_horizon_days
-    
-                    # -------------------------------------------------------------------
-                      # ✏️ Interactive & Editable Table (Supports Adding Stocks)
-                      # -------------------------------------------------------------------
-                            st.caption(
-                          "📌 *You can edit individual stock holding days, prices, or add new rows directly in the table below:*"
-                            )
-            
-                      # Prepare initial structure for editable grid
-                            editable_init = pd.DataFrame({
-                            'Instrument': df_base[ticker_col],
-                            'Avg_Cost': (
-                              df_base['Cost Price']
-                              if 'Cost Price' in df_base.columns
-                              else 100.0
-                                ),
-                            'Qty': (
-                             df_base[qty_col] if qty_col in df_base.columns else 1
-                              ),
-                            'Holding_Days': df_base['Holding_Days'],
-                            })
-            
-                      # Render st.data_editor with num_rows="dynamic" to enable row additions
-                            edited_tax_df = st.data_editor(
-                            editable_init,
-                            num_rows="dynamic",  # Enables (+ Add row) button
-                            column_config={
-                              "Instrument": st.column_config.TextColumn(
-                                  "Instrument", required=True
-                              ),
-                              "Avg_Cost": st.column_config.NumberColumn(
-                                  "Buy Price (₹)", min_value=0.01, format="₹%.2f"
-                              ),
-                              "Qty": st.column_config.NumberColumn(
-                                  "Quantity", min_value=1, step=1
-                              ),
-                              "Holding_Days": st.column_config.NumberColumn(
-                                  "Holding Days", min_value=1, step=1
-                              ),
-                            },
-                            hide_index=True,
-                            use_container_width=True,
-                            key="tax_editor_grid_v2",
-                            )
-            
-                      # Recompute live prices and dynamic tax on edited grid
-                            # Recompute live prices and dynamic tax on edited grid
-                            if not edited_tax_df.empty:
-                          # Fetch/map live price safely
-                                #cleaned_tickers = edited_tax_df['Instrument'].astype(str).str.replace(r'\.(NS|BO|JO)$', '', regex=True).str.strip()
-                        
-                                #edited_tax_df['Instrument'] = edited_tax_df[cleaned_tickers].astype(str).str.strip() + current_cfg['suffix']
-                                edited_tax_df['yf_ticker'] = edited_tax_df['Instrument'].astype(str).str.strip() + current_cfg['suffix']
-                                live_tickers = edited_tax_df['yf_ticker'].tolist()
-                                #live_tickers = (cleaned_tickers + current_cfg["suffix"]).tolist()
-                                end_date = datetime.datetime.now()
-                                start_date = end_date - datetime.timedelta(days=365)
-                                live_price_data = yf.download(live_tickers, start=start_date, end=end_date)['Close']
-            
-                    # Handle single series edge cases
-                                if isinstance(live_price_data, pd.Series):
-                                    live_price_data = live_price_data.to_frame()
-            
-                    # Clean invalid or empty columns
-                                    live_price_data = live_price_data.dropna(how='all', axis=1)
-            
-                    # Safety Check to prevent out-of-bounds iloc crash
-                                if live_price_data.empty:
-                                    st.error("Price data download returned no valid records for the given tickers.")
-                                else:
-                                    live_price_data = live_price_data.ffill().bfill()
-                                    live_prices = live_price_data.iloc[-1]
-            
-                        # 2. Map latest prices safely to user holdings
-                        # (Matches symbol or fallback if user CSV uses standard stock symbols)
-                                    edited_tax_df['Live Price'] = edited_tax_df['yf_ticker'].map(live_prices)
-                                    edited_tax_df['Live Price'] = edited_tax_df['Live Price'].fillna(0.0)
-            
-                          # Compute Live P&L correctly
-                                edited_tax_df['P&L'] = (edited_tax_df['Live Price'] - edited_tax_df['Avg_Cost']) * edited_tax_df['Qty']
-            
-                          # Tax calculation logic
-                                edited_tax_df['Tax_Category'] = np.where(
-                                edited_tax_df['Holding_Days'] >= 365, 'LTCG', 'STCG'
-                                )
-                                edited_tax_df['Tax_Liability'] = np.where(
-                                edited_tax_df['Tax_Category'] == 'LTCG',
-                                np.maximum(0, edited_tax_df['P&L']) * 0.125,
-                                np.maximum(0, edited_tax_df['P&L']) * 0.20,
-                                )
-            
-                          # Display metric
-                                modified_tax = edited_tax_df['Tax_Liability'].sum()
-                                total_profit = edited_tax_df['P&L'].sum()
-            
-                                res5_col1, res5_col2, res5_col3 = st.columns(3)
-            
-                                res5_col1.metric(
-                                label="Total Profit", 
-                                #value=f"{abs(total_profit):.2f}", 
-                                value=f"{currency} {total_profit:,.2f}", 
-                                #delta_color="inverse"
-                                )
-                            
-                                res5_col2.metric(
-                                label="Total Modified Tax", 
-                                value="N/A" if total_profit < 0 else f"{currency} {modified_tax:,.2f}",
-                                )
-                                
-                                res5_col3.metric(
-                                label="Tax Share", 
-                                value="N/A" if total_profit < 0 else f"{modified_tax / total_profit * 100:,.2f} %",
-                                )
-            
-                          # Render summary table below metric
-                                st.dataframe(
-                                  edited_tax_df[
-                                  [
-                                      'Instrument',
-                                      'Avg_Cost',
-                                      'Live Price',
-                                      'P&L',
-                                      'Holding_Days',
-                                      'Tax_Category',
-                                      'Tax_Liability',
-                                  ]
-                                ],
-                                column_config={
-                                  "Instrument": st.column_config.TextColumn("Instrument"),
-                                  "Avg_Cost": st.column_config.NumberColumn(
-                                      "Buy Price (₹)", format="₹%.2f"
-                                  ),    
-                                  "Live Price": st.column_config.NumberColumn(
-                                      "Live Price (₹)", format="₹%.2f"
-                                  ),  
-                                  "P&L": st.column_config.NumberColumn(
-                                      "P&L (₹)", format="₹%.2f"
-                                  ),
-                                  "Holding_Days": st.column_config.NumberColumn(
-                                      "Holding_Days"
-                                  ),
-                                  "Tax_Category": st.column_config.TextColumn(
-                                      "Tax_Category"
-                                  ),
-                                  "Tax_Liability": st.column_config.NumberColumn(
-                                      "Tax_Liability (₹)", format="₹%.2f"
-                                  ),
-                                },
-                                hide_index=True,
-                                use_container_width=True,
-                                )
-                if exchange == "BSE":
-                    st.caption(
-                    "Note: Market data sourced via NSE primary liquid feeds for dual-listed equities to ensure consistent pricing data availability and zero downtime across exchange views.")
+                        tax_yf = [f"{str(t).strip().upper()}{current_cfg['suffix']}" for t in edited_tax_df["Instrument"] if str(t).strip()]
+                        if tax_yf:
+                            lp_raw = yf.download(tax_yf, period="5d", progress=False)
+                            lp_series = lp_raw["Close"].ffill().bfill().iloc[-1] if isinstance(lp_raw, pd.DataFrame) and "Close" in lp_raw else pd.Series(dtype=float)
+                            if isinstance(lp_series, (float, int)):
+                                lp_series = pd.Series({tax_yf[0]: float(lp_series)})
+                            edited_tax_df["Live Price"] = [float(lp_series.get(f"{str(t).strip().upper()}{current_cfg['suffix']}", np.nan)) for t in edited_tax_df["Instrument"]]
+                            edited_tax_df["P&L"] = (edited_tax_df["Live Price"] - valid_cost_series) * edited_tax_df["Qty"]
+                            edited_tax_df["Tax_Category"] = np.where(edited_tax_df["Holding_Days"] >= 365, "LTCG", "STCG")
+                            edited_tax_df["Tax_Liability"] = np.where(edited_tax_df["Tax_Category"] == "LTCG", np.maximum(0.0, edited_tax_df["P&L"]) * 0.125, np.maximum(0.0, edited_tax_df["P&L"]) * 0.20)
+                            tot_pnl = float(edited_tax_df["P&L"].sum())
+                            tot_tax = float(edited_tax_df["Tax_Liability"].sum())
+                            tx1, tx2, tx3 = st.columns(3)
+                            tx1.metric("Total P&L", f"{currency} {tot_pnl:,.2f}")
+                            tx2.metric("Estimated Tax Liability", "N/A" if tot_pnl <= 0 else f"{currency} {tot_tax:,.2f}")
+                            tx3.metric("Effective Tax Share", "N/A" if tot_pnl <= 0 else f"{(tot_tax / tot_pnl) * 100:.2f}%")
+                            st.dataframe(edited_tax_df, use_container_width=True, hide_index=True)
 
-                import io
-                from reportlab.lib import colors
-                from reportlab.lib.pagesizes import A4
-                from reportlab.platypus import (
-                    SimpleDocTemplate,
-                    Paragraph,
-                    Spacer,
-                    Table,
-                    TableStyle,
-                    Image as RLImage,
+    # ==========================================================================
+    # MAIN WORKFLOW TAB: STAGE 1 -> STAGE 2 -> STAGE 3 -> STAGE 4
+    # ==========================================================================
+    with sec_tab1:
+        st.markdown("## Stage 1: Portfolio & Mandate")
+
+        lim_c1, lim_c2, lim_c3, lim_c4 = st.columns(4)
+        with lim_c1:
+            vol_cap_pct = st.number_input("Max Volatility (% p.a.)", min_value=5.0, max_value=80.0, value=25.0, step=1.0, key="lim_vol_cap")
+        with lim_c2:
+            cvar_cap_pct = st.number_input("Max CVaR (% Horizon)", min_value=1.0, max_value=60.0, value=18.0, step=1.0, key="lim_cvar_cap")
+        with lim_c3:
+            stock_cap_pct = st.number_input("Max Single-Stock Wt (%)", min_value=2.0, max_value=100.0, value=15.0, step=1.0, key="lim_stock_cap")
+        with lim_c4:
+            sector_cap_pct = st.number_input("Max Sector Wt (%)", min_value=5.0, max_value=100.0, value=45.0, step=1.0, key="lim_sector_cap")
+
+        mandate_limits = {
+            "vol_cap": float(vol_cap_pct),
+            "cvar_cap": float(cvar_cap_pct),
+            "stock_cap": float(stock_cap_pct),
+            "sector_cap": float(sector_cap_pct),
+        }
+
+        exchange_suggestions = sorted({
+            stk.split(".")[0].upper()
+            for sec_data in sector_config.values()
+            for stk in sec_data.get("stocks", [])
+        })
+
+        # ======================================================================
+        # WORKSPACE MODE A: SINGLE CLIENT AUDIT
+        # ======================================================================
+        if workspace_mode == "Single Client Audit":
+            if uploaded_file is not None:
+                init_holdings, _ = parse_uploaded_portfolio(uploaded_file, exchange, is_demo=st.session_state["use_demo"])
+                if init_holdings.empty:
+                    init_holdings = pd.DataFrame({"Ticker": ["HDFCBANK", "INFY", "RELIANCE"], "Quantity": [100, 120, 80], "Cost Price": [1500.0, 1450.0, 2600.0]})
+            else:
+                init_holdings = pd.DataFrame({
+                    "Ticker": ["FEDERALBNK", "IDFCFIRSTB", "NCC", "JSWENERGY", "TATASTEEL"],
+                    "Quantity": [1000, 2000, 1500, 800, 1200],
+                    "Cost Price": [160.0, 80.0, 210.0, 520.0, 155.0],
+                })
+
+            # Fetch live prices for Stage 1 holdings table
+            s1_raw_tickers = [str(t).strip().upper() for t in init_holdings["Ticker"] if str(t).strip()]
+            s1_yf_syms = resolve_yf_tickers(s1_raw_tickers, current_cfg)
+            s1_live_map = {}
+            if s1_yf_syms:
+                try:
+                    lp_s1 = yf.download(s1_yf_syms, period="5d", progress=False)
+                    lp_s1_close = lp_s1["Close"] if isinstance(lp_s1, pd.DataFrame) and "Close" in lp_s1 else lp_s1
+                    if isinstance(lp_s1_close, pd.Series):
+                        lp_s1_close = lp_s1_close.to_frame(name=s1_yf_syms[0])
+                    if isinstance(lp_s1_close, pd.DataFrame) and not lp_s1_close.empty:
+                        last_s1 = lp_s1_close.ffill().bfill().iloc[-1]
+                        for bt, yt in zip(s1_raw_tickers, s1_yf_syms):
+                            if yt in last_s1.index and pd.notna(last_s1[yt]):
+                                s1_live_map[bt] = round(float(last_s1[yt]), 2)
+                except Exception:
+                    pass
+
+            init_holdings_with_live = init_holdings.copy()
+            init_holdings_with_live["Live Price"] = [
+                s1_live_map.get(str(t).strip().upper(), np.nan) for t in init_holdings_with_live["Ticker"]
+            ]
+
+            sc_col1, sc_col2 = st.columns([3, 1.3])
+            with sc_col1:
+                st.caption(f"Edit client holdings (Ticker, Quantity, Cost Price) directly below — Live Price ({currency}) shown alongside:")
+                client_holdings_df = st.data_editor(
+                    init_holdings_with_live,
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    disabled=["Live Price"],
+                    key="single_client_holdings_editor",
                 )
-                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-                
-                
-                def draw_cream_background(canvas, doc):
-                    """Draws the cream theme background (#FAF8ED) across the entire PDF page."""
-                    canvas.saveState()
-                    canvas.setFillColor(colors.HexColor("#FAF8ED"))
-                    canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
-                    canvas.restoreState()
-                
-                
-                def generate_pdf_report(
-                    portfolio_score,
-                    portfolio_beta,
-                    holdings_df,
-                    metrics_dict,
-                    mc_dict,
-                    fig_bytes=None,fig_weights_bytes=None, fig_risk_bytes=None,
-                ):
-                    buffer = io.BytesIO()
-                    doc = SimpleDocTemplate(
-                        buffer,
-                        pagesize=A4,
-                        rightMargin=28,
-                        leftMargin=28,
-                        topMargin=28,
-                        bottomMargin=28,
-                    )
-                    story = []
-                
-                    # --- THEME COLOR PALETTE ---
-                    NAVY = colors.HexColor("#1A2B4C")
-                    DARK_NAVY = colors.HexColor("#0F1C33")
-                    TEXT_CREAM = colors.HexColor("#FAF8ED")
-                    ACCENT_BLUE = colors.HexColor("#38BDF8")
-                
-                    styles = getSampleStyleSheet()
-                    title_style = ParagraphStyle(
-                        "TitleStyle",
-                        parent=styles["Heading1"],
-                        fontName="Helvetica-Bold",
-                        fontSize=13,
-                        textColor=TEXT_CREAM,
-                        alignment=1,
-                        spaceAfter=2,
-                    )
-                    subtitle_style = ParagraphStyle(
-                        "SubTitleStyle",
-                        parent=styles["Normal"],
-                        fontName="Helvetica",
-                        fontSize=7.5,
-                        textColor=colors.white,
-                        alignment=1,
-                    )
-                    section_style = ParagraphStyle(
-                        "SectionStyle",
-                        parent=styles["Heading2"],
-                        fontName="Helvetica-Bold",
-                        fontSize=9.5,
-                        textColor=NAVY,
-                        spaceBefore=6,
-                        spaceAfter=2,
-                    )
-                    th_style = ParagraphStyle(
-                        "TH",
-                        fontName="Helvetica-Bold",
-                        fontSize=7.5,
-                        textColor=TEXT_CREAM,
-                        alignment=0,
-                    )
-                    td_style = ParagraphStyle(
-                        "TD", fontName="Helvetica", fontSize=7.5, textColor=TEXT_CREAM, alignment=0
-                    )
-                    conclusion_style = ParagraphStyle(
-                        "Conclusion",
-                        parent=styles["Normal"],
-                        fontName="Helvetica",
-                        fontSize=7.5,
-                        textColor=TEXT_CREAM,
-                        leading=10,
-                    )
-                
-                    # 1. Masthead Header
-                    header_data = [
-                        [Paragraph("WIRATOR — Portfolio Audit", title_style)],
-                        [
-                            Paragraph(
-                                "Comprehensive Asset Allocation, Risk Performance &amp; Monte Carlo Projections",
-                                subtitle_style,
-                            )
-                        ],
-                    ]
-                    header_table = Table(header_data, colWidths=[536])
-                    header_table.setStyle(
-                        TableStyle(
-                            [
-                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
-                                ("TOPPADDING", (0, 0), (-1, -1), 6),
-                                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
-                            ]
-                        )
-                    )
-                    story.append(header_table)
-                    story.append(Spacer(1, 4))
-                
-                    # 2. Portfolio Score Card
-                    score_data = [
-                        [Paragraph("⭐ QUANTITATIVE PORTFOLIO SCORE", subtitle_style)],
-                        [
-                            Paragraph(
-                                f"<font size=18><b>{portfolio_score} / 100</b></font>",
-                                ParagraphStyle("ScoreVal", parent=title_style, fontSize=18),
-                            )
-                        ],
-                        [
-                            Paragraph(
-                                f"Market Benchmark Beta: {portfolio_beta:.2f} (Defensive Alignment)",
-                                ParagraphStyle(
-                                    "ScoreSub", parent=subtitle_style, textColor=ACCENT_BLUE
-                                ),
-                            )
-                        ],
-                    ]
-                    score_table = Table(score_data, colWidths=[536])
-                    score_table.setStyle(
-                        TableStyle(
-                            [
-                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
-                                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
-                            ]
-                        )
-                    )
-                    story.append(score_table)
-                    story.append(Spacer(1, 4))
-                
-                    # 3. Edited Holdings / Stocks Table Breakdown
-                    story.append(Paragraph("Portfolio Holdings Breakdown", section_style))
-                    h_table_data = [
-                        [
-                            Paragraph("Asset Symbol", th_style),
-                            Paragraph("Quantity", th_style),
-                            Paragraph("Latest Price (INR)", th_style),
-                        ]
-                    ]
-                
-                    if edited_df is not None and not edited_df.empty:
-                        for _, row in edited_df.iterrows():
-                            ticker = str(
-                                row.get("Ticker", row.get("Symbol", row.get("asset", "-")))
-                            )
-                            qty = str(row.get("Quantity", row.get("qty", "0")))
-                            price = float(
-                                row.get(
-                                    "Latest Price",
-                                    row.get("Price", row.get("latest_price", 0.0)),
-                                )
-                            )
-                            h_table_data.append(
-                                [
-                                    Paragraph(ticker, td_style),
-                                    Paragraph(qty, td_style),
-                                    Paragraph(f"{price:,.2f}", td_style),
-                                ]
-                            )
-                
-                    holdings_table = Table(h_table_data, colWidths=[206, 165, 165])
-                    holdings_table.setStyle(
-                        TableStyle(
-                            [
-                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
-                                ("TOPPADDING", (0, 0), (-1, -1), 3),
-                                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                                ("GRID", (0, 0), (-1, -1), 0.5, DARK_NAVY),
-                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
-                            ]
-                        )
-                    )
-                    story.append(holdings_table)
-                    story.append(Spacer(1, 4))
-                
-                    # 4. Cumulative Portfolio vs. Market Comparison Graph
-                    if fig_bytes:
-                        story.append(
-                            Paragraph("Cumulative Portfolio vs. Market Performance", section_style)
-                        )
-                        story.append(RLImage(io.BytesIO(fig_bytes), width=536, height=300))
-                        story.append(Spacer(1, 4))
-                
-                    # 5. Core Return & Risk Metrics Table
-                    story.append(Paragraph("Core Return &amp; Risk Metrics", section_style))
-                    metrics_data = [
-                        [
-                            Paragraph(
-                                f"<b>ANNUALIZED RETURN</b><br/><font size=10><b>{metrics_dict.get('ann_return', '0.00%')}</b></font>",
-                                td_style,
-                            ),
-                            Paragraph(
-                                f"<b>ANNUALIZED VOLATILITY</b><br/><font size=10><b>{metrics_dict.get('ann_vol', '0.00%')}</b></font>",
-                                td_style,
-                            ),
-                            Paragraph(
-                                f"<b>MAXIMUM DRAWDOWN</b><br/><font size=10><b>{metrics_dict.get('max_dd', '0.00%')}</b></font>",
-                                td_style,
-                            ),
-                        ]
-                    ]
-                    m_table = Table(metrics_data, colWidths=[178, 179, 179])
-                    m_table.setStyle(
-                        TableStyle(
-                            [
-                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
-                                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                                ("GRID", (0, 0), (-1, -1), 0.5, DARK_NAVY),
-                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
-                            ]
-                        )
-                    )
-                    story.append(m_table)
-                    story.append(Spacer(1, 4))
-                
-                    # 6. Value at Risk (VaR) & Downside Metrics Table
-                    story.append(
-                        Paragraph("Value at Risk (VaR) &amp; Downside Metrics", section_style)
-                    )
-                    var_data = [
-                        [
-                            Paragraph(
-                                f"<b>HISTORICAL VaR (95%)</b><br/><font size=9><b>{metrics_dict.get('var', '0.00%')}</b></font>",
-                                td_style,
-                            ),
-                            Paragraph(
-                                f"<b>CVaR / SHORTFALL</b><br/><font size=9><b>{metrics_dict.get('cvar', '0.00%')}</b></font>",
-                                td_style,
-                            ),
-                            Paragraph(
-                                f"<b>SHARPE RATIO</b><br/><font size=9><b>{metrics_dict.get('sharpe', '0.00')}</b></font>",
-                                td_style,
-                            ),
-                        ],
-                        [
-                            Paragraph(
-                                f"<b>PORTFOLIO DIVERSIFICATION</b><br/><font size=9><b>{metrics_dict.get('weight_ent', '0.00%')}</b></font>",
-                                td_style,
-                            ),
-                            Paragraph(
-                                f"<b>RISK DIVERSIFICATION</b><br/><font size=9><b>{metrics_dict.get('risk_ent', '0.00%')}</b></font>",
-                                td_style,
-                            ),
-                            Paragraph(
-                                f"<b>SORTINO RATIO ({metrics_dict.get('target_return', '0.00%')})</b><br/><font size=9><b>{metrics_dict.get('sortino', '0.00')}</b></font>",
-                                td_style,
-                            ),
-                        ],
-                    ]
-                    var_table = Table(var_data, colWidths=[178, 179, 179])
-                    var_table.setStyle(
-                        TableStyle(
-                            [
-                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
-                                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                                ("GRID", (0, 0), (-1, -1), 0.5, DARK_NAVY),
-                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
-                            ]
-                        )
-                    )
-                    story.append(var_table)
-                    story.append(Spacer(1, 4))
+            with sc_col2:
+                client_cash = st.number_input(f"Client Cash Balance ({currency})", min_value=0.0, value=float(initial_capital) * 0.10, step=50000.0 if currency == "INR" else 1000.0, key="single_client_cash")
+                client_profile_tag = st.selectbox("Client Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="single_client_profile")
+                client_id_tag = st.text_input("Client ID / PAN Mask", value="CLIENT-001 (XXXX9876X)", key="single_client_id")
 
-                    # --- SIDE-BY-SIDE WEIGHT & RISK CONTRIBUTION GRAPHS ---
-                    if fig_weights_bytes and fig_risk_bytes:
-                        story.append(
-                            Paragraph(
-                                "Portfolio Weight vs. Risk Contribution Breakdown", section_style
-                            )
-                        )
-                        img_w = RLImage(io.BytesIO(fig_weights_bytes), width= 400, height=250)
-                        img_r = RLImage(io.BytesIO(fig_risk_bytes), width= 400, height=250)
+            # ------------------------------------------------------------------
+            # STAGE 2: PROPOSED REBALANCE (SINGLE CLIENT)
+            # ------------------------------------------------------------------
+            st.markdown("---")
+            st.markdown("## Stage 2: Proposed Rebalance")
+            r2_c1, r2_c2 = st.columns(2)
+            with r2_c1:
+                cash_flow_sim = st.number_input(f"Simulate Cash Inflow (+) / Outflow (-) ({currency})", value=0.0, step=50000.0 if currency == "INR" else 1000.0, key="sc_cash_flow")
+            with r2_c2:
+                friction_bps = st.slider("Est. Friction Cost (bps on traded notional)", min_value=0, max_value=100, value=15, step=5, key="sc_friction_bps")
 
-                        story.append(img_w)
-                        story.append(Spacer(1, 4))
-                        story.append(Spacer(1, 4))
-                        story.append(img_r)
-                        story.append(Spacer(1, 4))
-                        # charts_table = Table([[img_w, img_r]], colWidths=[268, 500])
-                        # charts_table.setStyle(
-                        #     TableStyle([
-                        #         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                        #         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                        #         ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                        #         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                        #         ("TOPPADDING", (0, 0), (-1, -1), 2),
-                        #         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                        #     ])
-                        
-                        # story.append(charts_table)
+            st.markdown("#### ➕ Add New Stock(s) to Rebalance")
+            if "sc_added_tickers_list" not in st.session_state:
+                st.session_state["sc_added_tickers_list"] = []
 
-  # --- 7. Monte Carlo Risk Audit & Conclusion Block ---
-  # [Your existing Monte Carlo table code follows here]
-                
-                    # 7. Monte Carlo Risk Audit & Conclusion Block
-                    story.append(
-                        Paragraph("Monte Carlo Risk Audit (30-Day Horizon)", section_style)
-                    )
-                    mc_data = [
-                        [
-                            Paragraph(
-                                f"<b>MAX EXPECTED LOSS</b><br/><font size=9.5><b>{mc_dict.get('max_loss', 'INR 0')}</b></font>",
-                                td_style,
-                            ),
-                            Paragraph(
-                                f"<b>PROJECTED TAIL VALUE</b><br/><font size=9.5><b>{mc_dict.get('tail_val', 'INR 0')}</b></font>",
-                                td_style,
-                            ),
-                            Paragraph(
-                                f"<b>PROBABILITY OF >10% DD</b><br/><font size=9.5><b>{mc_dict.get('prob_dd', '0.3%')}</b></font>",
-                                td_style,
-                            ),
-                        ],
-                        [
-                            Paragraph(
-                                "<b>Audit Conclusion:</b> The portfolio demonstrates a defensive market profile with low beta against the benchmark index. Rebalance underperforming weightings to optimize risk-adjusted returns.",
-                                conclusion_style,
-                            ),
-                            "",
-                            "",
-                        ],
-                    ]
-                    mc_table = Table(mc_data, colWidths=[178, 179, 179])
-                    mc_table.setStyle(
-                        TableStyle(
-                            [
-                                ("BACKGROUND", (0, 0), (-1, -1), DARK_NAVY),
-                                ("SPAN", (0, 1), (2, 1)),
-                                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
-                            ]
-                        )
-                    )
-                    story.append(mc_table)
-                
-                    doc.build(
-                        story,
-                        onFirstPage=draw_cream_background,
-                        onLaterPages=draw_cream_background,
-                    )
-                    buffer.seek(0)
-                    return buffer.getvalue()
-                
-                
-                # --- SIDEBAR DOWNLOAD BUTTON INTEGRATION ---
-                st.sidebar.markdown("---")
-                st.sidebar.subheader("📥 Export Reports")
-
-                st.markdown(
-                """
-                <style>
-                /* Fix button text visibility across standard and primary buttons */
-                div.stButton > button, div.stDownloadButton > button {
-                    color: #1A2B4C !important;
-                    background-color: #FAF8ED !important;
-                    font-weight: bold !important;
-                    border: 1px solid #1A2B4C !important;
-                }
-                div.stButton > button[kind="primary"], div.stDownloadButton > button[kind="primary"] {
-                    color: #FAF8ED !important;
-                    background-color: #1A2B4C !important;
-                }
-                /* Style Streamlit status container (st.status) to match Midnight Blue theme */
-                div[data-testid="stStatusWidget"] {
-                    background-color: #1A2B4C !important;
-                    color: #FFFFFF !important;
-                    border: 1px solid #FAF8ED !important;
-                }
-                div[data-testid="stStatusWidget"] * {
-                    color: #FAF8ED !important;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True,
+            add_c1, add_c2, add_c3, add_c4 = st.columns([2.0, 2.0, 1.3, 1.0])
+            with add_c1:
+                picked_from_list = st.multiselect(
+                    "Pick from Exchange Universe",
+                    options=exchange_suggestions,
+                    default=[t for t in st.session_state["sc_added_tickers_list"] if t in exchange_suggestions],
+                    placeholder="Select stocks (e.g. TCS, INFY)...",
+                    key="sc_pick_universe",
                 )
+            with add_c2:
+                custom_tickers_raw = st.text_input(
+                    "Or Type Custom Ticker(s) (comma-separated)",
+                    value="",
+                    placeholder="e.g. ZOMATO, TRENT, BEL",
+                    key="sc_added_stocks",
+                ).strip().upper()
+            with add_c3:
+                default_added_wt = st.number_input(
+                    "Initial Target Wt (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=10.0,
+                    step=1.0,
+                    key="sc_default_added_wt",
+                )
+            with add_c4:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                if st.button("Clear Added", key="sc_clear_added_btn"):
+                    st.session_state["sc_added_tickers_list"] = []
+                    st.rerun()
 
-                # Initialize session state for the PDF data if it doesn't exist
-                if "pdf_data" not in st.session_state:
-                    st.session_state.pdf_data = None
-                
-                if st.sidebar.button("Generate PDF Audit Report", type="primary"):
-                # Capture Plotly figure as static image bytes for PDF inclusion
-                    with st.sidebar.status("🔄 Generating PDF Report...", expanded=True) as status:
-                        st.write("Capturing Plotly charts & metrics...")
-                        fig_bytes = None
-                        try:
-                            fig_bytes = fig.to_image(
-                                format="png", width=700, height=250, scale=2
-                            )  # 'fig' is your active cumulative performance plot
-                        except Exception:
-                            pass
-    
-                        # Capture both distribution charts as static image bytes
-                        fig_weights_bytes = None
-                        fig_risk_bytes = None
-                        try:
-                            fig_weights_bytes = fig_weights.to_image(
-                                format="png", width=400, height=220, scale=2
-                            )
-                            fig_risk_bytes = fig_risk.to_image(
-                                format="png", width=400, height=220, scale=2
-                            )
-                        except Exception:
-                            pass
-                                    
-                        # Bundle dictionaries from your active session states
-                        st.write("Compiling Report...")
-                        metrics_summary = {
-                            "ann_return": f"{portfolio_daily_returns.mean() * 252 * 100:.2f}%",
-                            "ann_vol": f"{portfolio_daily_returns.std() * np.sqrt(252) * 100:.2f}%",
-                            "max_dd": f"{exp_dd * 100:.2f}%",
-                            "var": f"{abs(var_pct) * 100:.2f}%",
-                            "cvar": f"{abs(cvar_pct) * 100:.2f}%",
-                            "sharpe": f"{sharpe:.2f}",
-                            "risk_ent": f"{abs(risk_entropy):.2f}%",
-                            "weight_ent": f"{abs(weight_entropy):.2f}%",
-                            "sortino": f"{abs(sortino):.2f}",
-                            "target_return": f"{target_return_pct}%",
-                        }
-                        mc_summary = {
-                            "max_loss": f"INR {abs(var_amount):,.2f}",
-                            "tail_val": f"INR {initial_capital - abs(var_amount):,.2f}",
-                            "prob_dd": "0.3%",
-                        }
-                    
-                        st.session_state.pdf_data = generate_pdf_report(
-                            portfolio_score,
-                            portfolio_beta,
-                            None,
-                            metrics_summary,
-                            mc_summary,
-                            fig_bytes,
-                            fig_weights_bytes,
-                            fig_risk_bytes,
-                        )
-                        status.update(
-                        label="✅ PDF Report Generated Successfully!",
-                        state="complete",
-                        expanded=False,
-                        )
-                if st.session_state.pdf_data is not None:
-                    st.sidebar.download_button(
-                        label="Download PDF Report",
-                        data=st.session_state.pdf_data,
-                        file_name="Wirator_Portfolio_Audit.pdf",
-                        mime="application/pdf",
-                        type = "primary",
-                    )
+            custom_list = [p.strip().upper() for p in custom_tickers_raw.split(",") if p.strip()]
+            combined_added = []
+            for item in picked_from_list + custom_list:
+                if item and item != "NAN" and item not in combined_added:
+                    combined_added.append(item)
+            st.session_state["sc_added_tickers_list"] = combined_added
 
-     
-            # if exchange == "BSE":
-            #     st.caption(
-            #     "Note: Market data sourced via NSE primary liquid feeds for dual-listed equities to ensure consistent pricing data availability and zero downtime across exchange views.")
-        except Exception as e:
-            st.error(f"Error reading CSV portfolio file: {str(e)}")
+            existing_tickers = []
+            for t in client_holdings_df["Ticker"]:
+                tu = str(t).strip().upper()
+                if tu and tu != "NAN" and tu not in existing_tickers:
+                    existing_tickers.append(tu)
 
-        # --- FEEDBACK & FEATURE REQUEST FORM ---
-        with st.sidebar:
-          st.markdown("---")
-          st.subheader("💬 Feedback & Feature Request")
-        
-          with st.form("feedback_form", clear_on_submit=True):
-            user_email = st.text_input("Your Email (optional)")
-            feedback_type = st.selectbox(
-                "Feedback Type", ["Bug Report", "Feature Request", "General Feedback"]
+            added_tickers = [
+                pu for pu in st.session_state.get("sc_added_tickers_list", [])
+                if pu and pu != "NAN" and pu not in existing_tickers
+            ]
+
+            clean_tickers = existing_tickers + added_tickers
+
+            if not clean_tickers:
+                st.warning("Add at least one valid stock ticker in Stage 1 or Stage 2 to compute risk and pre-trade diffs.")
+                st.stop()
+
+            yf_syms = resolve_yf_tickers(clean_tickers, current_cfg)
+            with st.spinner("Fetching market prices & return histories..."):
+                end_dt = datetime.datetime.now()
+                start_dt = end_dt - datetime.timedelta(days=365 * 3)
+                p_raw = yf.download(yf_syms, start=start_dt, end=end_dt, progress=False)
+                if isinstance(p_raw, pd.DataFrame) and "Close" in p_raw:
+                    p_df = p_raw["Close"]
+                else:
+                    p_df = p_raw
+                if isinstance(p_df, pd.Series):
+                    p_df = p_df.to_frame(name=yf_syms[0])
+                p_df = p_df.dropna(how="all", axis=1).ffill().bfill()
+
+            valid_pairs = [(base_t, yf_t) for base_t, yf_t in zip(clean_tickers, yf_syms) if yf_t in p_df.columns]
+            if not valid_pairs:
+                st.error("Unable to fetch market prices for the specified tickers.")
+                st.stop()
+
+            qty_map = {}
+            for _, r in client_holdings_df.iterrows():
+                bt = str(r.get("Ticker", "")).strip().upper()
+                if bt:
+                    qty_map[bt] = qty_map.get(bt, 0.0) + float(r.get("Quantity", 0.0) or 0.0)
+
+            current_vals = np.array([qty_map.get(bt, 0.0) * float(p_df[yt].iloc[-1]) for bt, yt in valid_pairs], dtype=float)
+            total_curr_equity = float(current_vals.sum())
+            total_curr_nav = total_curr_equity + float(client_cash)
+            curr_wts = (current_vals / total_curr_nav) if total_curr_nav > 0 else np.zeros(len(valid_pairs))
+
+            st.write("**Adjust Target Weights (%) for Existing Holdings & Any Newly Added Stocks:**")
+            tw_cols = st.columns(min(len(valid_pairs), 5))
+            raw_target_pcts = []
+            rem_existing_count = max(sum(1 for bt, _ in valid_pairs if bt not in added_tickers), 1)
+            added_total_pct = sum(float(default_added_wt) for bt, _ in valid_pairs if bt in added_tickers)
+            rem_pool_pct = max(0.0, 100.0 - min(added_total_pct, 95.0))
+            default_ex_wt = rem_pool_pct / rem_existing_count
+
+            for idx, (bt, _) in enumerate(valid_pairs):
+                with tw_cols[idx % len(tw_cols)]:
+                    is_added = bt in added_tickers
+                    init_val = float(default_added_wt) if is_added else round(default_ex_wt, 2)
+                    lbl = f"Target %: {bt} (NEW)" if is_added else f"Target %: {bt}"
+                    val_pct = st.number_input(lbl, min_value=0.0, max_value=100.0, value=init_val, step=1.0, key=f"sc_tw_{bt}")
+                    raw_target_pcts.append(val_pct)
+
+            post_nav = max(total_curr_nav + float(cash_flow_sim), 1.0)
+            sum_tw = sum(raw_target_pcts)
+            if sum_tw > 0:
+                prop_wts = np.array([x / sum_tw for x in raw_target_pcts], dtype=float) * (min(sum_tw, 100.0) / 100.0)
+            else:
+                prop_wts = np.zeros(len(valid_pairs), dtype=float)
+
+            diff_wts = prop_wts - curr_wts
+            curr_val_per_asset = curr_wts * total_curr_nav
+            prop_val_per_asset = prop_wts * post_nav
+            trade_notional_per_asset = prop_val_per_asset - curr_val_per_asset
+            friction_rate = friction_bps / 10000.0
+
+            unified_blotter_df = pd.DataFrame({
+                "Ticker": [bt for bt, _ in valid_pairs],
+                "Sector": [ticker_to_sector.get(bt, "Other") for bt, _ in valid_pairs],
+                "Live Price": [float(p_df[yt].iloc[-1]) for _, yt in valid_pairs],
+                "Current Wt (%)": curr_wts * 100.0,
+                "Proposed Wt (%)": prop_wts * 100.0,
+                "Delta Wt (%)": diff_wts * 100.0,
+                "Current Val": curr_val_per_asset,
+                "Proposed Val": prop_val_per_asset,
+                "Action": [
+                    "EXIT / SELL" if (prop_wts[i] <= 1e-6 and curr_wts[i] > 1e-6)
+                    else ("NEW / BUY" if (curr_wts[i] <= 1e-6 and prop_wts[i] > 1e-6)
+                    else ("BUY" if trade_notional_per_asset[i] > 1.0 else ("SELL" if trade_notional_per_asset[i] < -1.0 else "HOLD")))
+                    for i in range(len(valid_pairs))
+                ],
+                "Trade Notional": np.abs(trade_notional_per_asset),
+                "Est. Friction": np.abs(trade_notional_per_asset) * friction_rate,
+            })
+
+            st.write("**Pre-Trade vs. Post-Trade Allocation & Order Diff Table**")
+            st.dataframe(
+                unified_blotter_df.style.format({
+                    "Live Price": f"{currency} {{:,.2f}}",
+                    "Current Wt (%)": "{:.2f}%",
+                    "Proposed Wt (%)": "{:.2f}%",
+                    "Delta Wt (%)": "{:+.2f}%",
+                    "Current Val": f"{currency} {{:,.2f}}",
+                    "Proposed Val": f"{currency} {{:,.2f}}",
+                    "Trade Notional": f"{currency} {{:,.2f}}",
+                    "Est. Friction": f"{currency} {{:,.2f}}",
+                }),
+                use_container_width=True,
+                hide_index=True,
             )
-            user_message = st.text_area("Your Message / Suggestion")
-        
-            submitted = st.form_submit_button("Submit Feedback")
 
-          if submitted:
+            # ------------------------------------------------------------------
+            # STAGE 3: PRE-TRADE DIFF, BENCHMARK GRAPH, QUANT METRICS & MONTE CARLO
+            # ------------------------------------------------------------------
+            st.markdown("---")
+            st.markdown("## Stage 3: Pre-Trade Diff, Benchmark Comparison & Risk / Monte Carlo")
+
+            valid_yf_ordered = [yt for _, yt in valid_pairs]
+            valid_bt_ordered = [bt for bt, _ in valid_pairs]
+            price_matrix_valid = p_df[valid_yf_ordered]
+            ret_matrix = price_matrix_valid.pct_change().dropna()
+
+            pre_port_ret = ret_matrix.dot(curr_wts) if curr_wts.sum() > 0 else ret_matrix.iloc[:, 0] * 0.0
+            post_port_ret = ret_matrix.dot(prop_wts) if prop_wts.sum() > 0 else ret_matrix.iloc[:, 0] * 0.0
+
+            pre_metrics = compute_quant_metrics(
+                pre_port_ret, rfr_annual=rfr_annual, target_return_pct=target_return_pct,
+                confidence_level=confidence_level, horizon_days=time_horizon_days
+            )
+            post_metrics = compute_quant_metrics(
+                post_port_ret, rfr_annual=rfr_annual, target_return_pct=target_return_pct,
+                confidence_level=confidence_level, horizon_days=time_horizon_days
+            )
+
+            pre_div = compute_risk_and_diversification(ret_matrix, curr_wts, valid_bt_ordered)
+            post_div = compute_risk_and_diversification(ret_matrix, prop_wts, valid_bt_ordered)
+
+            # Benchmark alignment
+            beta_val = 1.0
+            b_cum_pct = None
+            try:
+                b_raw = yf.download(current_cfg["symbol"], start=ret_matrix.index[0], end=ret_matrix.index[-1], progress=False)
+                b_ser = b_raw["Close"].squeeze() if isinstance(b_raw, pd.DataFrame) and "Close" in b_raw else pd.Series(dtype=float)
+                b_ret = b_ser.pct_change().dropna()
+                aligned = pd.DataFrame({"pre": pre_port_ret, "post": post_port_ret, "m": b_ret}).dropna()
+                if len(aligned) > 10 and np.var(aligned["m"]) > 0:
+                    beta_val = float(np.cov(aligned["post"], aligned["m"])[0, 1] / np.var(aligned["m"]))
+                if not aligned.empty:
+                    pre_cum_pct = ((1.0 + aligned["pre"]).cumprod() - 1.0) * 100.0
+                    post_cum_pct = ((1.0 + aligned["post"]).cumprod() - 1.0) * 100.0
+                    b_cum_pct = ((1.0 + aligned["m"]).cumprod() - 1.0) * 100.0
+                else:
+                    pre_cum_pct = ((1.0 + pre_port_ret).cumprod() - 1.0) * 100.0
+                    post_cum_pct = ((1.0 + post_port_ret).cumprod() - 1.0) * 100.0
+            except Exception:
+                pre_cum_pct = ((1.0 + pre_port_ret).cumprod() - 1.0) * 100.0
+                post_cum_pct = ((1.0 + post_port_ret).cumprod() - 1.0) * 100.0
+
+            pre_max_stock = float(curr_wts.max() * 100.0) if len(curr_wts) else 0.0
+            post_max_stock = float(prop_wts.max() * 100.0) if len(prop_wts) else 0.0
+
+            sec_series_curr = pd.Series(curr_wts, index=[ticker_to_sector.get(bt, "Other") for bt in valid_bt_ordered])
+            sec_series_prop = pd.Series(prop_wts, index=[ticker_to_sector.get(bt, "Other") for bt in valid_bt_ordered])
+            pre_max_sec = float(sec_series_curr.groupby(level=0).sum().max() * 100.0) if not sec_series_curr.empty else 0.0
+            post_max_sec = float(sec_series_prop.groupby(level=0).sum().max() * 100.0) if not sec_series_prop.empty else 0.0
+
+            total_turnover_amt = float(unified_blotter_df["Trade Notional"].sum())
+            turnover_pct = (total_turnover_amt / post_nav * 100.0) if post_nav > 0 else 0.0
+            total_friction_amt = float(unified_blotter_df["Est. Friction"].sum())
+
+            render_risk_diversification_and_mc_section(
+                prefix_key="sc",
+                currency=currency,
+                time_horizon_days=time_horizon_days,
+                confidence_level=confidence_level,
+                pre_metrics=pre_metrics,
+                post_metrics=post_metrics,
+                pre_div=pre_div,
+                post_div=post_div,
+                pre_cum_pct=pre_cum_pct,
+                post_cum_pct=post_cum_pct,
+                b_cum_pct=b_cum_pct,
+                benchmark_name=current_cfg["name"],
+                price_matrix_valid=price_matrix_valid,
+                prop_wts=prop_wts,
+                post_nav=post_nav,
+                turnover_pct=turnover_pct,
+                total_friction_amt=total_friction_amt,
+                beta_val=beta_val,
+                pre_max_stock=pre_max_stock,
+                post_max_stock=post_max_stock,
+                pre_max_sec=pre_max_sec,
+                post_max_sec=post_max_sec,
+            )
+
+            # ------------------------------------------------------------------
+            # STAGE 4: LOG RATIONALE & EXPORT AUDIT PACKET (SINGLE CLIENT)
+            # ------------------------------------------------------------------
+            st.markdown("---")
+            st.markdown("## Stage 4: Rationale & Audit Export")
+
+            rationale_input = st.text_area(
+                "Investment & Suitability Rationale (why this stock/weight change fits the client mandate, horizon & risk profile)",
+                value="",
+                placeholder="Document suitability reasoning, drawdown tolerance alignment, sector/issuer concentration rationale, and fee/friction justification...",
+                key="sc_rationale_text",
+            )
+
+            gate_res = evaluate_mandate_gate(
+                post_vol_pct=post_metrics["ann_vol"],
+                post_cvar_pct=post_metrics["hist_cvar"],
+                max_stock_wt_pct=post_max_stock,
+                max_sector_wt_pct=post_max_sec,
+                vol_cap_pct=vol_cap_pct,
+                cvar_cap_pct=cvar_cap_pct,
+                stock_cap_pct=stock_cap_pct,
+                sector_cap_pct=sector_cap_pct,
+                rationale_text=rationale_input,
+            )
+
+            strip_cls = "gate-pass" if gate_res["status"] == "Pass" else ("gate-warn" if gate_res["status"] == "Warning" else "gate-breach")
+            badge_icon = "🟢 PASS" if gate_res["status"] == "Pass" else ("🟡 WARNING" if gate_res["status"] == "Warning" else "🔴 BREACH")
+            issues_txt = " | ".join(gate_res["breaches"] + gate_res["warnings"]) if (gate_res["breaches"] or gate_res["warnings"]) else "All volatility, CVaR, single-stock & sector limits within mandate."
+            rat_flag = "Logged" if not gate_res["missing_rationale"] else "Missing Rationale"
+
+            st.markdown(
+                f"""<div class="gate-strip {strip_cls}">
+                    <b>Mandate Gate Status: {badge_icon}</b> &nbsp;•&nbsp; <b>Suitability Log:</b> {rat_flag}<br/>
+                    <span>{issues_txt}</span>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+            audit_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            diff_summary_payload = {
+                "turnover_pct": turnover_pct,
+                "friction_cost": total_friction_amt,
+                "pre_vol": pre_metrics["ann_vol"],
+                "post_vol": post_metrics["ann_vol"],
+                "pre_cvar": pre_metrics["hist_cvar"],
+                "post_cvar": post_metrics["hist_cvar"],
+                "pre_max_stock": pre_max_stock,
+                "post_max_stock": post_max_stock,
+                "pre_max_sector": pre_max_sec,
+                "post_max_sector": post_max_sec,
+            }
+            pdf_packet = build_audit_packet_pdf(
+                entity_type=entity_type,
+                workspace_mode=workspace_mode,
+                exchange=exchange,
+                currency=currency,
+                client_label=f"{client_id_tag} ({client_profile_tag})",
+                reg_no="SEBI-REG-AUDIT",
+                officer_or_advisor=entity_type,
+                mandate_limits=mandate_limits,
+                diff_summary=diff_summary_payload,
+                gate_result=gate_res,
+                rationale_text=rationale_input,
+                timestamp=audit_ts,
+            )
+            st.download_button(
+                label="📥 Export Timestamped Audit & Suitability Report (PDF)",
+                data=pdf_packet,
+                file_name=f"WIRATOR_Audit_{client_id_tag.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                mime="application/pdf",
+                type="primary",
+            )
+
+        # ======================================================================
+        # WORKSPACE MODE B: MODEL PORTFOLIO & CLIENT BATCH
+        # ======================================================================
+        else:
+            st.caption("Define Model Target Weights, add stocks to the batch rebalance, and upload/edit a multi-client batch CSV/table.")
+
+            b_col1, b_col2 = st.columns([1.4, 2.2])
+            with b_col1:
+                st.write("**Model Target Weights (%)**")
+                default_model_df = pd.DataFrame([
+                    {"Ticker": "HDFCBANK", "Target_Weight_Pct": 35.0},
+                    {"Ticker": "INFY", "Target_Weight_Pct": 35.0},
+                    {"Ticker": "RELIANCE", "Target_Weight_Pct": 30.0},
+                ]) if current_cfg.get("default_curr") == "INR" else pd.DataFrame([
+                    {"Ticker": "AAPL", "Target_Weight_Pct": 40.0},
+                    {"Ticker": "MSFT", "Target_Weight_Pct": 35.0},
+                    {"Ticker": "JPM", "Target_Weight_Pct": 25.0},
+                ])
+                model_target_df = st.data_editor(default_model_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="batch_model_targets")
+            with b_col2:
+                st.write("**Client Batch (Upload CSV or Edit Rows)**")
+                batch_csv = st.file_uploader("Upload Client Batch CSV", type=["csv"], key="batch_csv_uploader")
+                if batch_csv is not None:
+                    try:
+                        batch_df = pd.read_csv(batch_csv)
+                    except Exception as e:
+                        st.warning(f"Could not read batch CSV ({e}). Using sample batch.")
+                        batch_df = get_default_batch_df(current_cfg)
+                else:
+                    batch_df = get_default_batch_df(current_cfg)
+                edited_batch_df = st.data_editor(batch_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="batch_clients_editor")
+
+            # Stage 2 (Batch): Apply Model Target Weights + Option to Add Stocks to Rebalance
+            st.markdown("---")
+            st.markdown("## Stage 2: Proposed Rebalance (Batch Model Application)")
+            b2_c1, b2_c2, b2_c3 = st.columns(3)
+            with b2_c1:
+                deploy_cash = st.checkbox("Deploy Client Cash into Model Targets", value=True, key="batch_deploy_cash")
+            with b2_c2:
+                batch_friction_bps = st.slider("Est. Friction Cost (bps)", min_value=0, max_value=100, value=15, step=5, key="batch_friction_bps")
+            with b2_c3:
+                override_limits_per_client = st.checkbox("Use Per-Client Mandate Caps if Provided", value=True, key="batch_per_client_caps")
+
+            st.markdown("#### ➕ Add New Stock(s) to Batch Model Rebalance")
+            if "batch_added_tickers_list" not in st.session_state:
+                st.session_state["batch_added_tickers_list"] = []
+
+            b_add1, b_add2, b_add3, b_add4 = st.columns([2.0, 2.0, 1.3, 1.0])
+            with b_add1:
+                b_picked_universe = st.multiselect(
+                    "Pick from Exchange Universe",
+                    options=exchange_suggestions,
+                    default=[t for t in st.session_state["batch_added_tickers_list"] if t in exchange_suggestions],
+                    placeholder="Select stocks to add...",
+                    key="batch_pick_universe",
+                )
+            with b_add2:
+                b_custom_raw = st.text_input(
+                    "Or Type Custom Ticker(s) (comma-separated)",
+                    value="",
+                    placeholder="e.g. TCS, AXISBANK, BEL",
+                    key="batch_custom_stocks",
+                ).strip().upper()
+            with b_add3:
+                b_added_wt_pct = st.number_input(
+                    "Target Wt per Added Stock (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=10.0,
+                    step=1.0,
+                    key="batch_added_wt_pct",
+                )
+            with b_add4:
+                st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+                if st.button("Clear Added", key="batch_clear_added_btn"):
+                    st.session_state["batch_added_tickers_list"] = []
+                    st.rerun()
+
+            b_custom_list = [p.strip().upper() for p in b_custom_raw.split(",") if p.strip()]
+            b_combined_added = []
+            for item in b_picked_universe + b_custom_list:
+                if item and item != "NAN" and item not in b_combined_added:
+                    b_combined_added.append(item)
+            st.session_state["batch_added_tickers_list"] = b_combined_added
+
+            # Normalize Model Target Weights + Newly Added Stocks
+            m_clean = model_target_df[model_target_df["Ticker"].astype(str).str.strip() != ""].copy()
+            if m_clean.empty and not b_combined_added:
+                st.warning("Specify at least one ticker in Model Target Weights or Add Stock(s) above.")
+                st.stop()
+
+            raw_model_map = {}
+            if not m_clean.empty:
+                m_clean["Ticker"] = m_clean["Ticker"].astype(str).str.strip().str.upper()
+                m_clean["Target_Weight_Pct"] = pd.to_numeric(m_clean["Target_Weight_Pct"], errors="coerce").fillna(0.0)
+                for _, r in m_clean.iterrows():
+                    raw_model_map[r["Ticker"]] = float(r["Target_Weight_Pct"])
+
+            for added_stk in b_combined_added:
+                if added_stk not in raw_model_map:
+                    raw_model_map[added_stk] = float(b_added_wt_pct)
+
+            tot_m_pct = sum(raw_model_map.values())
+            model_wt_map = {
+                t: (wt / tot_m_pct if tot_m_pct > 0 else 1.0 / len(raw_model_map))
+                for t, wt in raw_model_map.items()
+            }
+
+            if b_combined_added:
+                st.info(f"Normalized Model Weights (including added stocks): " + ", ".join([f"**{k}**: {v*100:.1f}%" for k, v in model_wt_map.items()]))
+
+            # Gather all tickers across model + batch clients
+            all_batch_tickers = set(model_wt_map.keys())
+            parsed_client_holdings = []
+            for _, crow in edited_batch_df.iterrows():
+                h_dict = {}
+                raw_h = crow.get("Holdings_JSON", "{}")
+                try:
+                    parsed_obj = json.loads(raw_h) if isinstance(raw_h, str) else (raw_h if isinstance(raw_h, dict) else {})
+                    for k, v in parsed_obj.items():
+                        ku = str(k).strip().upper()
+                        if ku:
+                            h_dict[ku] = float(v)
+                            all_batch_tickers.add(ku)
+                except Exception:
+                    pass
+                parsed_client_holdings.append(h_dict)
+
+            all_t_list = sorted(all_batch_tickers)
+            yf_b_syms = resolve_yf_tickers(all_t_list, current_cfg)
+            with st.spinner("Fetching market prices & return histories for batch universe..."):
+                end_dt_b = datetime.datetime.now()
+                start_dt_b = end_dt_b - datetime.timedelta(days=365 * 3)
+                p_b_raw = yf.download(yf_b_syms, start=start_dt_b, end=end_dt_b, progress=False)
+                p_b_df = p_b_raw["Close"] if isinstance(p_b_raw, pd.DataFrame) and "Close" in p_b_raw else p_b_raw
+                if isinstance(p_b_df, pd.Series):
+                    p_b_df = p_b_df.to_frame(name=yf_b_syms[0])
+                p_b_df = p_b_df.dropna(how="all", axis=1).ffill().bfill()
+
+            valid_b_pairs = [(bt, yt) for bt, yt in zip(all_t_list, yf_b_syms) if yt in p_b_df.columns]
+            if not valid_b_pairs:
+                st.error("Unable to fetch market prices for the batch universe tickers.")
+                st.stop()
+
+            valid_b_bt = [bt for bt, _ in valid_b_pairs]
+            valid_b_yt = [yt for _, yt in valid_b_pairs]
+            price_b_valid = p_b_df[valid_b_yt]
+            ret_b_df = price_b_valid.pct_change().dropna()
+
+            latest_px_map = {bt: float(p_b_df[yt].iloc[-1]) for bt, yt in valid_b_pairs}
+
+            # Fetch benchmark series once for batch comparison
+            b_ret_bench = pd.Series(dtype=float)
+            try:
+                bm_b_raw = yf.download(current_cfg["symbol"], start=ret_b_df.index[0], end=ret_b_df.index[-1], progress=False)
+                bm_b_ser = bm_b_raw["Close"].squeeze() if isinstance(bm_b_raw, pd.DataFrame) and "Close" in bm_b_raw else pd.Series(dtype=float)
+                b_ret_bench = bm_b_ser.pct_change().dropna()
+            except Exception:
+                pass
+
+            # Compute per-client full quant metrics, risk contributions & gate status
+            client_rows_detail = {}
+            summary_records = []
+            for idx, (crow, h_dict) in enumerate(zip(edited_batch_df.iterrows(), parsed_client_holdings)):
+                _, crow_ser = crow
+                cid = str(crow_ser.get("Client_ID", f"CLT-{idx+1:03d}")).strip()
+                pmask = str(crow_ser.get("PAN_Mask", "XXXX0000X")).strip()
+                rtier = str(crow_ser.get("Risk_Tier", "Moderate")).strip()
+                cash_val = float(crow_ser.get("Cash", 0.0) or 0.0)
+                rat_str = str(crow_ser.get("Rationale", "") or "")
+
+                c_vol_cap = float(crow_ser.get("Mandate_Vol_Cap", vol_cap_pct)) if override_limits_per_client else vol_cap_pct
+                c_stk_cap = float(crow_ser.get("Max_Stock_Cap", stock_cap_pct)) if override_limits_per_client else stock_cap_pct
+
+                curr_pos_vals = np.array([h_dict.get(t, 0.0) * latest_px_map.get(t, 0.0) for t in valid_b_bt], dtype=float)
+                eq_val = float(curr_pos_vals.sum())
+                tot_val = eq_val + cash_val
+                c_wts = (curr_pos_vals / tot_val) if tot_val > 0 else np.zeros(len(valid_b_bt))
+
+                target_equity_base = tot_val if deploy_cash else eq_val
+                prop_wts = np.array([(model_wt_map.get(t, 0.0) * target_equity_base / tot_val) if tot_val > 0 else 0.0 for t in valid_b_bt], dtype=float)
+
+                r_pre = ret_b_df.dot(c_wts) if c_wts.sum() > 0 else ret_b_df.iloc[:, 0] * 0.0
+                r_post = ret_b_df.dot(prop_wts) if prop_wts.sum() > 0 else ret_b_df.iloc[:, 0] * 0.0
+
+                c_pre_metrics = compute_quant_metrics(
+                    r_pre, rfr_annual=rfr_annual, target_return_pct=target_return_pct,
+                    confidence_level=confidence_level, horizon_days=time_horizon_days
+                )
+                c_post_metrics = compute_quant_metrics(
+                    r_post, rfr_annual=rfr_annual, target_return_pct=target_return_pct,
+                    confidence_level=confidence_level, horizon_days=time_horizon_days
+                )
+
+                c_pre_div = compute_risk_and_diversification(ret_b_df, c_wts, valid_b_bt)
+                c_post_div = compute_risk_and_diversification(ret_b_df, prop_wts, valid_b_bt)
+
+                post_max_s = float(prop_wts.max() * 100.0) if len(prop_wts) else 0.0
+                pre_max_s = float(c_wts.max() * 100.0) if len(c_wts) else 0.0
+                sec_map_c = pd.Series(c_wts, index=[ticker_to_sector.get(t, "Other") for t in valid_b_bt])
+                sec_map_p = pd.Series(prop_wts, index=[ticker_to_sector.get(t, "Other") for t in valid_b_bt])
+                pre_max_sec = float(sec_map_c.groupby(level=0).sum().max() * 100.0) if not sec_map_c.empty else 0.0
+                post_max_sec = float(sec_map_p.groupby(level=0).sum().max() * 100.0) if not sec_map_p.empty else 0.0
+
+                turn_pct = float(np.abs(prop_wts - c_wts).sum() * 0.5 * 100.0)
+                fric_amt = float(np.abs(prop_wts - c_wts).sum() * 0.5 * tot_val * (batch_friction_bps / 10000.0))
+
+                g_res = evaluate_mandate_gate(
+                    post_vol_pct=c_post_metrics["ann_vol"],
+                    post_cvar_pct=c_post_metrics["hist_cvar"],
+                    max_stock_wt_pct=post_max_s,
+                    max_sector_wt_pct=post_max_sec,
+                    vol_cap_pct=c_vol_cap,
+                    cvar_cap_pct=cvar_cap_pct,
+                    stock_cap_pct=c_stk_cap,
+                    sector_cap_pct=sector_cap_pct,
+                    rationale_text=rat_str,
+                )
+
+                summary_records.append({
+                    "Client_ID": cid,
+                    "PAN_Mask": pmask,
+                    "Risk_Tier": rtier,
+                    "Portfolio_Val": tot_val,
+                    "Turnover (%)": turn_pct,
+                    "Post_Ret (%)": c_post_metrics["ann_ret"],
+                    "Post_Vol (%)": c_post_metrics["ann_vol"],
+                    "Sharpe": c_post_metrics["sharpe"],
+                    "Sortino": c_post_metrics["sortino"],
+                    "Post_CVaR (%)": c_post_metrics["hist_cvar"],
+                    "Max_DD (%)": c_post_metrics["max_dd"],
+                    "Wt_ENC (%)": c_post_div["weight_enc"],
+                    "Risk_ENC (%)": c_post_div["risk_enc"],
+                    "Max_Stock (%)": post_max_s,
+                    "Gate_Status": g_res["status"],
+                    "Rationale_Status": "Logged" if not g_res["missing_rationale"] else "Missing",
+                    "Flags": "; ".join(g_res["breaches"] + g_res["warnings"]) if (g_res["breaches"] or g_res["warnings"]) else "OK",
+                })
+
+                client_rows_detail[cid] = {
+                    "cid": cid, "pmask": pmask, "rtier": rtier, "tot_val": tot_val, "cash_val": cash_val,
+                    "c_wts": c_wts, "prop_wts": prop_wts, "r_pre": r_pre, "r_post": r_post,
+                    "pre_metrics": c_pre_metrics, "post_metrics": c_post_metrics,
+                    "pre_div": c_pre_div, "post_div": c_post_div,
+                    "pre_max_s": pre_max_s, "post_max_s": post_max_s,
+                    "pre_max_sec": pre_max_sec, "post_max_sec": post_max_sec,
+                    "turn_pct": turn_pct, "fric_amt": fric_amt,
+                    "rationale": rat_str, "gate": g_res,
+                    "diff_df": pd.DataFrame({
+                        "Ticker": valid_b_bt,
+                        "Sector": [ticker_to_sector.get(t, "Other") for t in valid_b_bt],
+                        "Live Price": [latest_px_map.get(t, 0.0) for t in valid_b_bt],
+                        "Current Wt (%)": c_wts * 100.0,
+                        "Proposed Wt (%)": prop_wts * 100.0,
+                        "Delta Wt (%)": (prop_wts - c_wts) * 100.0,
+                        "Trade Amt": np.abs(prop_wts - c_wts) * tot_val,
+                    }),
+                }
+
+            # ------------------------------------------------------------------
+            # STAGE 3 (BATCH): ROLL-UP SUMMARY TABLE + FULL DRILL-DOWN ANALYTICS
+            # ------------------------------------------------------------------
+            st.markdown("---")
+            st.markdown("## Stage 3: Pre-Trade Diff, Benchmark Comparison & Risk / Monte Carlo (Batch)")
+
+            sum_df = pd.DataFrame(summary_records)
+            pass_cnt = int((sum_df["Gate_Status"] == "Pass").sum())
+            warn_cnt = int((sum_df["Gate_Status"] == "Warning").sum())
+            breach_cnt = int((sum_df["Gate_Status"] == "Breach").sum())
+            miss_rat_cnt = int((sum_df["Rationale_Status"] == "Missing").sum())
+
+            bk1, bk2, bk3, bk4 = st.columns(4)
+            bk1.metric("Total Clients", f"{len(sum_df)}")
+            bk2.metric("Pass / Warning", f"{pass_cnt} Pass / {warn_cnt} Warn")
+            bk3.metric("Mandate / Conc. Breach", f"{breach_cnt}")
+            bk4.metric("Missing Rationale", f"{miss_rat_cnt}")
+
+            st.dataframe(
+                sum_df.style.format({
+                    "Portfolio_Val": f"{currency} {{:,.2f}}",
+                    "Turnover (%)": "{:.2f}%",
+                    "Post_Ret (%)": "{:+.2f}%",
+                    "Post_Vol (%)": "{:.2f}%",
+                    "Sharpe": "{:.2f}",
+                    "Sortino": "{:.2f}",
+                    "Post_CVaR (%)": "{:.2f}%",
+                    "Max_DD (%)": "{:.2f}%",
+                    "Wt_ENC (%)": "{:.1f}%",
+                    "Risk_ENC (%)": "{:.1f}%",
+                    "Max_Stock (%)": "{:.2f}%",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            selected_cid = st.selectbox("Drill-Down Inspector — Select Client Row", options=list(client_rows_detail.keys()), key="batch_drill_selector")
+            d_item = client_rows_detail[selected_cid]
+            st.markdown(f"**Client Drill-Down: {d_item['cid']} ({d_item['pmask']} | {d_item['rtier']}) — Gate: {d_item['gate']['status']}**")
+
+            # Order Diff Table for Selected Client
+            st.dataframe(
+                d_item["diff_df"].style.format({
+                    "Live Price": f"{currency} {{:,.2f}}",
+                    "Current Wt (%)": "{:.2f}%",
+                    "Proposed Wt (%)": "{:.2f}%",
+                    "Delta Wt (%)": "{:+.2f}%",
+                    "Trade Amt": f"{currency} {{:,.2f}}",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            # Benchmark alignment for Selected Batch Client
+            b_beta_val = 1.0
+            b_cum_curve = None
+            if not b_ret_bench.empty:
+                aligned_b = pd.DataFrame({"pre": d_item["r_pre"], "post": d_item["r_post"], "m": b_ret_bench}).dropna()
+                if len(aligned_b) > 10 and np.var(aligned_b["m"]) > 0:
+                    b_beta_val = float(np.cov(aligned_b["post"], aligned_b["m"])[0, 1] / np.var(aligned_b["m"]))
+                if not aligned_b.empty:
+                    b_pre_cum = ((1.0 + aligned_b["pre"]).cumprod() - 1.0) * 100.0
+                    b_post_cum = ((1.0 + aligned_b["post"]).cumprod() - 1.0) * 100.0
+                    b_cum_curve = ((1.0 + aligned_b["m"]).cumprod() - 1.0) * 100.0
+                else:
+                    b_pre_cum = ((1.0 + d_item["r_pre"]).cumprod() - 1.0) * 100.0
+                    b_post_cum = ((1.0 + d_item["r_post"]).cumprod() - 1.0) * 100.0
+            else:
+                b_pre_cum = ((1.0 + d_item["r_pre"]).cumprod() - 1.0) * 100.0
+                b_post_cum = ((1.0 + d_item["r_post"]).cumprod() - 1.0) * 100.0
+
+            # Full Parity Analytics: Metrics (Sharpe, Sortino, Return, Vol, VaR, CVaR, Drawdown), ENC, Risk Contribution, Benchmark Graph & Cholesky Monte Carlo
+            render_risk_diversification_and_mc_section(
+                prefix_key=f"batch_{selected_cid}",
+                currency=currency,
+                time_horizon_days=time_horizon_days,
+                confidence_level=confidence_level,
+                pre_metrics=d_item["pre_metrics"],
+                post_metrics=d_item["post_metrics"],
+                pre_div=d_item["pre_div"],
+                post_div=d_item["post_div"],
+                pre_cum_pct=b_pre_cum,
+                post_cum_pct=b_post_cum,
+                b_cum_pct=b_cum_curve,
+                benchmark_name=current_cfg["name"],
+                price_matrix_valid=price_b_valid,
+                prop_wts=d_item["prop_wts"],
+                post_nav=d_item["tot_val"],
+                turnover_pct=d_item["turn_pct"],
+                total_friction_amt=d_item["fric_amt"],
+                beta_val=b_beta_val,
+                pre_max_stock=d_item["pre_max_s"],
+                post_max_stock=d_item["post_max_s"],
+                pre_max_sec=d_item["pre_max_sec"],
+                post_max_sec=d_item["post_max_sec"],
+            )
+
+            # ------------------------------------------------------------------
+            # STAGE 4 (BATCH): LOG RATIONALE & EXPORT BATCH AUDIT PACKET
+            # ------------------------------------------------------------------
+            st.markdown("---")
+            st.markdown("## Stage 4: Rationale & Audit Export (Batch)")
+            batch_rationale_val = st.text_area(
+                f"Suitability & Model Rebalance Rationale for {selected_cid}",
+                value=d_item["rationale"],
+                placeholder="Enter suitability rationale for this client's model rebalance...",
+                key=f"batch_rat_input_{selected_cid}",
+            )
+            if st.button("Save Rationale to Selected Client", key="btn_save_batch_rat"):
+                d_item["rationale"] = batch_rationale_val
+                st.success(f"Rationale updated for {selected_cid}.")
+
+            b_gate = evaluate_mandate_gate(
+                post_vol_pct=d_item["post_metrics"]["ann_vol"],
+                post_cvar_pct=d_item["post_metrics"]["hist_cvar"],
+                max_stock_wt_pct=d_item["post_max_s"],
+                max_sector_wt_pct=d_item["post_max_sec"],
+                vol_cap_pct=vol_cap_pct,
+                cvar_cap_pct=cvar_cap_pct,
+                stock_cap_pct=stock_cap_pct,
+                sector_cap_pct=sector_cap_pct,
+                rationale_text=batch_rationale_val,
+            )
+            b_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            b_pdf = build_audit_packet_pdf(
+                entity_type=entity_type,
+                workspace_mode=workspace_mode,
+                exchange=exchange,
+                currency=currency,
+                client_label=f"Batch ({len(sum_df)} clients) | Focus: {selected_cid}",
+                reg_no="SEBI-BATCH-AUDIT",
+                officer_or_advisor=entity_type,
+                mandate_limits=mandate_limits,
+                diff_summary={
+                    "turnover_pct": d_item["turn_pct"],
+                    "friction_cost": d_item["fric_amt"],
+                    "pre_vol": d_item["pre_metrics"]["ann_vol"],
+                    "post_vol": d_item["post_metrics"]["ann_vol"],
+                    "pre_cvar": d_item["pre_metrics"]["hist_cvar"],
+                    "post_cvar": d_item["post_metrics"]["hist_cvar"],
+                    "pre_max_stock": d_item["pre_max_s"],
+                    "post_max_stock": d_item["post_max_s"],
+                    "pre_max_sector": d_item["pre_max_sec"],
+                    "post_max_sector": d_item["post_max_sec"],
+                },
+                gate_result=b_gate,
+                rationale_text=batch_rationale_val,
+                timestamp=b_ts,
+            )
+            dl_c1, dl_c2 = st.columns(2)
+            with dl_c1:
+                st.download_button(
+                    label="📥 Export Batch Summary Roll-Up (CSV)",
+                    data=sum_df.to_csv(index=False).encode("utf-8"),
+                    file_name=f"WIRATOR_Batch_Summary_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                )
+            with dl_c2:
+                st.download_button(
+                    label="📄 Export Timestamped Audit Report (PDF)",
+                    data=b_pdf,
+                    file_name=f"WIRATOR_Batch_Audit_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                )
+
+    # Sidebar Feedback Form (Preserved)
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("💬 Feedback & Feature Request")
+        with st.form("feedback_form", clear_on_submit=True):
+            user_email = st.text_input("Your Email (optional)")
+            feedback_type = st.selectbox("Feedback Type", ["Bug Report", "Feature Request", "General Feedback"])
+            user_message = st.text_area("Your Message / Suggestion")
+            submitted = st.form_submit_button("Submit Feedback")
+        if submitted:
             if user_message.strip():
                 try:
-                    # 1. Setup credentials from Streamlit Secrets
-                    scope = [
-                        "https://spreadsheets.google.com/feeds",
-                        "https://www.googleapis.com/auth/drive"
-                    ]
+                    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
                     creds_dict = dict(st.secrets["gcp_service_account"])
                     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
                     client = gspread.authorize(creds)
-
-                    # 2. Open Google Sheet by name
                     sheet = client.open("Wirator User Feedback").sheet1
-
-                    # 3. Build exact row payload matching your entries
-                    row_data = [
-                        pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),    # Timestamp
-                        user_email if user_email else "Anonymous",           # Email
-                        feedback_type,                                       # Type
-                        exchange if "exchange" in globals() else "NSE",       # Exchange
-                        user_message                                         # Message
-                    ]
-
-                    # 4. Append row directly to Google Sheet
-                    sheet.append_row(row_data)
+                    sheet.append_row([
+                        pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        user_email if user_email else "Anonymous",
+                        feedback_type,
+                        exchange if "exchange" in globals() else "NSE",
+                        user_message,
+                    ])
                     st.success("Thank you! Your feedback has been recorded.")
-
                 except Exception as e:
                     st.error(f"Failed to record feedback: {e}")
             else:
                 st.warning("Please enter a message before submitting.")
-        
-
-    # else:
-    #     st.info(f"👈 Please upload a {exchange} portfolio CSV file from the left sidebar to generate the risk audit.")
