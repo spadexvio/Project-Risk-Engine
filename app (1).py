@@ -645,7 +645,7 @@ elif st.session_state["page"] == "analytics":
     # Time period buttons bar
     col_tf, _ = st.columns([3, 1])
     with col_tf:
-        selected_tf = st.segmented_control(
+        select_tf = st.segmented_control(
             "Timeframe", 
             options=list(tf_options.keys()), 
             default="6M", 
@@ -657,7 +657,7 @@ elif st.session_state["page"] == "analytics":
             import plotly.graph_objects as go
 
             end_d = datetime.datetime.now()
-            tf_info = tf_options.get(selected_tf, tf_options["6M"])
+            tf_info = tf_options.get(select_tf, tf_options["6M"])
             
             # Determine start date based on selected timeframe
             if tf_info["days"] == "YTD":
@@ -666,7 +666,7 @@ elif st.session_state["page"] == "analytics":
                 start_d = end_d - datetime.timedelta(days=tf_info["days"])
             
             # Fetch data with appropriate interval (1m/5m for 1D, daily for others)
-            interval = "15m" if selected_tf == "1D" else "1d"
+            interval = "15m" if select_tf == "1D" else "1d"
             bench_raw = yf.download(
                 current_cfg['symbol'], 
                 start=start_d, 
