@@ -898,60 +898,67 @@ elif st.session_state["page"] == "analytics":
     }
     current_cfg = exchange_config.get(exchange, exchange_config["NSE"])
 
-    ALL_EXCHANGE_CONFIGS = {
-        "NSE": {
-            "Nifty IT": {"indices": ["^CNXIT"], "stocks": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS", "MPHASIS.NS", "LTTS.NS"]},
-            "Nifty Bank": {"indices": ["^NSEBANK"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "BANKBARODA.NS", "PNB.NS", "INDUSINDBK.NS", "AUBANK.NS", "IDFCFIRSTB.NS"]},
-            "Nifty Auto": {"indices": ["^CNXAUTO"], "stocks": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS", "TVSMOTOR.NS", "BHARATFORG.NS", "BOSCHLTD.NS", "MRF.NS"]},
-            "Nifty FMCG": {"indices": ["^CNXFMCG"], "stocks": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "TATACONSUM.NS", "DABUR.NS", "GODREJCP.NS", "MARICO.NS", "COLPAL.NS", "VBL.NS"]},
-            "Nifty Energy": {"indices": ["^CNXENERGY"], "stocks": ["RELIANCE.NS", "ONGC.NS", "BPCL.NS", "NTPC.NS", "POWERGRID.NS", "IOC.NS", "GAIL.NS", "ADANIGREEN.NS", "TATAPOWER.NS", "COALINDIA.NS"]},
-            "Nifty Pharma": {"indices": ["^CNXPHARMA"], "stocks": ["SUNPHARMA.NS", "CIPLA.NS", "DRREDDY.NS", "DIVISLAB.NS", "LUPIN.NS", "APOLLOHOSP.NS", "BIOCON.NS", "TORNTPHARM.NS", "ZYDUSLIFE.NS", "MANKIND.NS"]},
-        },
-        "BSE": {
-            "BSE IT": {"indices": ["^BSESIT.BO"], "stocks": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS"]},
-            "BSE Bankex": {"indices": ["^BSEBANK.NS"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "BANKBARODA.NS", "PNB.NS"]},
-            "BSE Healthcare": {"indices": ["^BSEHC.NS"], "stocks": ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "APOLLOHOSP.NS", "LUPIN.NS"]},
-            "BSE Auto": {"indices": ["^BSEAUTO.NS"], "stocks": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS"]},
-            "BSE FMCG": {"indices": ["^BSEFMCG.NS"], "stocks": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "DABUR.NS"]},
-            "BSE Metal": {"indices": ["^BSEMT.NS"], "stocks": ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS"]},
-            "BSE Oil & Gas": {"indices": ["^BSEOIL.NS"], "stocks": ["RELIANCE.NS", "ONGC.NS", "IOC.NS", "BPCL.NS"]},
-            "BSE Power & Utilities": {"indices": ["^BSEPOWER.NS"], "stocks": ["NTPC.NS", "POWERGRID.NS", "ADANIPOWER.NS", "TATAPOWER.NS"]},
-            "BSE Realty": {"indices": ["^BSERLTY.NS"], "stocks": ["DLF.NS", "GODREJPROP.NS", "OBEROIRLTY.NS", "PRESTIGE.NS"]},
-            "BSE Capital Goods & Industrials": {"indices": ["^BSECG.NS"], "stocks": ["LT.NS", "BEL.NS", "SIEMENS.NS", "ABB.NS"]},
-        },
-        "US": {
-            "Technology": {"indices": ["^NDX", "^GSPC"], "stocks": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL", "CRM", "ADBE"]},
-            "Financials": {"indices": ["^IXFN", "^GSPC"], "stocks": ["JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW", "V", "MA"]},
-            "Healthcare": {"indices": ["^IXHC", "^GSPC"], "stocks": ["UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR", "ISRG", "BMY"]},
-            "Consumer Discretionary & Retail": {"indices": ["^GSPC"], "stocks": ["HD", "MCD", "NKE", "SBUX", "TJX", "LOW", "BKNG", "TGT", "CMG"]},
-            "Consumer Staples": {"indices": ["^GSPC"], "stocks": ["WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "CL"]},
-            "Communication Services & Media": {"indices": ["^GSPC"], "stocks": ["NFLX", "DIS", "CMCSA", "VZ", "T", "TMUS", "EA"]},
-            "Energy & Industrials": {"indices": ["^IXID", "^GSPC"], "stocks": ["XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE", "COP", "SLB"]},
-            "Utilities & Real Estate": {"indices": ["^GSPC"], "stocks": ["NEE", "DUK", "SO", "PLD", "AMT", "EQIX", "SPG"]},
-        },
-        "UK": {
-            "Energy & Commodities": {"indices": ["^FTSE"], "stocks": ["SHEL.L", "BP.L", "GLEN.L", "RIO.L", "AAL.L", "ANTO.L"]},
-            "Banking & Finance": {"indices": ["^FTSE"], "stocks": ["HSBA.L", "LLOY.L", "BARC.L", "NWG.L", "PRU.L"]},
-            "Healthcare & Consumer": {"indices": ["^FTSE"], "stocks": ["AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"]},
-            "Consumer Goods & Retail": {"indices": ["^FTSE"], "stocks": ["ULVR.L", "BATS.L", "DGE.L", "ABF.L", "TSCO.L"]},
-            "Technology & Telecoms": {"indices": ["^FTSE"], "stocks": ["REL.L", "SGE.L", "VOD.L", "AAF.L"]},
-            "Aerospace, Industrials & Defense": {"indices": ["^FTSE"], "stocks": ["BA.L", "RR.L", "CRH.L", "SMIN.L"]},
-        },
-        "EU": {
-            "Technology & Industrials": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "IFX.DE", "AD.AS"]},
-            "Luxury & Consumer Goods": {"indices": ["^STOXX", "^FCHI"], "stocks": ["MC.PA", "OR.PA", "RMS.PA", "KER.PA", "ABI.BR", "HEIA.AS"]},
-            "Financials & Automakers": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"]},
-            "Healthcare & Pharmaceuticals": {"indices": ["^STOXX", "^SSMI"], "stocks": ["NOVN.SW", "ROG.SW", "NESN.SW", "SAN.PA", "BAYN.DE", "MRK.DE"]},
-            "Energy & Utilities": {"indices": ["^STOXX", "^FCHI"], "stocks": ["TTE.PA", "ENI.MI", "IBE.MC", "ENEL.MI", "RWE.DE", "EOAN.DE"]},
-            "Telecoms & Infrastructure": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["DTE.DE", "ORA.PA", "TEF.MC", "VOD.L", "NOKIA.HE"]},
-        },
-        "JSE": {
-            "JSE Mining & Resources": {"indices": ["^J210.JO"], "stocks": ["AGL.JO", "BHP.JO", "GFI.JO", "ANG.JO", "IMP.JO", "SSW.JO", "AMS.JO"]},
-            "JSE Financials": {"indices": ["^J212.JO"], "stocks": ["FSR.JO", "SBK.JO", "ABG.JO", "NED.JO", "SLM.JO", "CPI.JO", "INP.JO"]},
-            "JSE Tech & Telecoms": {"indices": ["^J211.JO"], "stocks": ["NPN.JO", "PRX.JO", "MTN.JO", "VOD.JO", "TEL.JO"]},
-            "JSE Retail & Consumer": {"indices": ["^J213.JO"], "stocks": ["WHL.JO", "SHP.JO", "MRP.JO", "CLS.JO", "PIK.JO", "SPP.JO"]},
-        },
-    }
+    # ALL_EXCHANGE_CONFIGS = {
+    #     "NSE": {
+    #         "Nifty IT": {"indices": ["^CNXIT"], "stocks": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS", "MPHASIS.NS", "LTTS.NS"]},
+    #         "Nifty Bank": {"indices": ["^NSEBANK"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "BANKBARODA.NS", "PNB.NS", "INDUSINDBK.NS", "AUBANK.NS", "IDFCFIRSTB.NS"]},
+    #         "Nifty Auto": {"indices": ["^CNXAUTO"], "stocks": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS", "TVSMOTOR.NS", "BHARATFORG.NS", "BOSCHLTD.NS", "MRF.NS"]},
+    #         "Nifty FMCG": {"indices": ["^CNXFMCG"], "stocks": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "TATACONSUM.NS", "DABUR.NS", "GODREJCP.NS", "MARICO.NS", "COLPAL.NS", "VBL.NS"]},
+    #         "Nifty Energy": {"indices": ["^CNXENERGY"], "stocks": ["RELIANCE.NS", "ONGC.NS", "BPCL.NS", "NTPC.NS", "POWERGRID.NS", "IOC.NS", "GAIL.NS", "ADANIGREEN.NS", "TATAPOWER.NS", "COALINDIA.NS"]},
+    #         "Nifty Pharma": {"indices": ["^CNXPHARMA"], "stocks": ["SUNPHARMA.NS", "CIPLA.NS", "DRREDDY.NS", "DIVISLAB.NS", "LUPIN.NS", "APOLLOHOSP.NS", "BIOCON.NS", "TORNTPHARM.NS", "ZYDUSLIFE.NS", "MANKIND.NS"]},
+    #     },
+    #     "BSE": {
+    #         "BSE IT": {"indices": ["^BSESIT.BO"], "stocks": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS"]},
+    #         "BSE Bankex": {"indices": ["^BSEBANK.NS"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "BANKBARODA.NS", "PNB.NS"]},
+    #         "BSE Healthcare": {"indices": ["^BSEHC.NS"], "stocks": ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "APOLLOHOSP.NS", "LUPIN.NS"]},
+    #         "BSE Auto": {"indices": ["^BSEAUTO.NS"], "stocks": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS"]},
+    #         "BSE FMCG": {"indices": ["^BSEFMCG.NS"], "stocks": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "DABUR.NS"]},
+    #         "BSE Metal": {"indices": ["^BSEMT.NS"], "stocks": ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS"]},
+    #         "BSE Oil & Gas": {"indices": ["^BSEOIL.NS"], "stocks": ["RELIANCE.NS", "ONGC.NS", "IOC.NS", "BPCL.NS"]},
+    #         "BSE Power & Utilities": {"indices": ["^BSEPOWER.NS"], "stocks": ["NTPC.NS", "POWERGRID.NS", "ADANIPOWER.NS", "TATAPOWER.NS"]},
+    #         "BSE Realty": {"indices": ["^BSERLTY.NS"], "stocks": ["DLF.NS", "GODREJPROP.NS", "OBEROIRLTY.NS", "PRESTIGE.NS"]},
+    #         "BSE Capital Goods & Industrials": {"indices": ["^BSECG.NS"], "stocks": ["LT.NS", "BEL.NS", "SIEMENS.NS", "ABB.NS"]},
+    #     },
+    #     "US": {
+    #         "Technology": {"indices": ["^NDX", "^GSPC"], "stocks": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL", "CRM", "ADBE"]},
+    #         "Financials": {"indices": ["^IXFN", "^GSPC"], "stocks": ["JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW", "V", "MA"]},
+    #         "Healthcare": {"indices": ["^IXHC", "^GSPC"], "stocks": ["UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR", "ISRG", "BMY"]},
+    #         "Consumer Discretionary & Retail": {"indices": ["^GSPC"], "stocks": ["HD", "MCD", "NKE", "SBUX", "TJX", "LOW", "BKNG", "TGT", "CMG"]},
+    #         "Consumer Staples": {"indices": ["^GSPC"], "stocks": ["WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "CL"]},
+    #         "Communication Services & Media": {"indices": ["^GSPC"], "stocks": ["NFLX", "DIS", "CMCSA", "VZ", "T", "TMUS", "EA"]},
+    #         "Energy & Industrials": {"indices": ["^IXID", "^GSPC"], "stocks": ["XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE", "COP", "SLB"]},
+    #         "Utilities & Real Estate": {"indices": ["^GSPC"], "stocks": ["NEE", "DUK", "SO", "PLD", "AMT", "EQIX", "SPG"]},
+    #     },
+    #     "UK": {
+    #         "Energy & Commodities": {"indices": ["^FTSE"], "stocks": ["SHEL.L", "BP.L", "GLEN.L", "RIO.L", "AAL.L", "ANTO.L"]},
+    #         "Banking & Finance": {"indices": ["^FTSE"], "stocks": ["HSBA.L", "LLOY.L", "BARC.L", "NWG.L", "PRU.L"]},
+    #         "Healthcare & Consumer": {"indices": ["^FTSE"], "stocks": ["AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"]},
+    #         "Consumer Goods & Retail": {"indices": ["^FTSE"], "stocks": ["ULVR.L", "BATS.L", "DGE.L", "ABF.L", "TSCO.L"]},
+    #         "Technology & Telecoms": {"indices": ["^FTSE"], "stocks": ["REL.L", "SGE.L", "VOD.L", "AAF.L"]},
+    #         "Aerospace, Industrials & Defense": {"indices": ["^FTSE"], "stocks": ["BA.L", "RR.L", "CRH.L", "SMIN.L"]},
+    #     },
+    #     "EU": {
+    #         "Technology & Industrials": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "IFX.DE", "AD.AS"]},
+    #         "Luxury & Consumer Goods": {"indices": ["^STOXX", "^FCHI"], "stocks": ["MC.PA", "OR.PA", "RMS.PA", "KER.PA", "ABI.BR", "HEIA.AS"]},
+    #         "Financials & Automakers": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"]},
+    #         "Healthcare & Pharmaceuticals": {"indices": ["^STOXX", "^SSMI"], "stocks": ["NOVN.SW", "ROG.SW", "NESN.SW", "SAN.PA", "BAYN.DE", "MRK.DE"]},
+    #         "Energy & Utilities": {"indices": ["^STOXX", "^FCHI"], "stocks": ["TTE.PA", "ENI.MI", "IBE.MC", "ENEL.MI", "RWE.DE", "EOAN.DE"]},
+    #         "Telecoms & Infrastructure": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["DTE.DE", "ORA.PA", "TEF.MC", "VOD.L", "NOKIA.HE"]},
+    #     },
+    #     "JSE": {
+    #         "JSE Mining & Resources": {"indices": ["^J210.JO"], "stocks": ["AGL.JO", "BHP.JO", "GFI.JO", "ANG.JO", "IMP.JO", "SSW.JO", "AMS.JO"]},
+    #         "JSE Financials": {"indices": ["^J212.JO"], "stocks": ["FSR.JO", "SBK.JO", "ABG.JO", "NED.JO", "SLM.JO", "CPI.JO", "INP.JO"]},
+    #         "JSE Tech & Telecoms": {"indices": ["^J211.JO"], "stocks": ["NPN.JO", "PRX.JO", "MTN.JO", "VOD.JO", "TEL.JO"]},
+    #         "JSE Retail & Consumer": {"indices": ["^J213.JO"], "stocks": ["WHL.JO", "SHP.JO", "MRP.JO", "CLS.JO", "PIK.JO", "SPP.JO"]},
+    #     },
+    # }
+    @st.cache_data
+    def load_nse_bse_sectors(json_path: Path) -> dict:
+        with json_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+        
+    ALL_EXCHANGE_CONFIGS = load_nse_bse_sectors("stock-sectors-nse-bse.json")
     sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["NSE"])
     ticker_to_sector = {}
     for sec_name, sec_data in sector_config.items():
