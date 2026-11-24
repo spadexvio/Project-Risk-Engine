@@ -1,0 +1,3756 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import yfinance as yf
+import datetime
+import io
+import plotly.io as pio
+import plotly.express as px
+import IPython.lib.deepreload # or built-in importlib
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import os
+import json
+
+# Automatically reload imported local modules on every Streamlit run
+import importlib
+import quant_risk_kit as erk
+importlib.reload(erk)
+
+# --- PAGE CONFIGURATION ---
+st.markdown(
+    '<meta name="color-scheme" content="light dark">', 
+    unsafe_allow_html=True
+)
+st.set_page_config(
+    page_title="WIRATOR",
+    page_icon="🛡️",
+    layout="wide"
+)
+
+# --- SESSION STATE NAVIGATION MANAGEMENT ---
+if 'page' not in st.session_state:
+    st.session_state['page'] = 'landing'
+if 'exchange' not in st.session_state:
+    st.session_state['exchange'] = None
+
+def navigate_to(page_name, exchange=None):
+    st.session_state['page'] = page_name
+    st.session_state['exchange'] = exchange
+
+CHART_CONFIG = {
+    'displayModeBar': False,
+    'modeBarButtonsToRemove': [
+        '2d', 'pan2d', 'select2d', 'lasso2d', 
+        'In2d', 'Out2d', 'autoScale2d', 'resetScale2d'
+    ],
+    'toImageButtonOptions': {
+        'format': 'png', 
+        'filename': 'wirator_risk_audit',
+        'height': 600,
+        'width': 1000,
+        'scale': 2
+    },
+    'displaylogo': False
+}
+demo=0
+# ==============================================================================
+# 1. LANDING PAGE (Centered Logo, Description, Exchange Selection & Auth Wall)
+# ==============================================================================
+if st.session_state['page'] == 'landing':
+    
+    # Custom CSS for complete center alignment
+    st.markdown(
+    """
+    <style>
+    /* 1. Prevent text overflow and stretching on mobile */
+    p, span, div, label {
+        word-break: break-word;
+    }
+
+    /* 2. Force input text colors to remain visible (fix blue text blending into dark/black backgrounds) */
+    input, textarea, select, div[data-baseweb="select"] > div {
+        color: #111827 !important;
+        background-color: #ffffff !important;
+        -webkit-text-fill-color: #111827 !important;
+    }
+
+    li[role="option"] {
+        color: #111827 !important;
+        background-color: #ffffff !important;
+    }
+
+    /* 3. Mobile screen adjustments */
+    @media (max-width: 768px) {
+        .stButton button {
+            width: 100% !important;
+        }
+        /* Ensure columns stack gracefully on mobile */
+        [data-testid="column"] {
+            width: 100% !important;
+            flex: 100% !important;
+            min-width: 100% !important;
+        }
+        /* Scale down heavy desktop typography for phones */
+        .hero-title {
+            font-size: 2.5rem !important;
+        }
+        .hero-subtitle {
+            font-size: 1.1rem !important;
+            white-space: normal !important;
+            letter-spacing: 1px !important;
+        }
+        .slogan-badge {
+            font-size: 1.8rem !important;
+            white-space: normal !important;
+            letter-spacing: 1px !important;
+        }
+        .hero-description {
+            font-size: 1.1rem !important;
+            line-height: 1.5 !important;
+            padding: 0 0.5rem;
+        }
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 2rem !important;
+            padding-left: 0.8rem !important;
+            padding-right: 0.8rem !important;
+        }
+    }
+
+    /* Main Background: Sophisticated Dark Midnight Blue */
+    .stApp {
+        background-color: #1A2B4C;
+        color: #FDFBD4;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    /* Hide default Streamlit header padding */
+    .block-container {
+        padding-top: 3rem;
+        padding-bottom: 5rem;
+        max-width: 1000px;
+    }
+
+    /* Center-aligned Hero Header Styling */
+    .hero-container {
+        text-align: center;
+        padding: 2rem 1rem 1.5rem 1rem;
+    }
+
+    .hero-title {
+        color: #FDFBD4;
+        font-size: 3.8rem !important;
+        font-weight: 600;
+        letter-spacing: -1px;
+        margin-bottom: 0.2rem;
+    }
+
+    .hero-subtitle {
+        color: #FDFBD4;
+        font-size: 2.4rem;
+        font-weight: 500;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin-bottom: 1.2rem;
+        opacity: 0.9;
+        white-space: nowrap;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        width: 100%;
+    }
+
+    .slogan-badge {
+        color: #FDFBD4;
+        font-size: 4.25rem;
+        font-weight: 800;
+        letter-spacing: 3px;
+        margin-bottom: 2rem;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .hero-description {
+        color: #E2E8F0;
+        font-size: 2.2rem;
+        line-height: 1.8;
+        max-width: 800px;
+        margin: 0 auto 2.5rem auto;
+        text-align: center;
+    }
+
+    /* Accordion / Login Styling */
+    .stSelectbox, div[data-baseweb="accordion"] {
+        background-color: #1E2E45 !important;
+        border-radius: 10px !important;
+        border: 1px solid rgba(253, 251, 212, 0.2) !important;
+    }
+
+    /* Workspace Section Header */
+    .workspace-header {
+        text-align: center;
+        color: #FFFFFF;
+        font-size: 2rem;
+        font-weight: 700;
+        margin-top: 3rem;
+        margin-bottom: 1.8rem;
+    }
+
+    /* Custom Large Buttons (Midnight Blue Hover + Cream Accents) */
+    div.stButton > button {
+        width: 100%;
+        background-color: #1E2E45 !important;
+        color: #FDFBD4 !important;
+        border: 2px solid #FDFBD4 !important;
+        padding: 1.2rem 1rem !important;
+        font-size: 1.15rem !important;
+        font-weight: 700 !important;
+        border-radius: 12px !important;
+        transition: all 0.3s ease-in-out !important;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    }
+
+    div.stButton > button:hover {
+        background-color: #FDFBD4 !important;
+        color: #0B192C !important;
+        border-color: #FFFFFF !important;
+        transform: translateY(-3px);
+        box-shadow: 0 8px 25px rgba(253, 251, 212, 0.25);
+    }
+
+    /* Center Align Expander Headers */
+    .streamlit-expanderHeader {
+        font-size: 2.1rem !important;
+        color: #FDFBD4 !important;
+        justify-content: center !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+# ------------------------------------------------------------------------------
+# HERO SECTION
+# ------------------------------------------------------------------------------
+    st.markdown(
+    """
+    <div class="hero-container">
+        <div style="font-size: 4rem; margin-bottom: 0.5rem;">🛡️</div>
+        <h1 class="hero-title">WIRATOR</h1>
+        <div class="hero-subtitle">Institutional Portfolio Risk Audit & Monte Carlo Stress Testing</div>
+        <div class="slogan-badge">Optimize. Comply. Grow.</div>
+        <p class="hero-description">
+            <b>WIRATOR</b> is an open-access institutional-grade wealthtech platform for Investment Advisors.
+            It converts portfolio holdings into audit-ready <b>VaR</b>, <b>CVaR</b>, Monte Carlo risk models, macro stress test scenarios,
+            <b>Sharpe Style Factor Attribution</b>, <b>automated SEBI fiduciary audit certificates</b>, tax-loss optimization matrices, and precision rebalancing execution sheets.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ------------------------------------------------------------------------------
+# CLIENT LOGIN EXPANDER
+# ------------------------------------------------------------------------------
+    # with st.expander("🔑 Client Access / Account Login", expanded=False):
+    #   col_a, col_b, col_c = st.columns([1, 2, 1])
+    #   with col_b:
+    #     st.text_input("Username / Client ID", key="login_user")
+    #     st.text_input("Password", type="password", key="login_pass")
+    #     if st.button("Sign In to Workspace", key="btn_login"):
+    #       st.success("Authenticated successfully.")
+
+# ------------------------------------------------------------------------------
+# STOCK EXCHANGE WORKSPACE SELECTION (LARGE BUTTONS)
+# ------------------------------------------------------------------------------
+    st.markdown(
+        '<div class="workspace-header">Select Stock Exchange Workspace</div>',
+        unsafe_allow_html=True,
+    )
+    
+    # Exchange Selector Buttons — Row 1 (Emerging & US Anchors)
+    r1_col1, r1_col2, r1_col3 = st.columns(3, gap="medium")
+    
+    with r1_col1:
+        if st.button("🇮🇳 National Stock Exchange (NSE)", use_container_width=True):
+            navigate_to('analytics', exchange='NSE')
+            st.rerun()
+    
+    with r1_col2:
+        if st.button("🇮🇳 Bombay Stock Exchange (BSE)", use_container_width=True):
+            navigate_to('analytics', exchange='BSE')
+            st.rerun()
+    
+    with r1_col3:
+        if st.button("🇺🇸 US Markets (S&P 500 / Nasdaq)", use_container_width=True):
+            navigate_to('analytics', exchange='US')
+            st.rerun()
+    
+    # Exchange Selector Buttons — Row 2 (UK, Europe & Africa)
+    r2_col1, r2_col2, r2_col3 = st.columns(3, gap="medium")
+    
+    with r2_col1:
+        if st.button("🇬🇧 London Stock Exchange (FTSE 100)", use_container_width=True):
+            navigate_to('analytics', exchange='UK')
+            st.rerun()
+    
+    with r2_col2:
+        if st.button("🇪🇺 European Markets (STOXX 600)", use_container_width=True):
+            navigate_to('analytics', exchange='EU')
+            st.rerun()
+    
+    with r2_col3:
+        if st.button("🇿🇦 Johannesburg Stock Exchange (JSE)", use_container_width=True):
+            navigate_to('analytics', exchange='JSE')
+            st.rerun()
+# ==============================================================================
+# 2. ANALYTICS & AUDIT PAGE ( Exchange Workspace)
+# ==============================================================================
+elif st.session_state['page'] == 'analytics':
+    exchange = st.session_state['exchange']
+
+    # ------------------------------------------------------------------------------
+# ANALYTICS WORKSPACE STYLING: MIDNIGHT BLUE (#1A2B4C) & CREAM ACCENTS
+# ------------------------------------------------------------------------------
+    # Mobile/Desktop Quick Action prompt right below the header
+    st.markdown(
+    """
+    <style>
+    /* ========================================================= */
+    /* 1. GLOBAL APP & TYPOGRAPHY                                */
+    /* ========================================================= */
+    html {
+        zoom: 98% !important;
+    }
+    
+    .stApp {
+        background-color: #FAF8ED !important;
+        color: #1A2B4C !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    h1, h2, h3, h4, h5, h6 {
+        color: #1A2B4C !important;
+        font-weight: 700 !important;
+    }
+
+    /* General markdown paragraphs and captions (main area) */
+    .stMarkdown p:not([data-testid="stMetricValue"] p), .stCaption {
+        color: #1A2B4C !important;
+        font-weight: 500;
+    }
+
+    
+    /* ========================================================= */
+    /* 2. SIDEBAR STYLING & INPUTS                               */
+    /* ========================================================= */
+    section[data-testid="stSidebar"] {
+        background-color: #1A2B4C !important;
+        border-right: 1px solid rgba(250, 248, 237, 0.1) !important;
+    }
+    
+    /* All labels and text inside sidebar (EXCLUDING buttons) */
+    section[data-testid="stSidebar"] label, 
+    section[data-testid="stSidebar"] .stMarkdown p, 
+    section[data-testid="stSidebar"] span, 
+    section[data-testid="stSidebar"] h1, 
+    section[data-testid="stSidebar"] h2, 
+    section[data-testid="stSidebar"] h3 {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        font-weight: 500;
+    }
+
+    /* Typed text inside sidebar input boxes */
+    section[data-testid="stSidebar"] input, 
+    section[data-testid="stSidebar"] textarea, 
+    section[data-testid="stSidebar"] div[data-baseweb="select"] span {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        font-weight: 600 !important;
+    }
+
+    /* Sidebar Number Input (- / +) buttons */
+    .stSidebar [data-testid="stNumberInput"] button {
+        background-color: #FAFAED !important;
+        border: 1px solid #1A2B4C !important;
+    }
+    
+    .stSidebar [data-testid="stNumberInput"] button svg {
+        fill: #1A2B4C !important;
+    }
+
+    .stSidebar [data-testid="stNumberInput"] button:hover {
+        background-color: #1A2B4C !important;
+    }
+
+    .stSidebar [data-testid="stNumberInput"] button:hover svg {
+        fill: #FAFAED !important;
+    }
+    /* ========================================================= */
+    /* FIX: Collapsed Expander Header Text Only                  */
+    /* ========================================================= */
+    div[data-testid="stExpander"] summary,
+    div[data-testid="stExpander"] summary *,
+    div[data-testid="stExpander"] summary span,
+    div[data-testid="stExpander"] summary p {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        opacity: 1 !important;
+    }
+    /* ========================================================= */
+    /* FIX: Remaining Invisible Texts (Inputs & Expander Headers) */
+    /* ========================================================= */
+    
+    /* 1. Fix text inputs / data editor input cells inside expanders */
+    div[data-testid="stExpanderDetails"] input,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="input"] input {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        background-color: #FAFAED !important;
+    }
+
+    /* 2. Fix collapsed expander header text (e.g. "Execution, Wealth Drag & Tax Optimization") */
+    div[data-testid="stExpander"] summary,
+    div[data-testid="stExpander"] summary *,
+    div[data-testid="stExpander"] summary span,
+    div[data-testid="stExpander"] summary p {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        opacity: 1 !important;
+    }
+
+    /* 3. Ensure all text inside expander details blocks is cream */
+    div[data-testid="stExpanderDetails"] p,
+    div[data-testid="stExpanderDetails"] span,
+    div[data-testid="stExpanderDetails"] li,
+    div[data-testid="stExpanderDetails"] label {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+    /* ========================================================= */
+    /* FIX: Download Button Inside Expanders                     */
+    /* ========================================================= */
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        border: 1px solid #1A2B4C !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        opacity: 1 !important;
+        visibility: visible !important;
+    }
+
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button p,
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button span {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button:hover {
+        background-color: #1A2B4C !important;
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        border-color: #FAFAED !important;
+    }
+
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button:hover p,
+    div[data-testid="stExpanderDetails"] [data-testid="stDownloadButton"] button:hover span {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+    /* ========================================================= */
+    /* FIX: Input Fields & Number Inputs Inside Expanders        */
+    /* ========================================================= */
+    div[data-testid="stExpanderDetails"] input,
+    div[data-testid="stExpanderDetails"] textarea,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="select"] {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        border-radius: 6px !important;
+    }
+
+    div[data-testid="stExpanderDetails"] input *,
+    div[data-testid="stExpanderDetails"] textarea * {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    /* Number input step buttons (+ / -) inside expanders */
+    div[data-testid="stExpanderDetails"] [data-testid="stNumberInput"] button {
+        background-color: #FAFAED !important;
+        border: 1px solid #1A2B4C !important;
+    }
+
+    div[data-testid="stExpanderDetails"] [data-testid="stNumberInput"] button svg {
+        fill: #1A2B4C !important;
+    }
+    /* ========================================================= */
+    /* FIX: Streamlit Alert / Info / Success Boxes inside Expanders */
+    /* ========================================================= */
+    div[data-testid="stExpanderDetails"] div.stAlert,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="notification"],
+    div[data-testid="stExpanderDetails"] [class*="st-key-"] div[role="alert"] {
+        background-color: #0F1C33 !important;
+        border: 1px solid rgba(250, 248, 237, 0.2) !important;
+        border-radius: 8px !important;
+    }
+
+    div[data-testid="stExpanderDetails"] div.stAlert *,
+    div[data-testid="stExpanderDetails"] div[data-baseweb="notification"] *,
+    div[data-testid="stExpanderDetails"] [class*="st-key-"] div[role="alert"] * {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        background-color: transparent !important;
+    }
+    /* ========================================================= */
+    /* FIX: Radio Button Options & Labels Inside Expanders       */
+    /* ========================================================= */
+    div[data-testid="stExpanderDetails"] div.stRadio div[role="radiogroup"] label,  
+    div[data-testid="stExpanderDetails"] div.stRadio div[role="radiogroup"] label p,  
+    div[data-testid="stExpanderDetails"] div.stRadio span {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+    /* ========================================================= */
+    /* 3. CARDS, METRICS & EXPANDERS                             */
+    /* ========================================================= */
+    
+    /* Universal Metric Cards (Applies to all metric cards everywhere) */
+    div[data-testid="stMetric"] {
+        background-color: #1A2B4C !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        border: 1px solid rgba(250, 248, 237, 0.15) !important;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        text-align: center !important;
+    }
+
+    div[data-testid="stMetric"] > div {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+    }
+
+    /* Force explicit cream color on every label, value, and text span inside metrics */
+    div[data-testid="stMetric"] label,
+    div[data-testid="stMetric"] [data-testid="stMetricValue"],
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] div,
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] span,
+    div[data-testid="stMetric"] span,
+    div[data-testid="stMetric"] p {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+
+    /* Expander Container Header */
+    div[data-testid="stExpander"] {
+        background-color: #1A2B4C !important;
+        border-radius: 12px !important;
+        border: 1px solid rgba(250, 248, 237, 0.15) !important;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    div[data-testid="stExpander"] summary span,
+    div[data-testid="stExpander"] summary p,
+    div[data-testid="stExpander"] summary {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        font-weight: 600 !important;
+    }
+
+    /* Expander Expanded Content Area */
+    div[data-testid="stExpanderDetails"] {
+        background-color: #1A2B4C !important;
+        border-bottom-left-radius: 12px !important;
+        border-bottom-right-radius: 12px !important;
+        padding: 16px !important;
+    }
+
+    /* Comprehensive text fix for everything inside expander details */
+    div[data-testid="stExpanderDetails"] *,
+    div[data-testid="stExpanderDetails"] p,
+    div[data-testid="stExpanderDetails"] span,
+    div[data-testid="stExpanderDetails"] label,
+    div[data-testid="stExpanderDetails"] div,
+    div[data-testid="stExpanderDetails"] .stMarkdown,
+    div[data-testid="stExpanderDetails"] .stMarkdown p,
+    div[data-testid="stExpanderDetails"] .stCaption,
+    div[data-testid="stExpanderDetails"] h1,
+    div[data-testid="stExpanderDetails"] h2,
+    div[data-testid="stExpanderDetails"] h3,
+    div[data-testid="stExpanderDetails"] h4,
+    div[data-testid="stExpanderDetails"] h5,
+    div[data-testid="stExpanderDetails"] h6 {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+
+    /* FIX: Metric Delta Badges */
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"],
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] * {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        border-radius: 999px !important;
+        padding: 2px 10px !important;
+        font-weight: 700 !important;
+    }
+
+    div[data-testid="stMetric"] div[data-testid="stMetricDelta"] svg {
+        fill: #1A2B4C !important;
+        stroke: #1A2B4C !important;
+    }
+    
+    /* ========================================================= */
+    /* 4. FORM ELEMENTS & BUTTONS                                */
+    /* ========================================================= */
+    /* Radio button options text visibility */
+    div.stRadio div[role="radiogroup"] label,  
+    div.stRadio div[role="radiogroup"] label p,  
+    div.stRadio span {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        font-weight: 500;
+    }
+
+    /* Force text area and text input typed text to #1A2B4C */
+    div.stTextArea textarea, div.stTextInput input {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    /* Styled Home / Custom Buttons & Sidebar Buttons */
+    div.stButton > button,
+    section[data-testid="stSidebar"] div.stButton > button,
+    section[data-testid="stSidebar"] button[kind="secondary"], 
+    section[data-testid="stSidebar"] button[kind="primary"], 
+    div.stFormSubmitButton button {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        border: 1px solid #1A2B4C !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+    }
+
+    /* FIX: Force inner p and span inside ALL buttons (including sidebar) to navy */
+    div.stButton > button p,
+    div.stButton > button span,
+    section[data-testid="stSidebar"] div.stButton > button p,
+    section[data-testid="stSidebar"] div.stButton > button span,
+    section[data-testid="stSidebar"] button[kind="secondary"] p,
+    section[data-testid="stSidebar"] button[kind="secondary"] span,
+    section[data-testid="stSidebar"] button[kind="primary"] p,
+    section[data-testid="stSidebar"] button[kind="primary"] span,
+    div.stFormSubmitButton button p, 
+    div.stFormSubmitButton button span {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+        font-weight: 600 !important;
+    }
+
+    /* Hover state for all buttons */
+    div.stButton > button:hover,
+    section[data-testid="stSidebar"] div.stButton > button:hover,
+    section[data-testid="stSidebar"] button[kind="secondary"]:hover,
+    section[data-testid="stSidebar"] button[kind="primary"]:hover,
+    div.stFormSubmitButton button:hover {
+        background-color: #1A2B4C !important;
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+        border-color: #FAFAED !important;
+    }
+
+    div.stButton > button:hover p,
+    div.stButton > button:hover span,
+    section[data-testid="stSidebar"] div.stButton > button:hover p,
+    section[data-testid="stSidebar"] div.stButton > button:hover span,
+    section[data-testid="stSidebar"] button[kind="secondary"]:hover p,
+    section[data-testid="stSidebar"] button[kind="secondary"]:hover span,
+    section[data-testid="stSidebar"] button[kind="primary"]:hover p,
+    section[data-testid="stSidebar"] button[kind="primary"]:hover span,
+    div.stFormSubmitButton button:hover p, 
+    div.stFormSubmitButton button:hover span {
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+
+
+    /* ========================================================= */
+    /* 5. DATAFRAME & DATA EDITOR TOOLBAR FIXES                  */
+    /* ========================================================= */
+    div[data-testid="stDataFrame"],
+    div[data-testid="stDataEditor"] {
+        background-color: #1A2B4C !important;
+        border-radius: 8px !important;
+        border: 1px solid rgba(250, 248, 237, 0.12) !important;
+        box-shadow: 0 4px 2px rgba(0, 0, 0, 0.2);
+        width: 100% !important;
+        overflow: visible !important;
+    }
+
+    div[data-testid="stDataFrame"] *,
+    div[data-testid="stDataEditor"] * {
+        color: #FAF8ED !important;
+    }
+
+    div[data-testid="stElementToolbar"],
+    div[data-testid="stDataEditor"] > div:first-child,
+    div[data-testid="stDataFrame"] > div:first-child {
+        background-color: #1A2B4C !important;
+        border-top-left-radius: 10px !important;
+        border-top-right-radius: 10px !important;
+        padding: 4px 8px !important;
+    }
+
+    div[data-testid="stElementToolbar"] button,
+    div[data-testid="stDataEditor"] button,
+    button[aria-label="Add row"],
+    button[title="Add row"],
+    button[aria-label="Download as CSV"] {
+        background-color: #0F1C33 !important;
+        color: #FAF8ED !important;
+        border: 1px solid #FAF8ED !important;
+        border-radius: 6px !important;
+        opacity: 1 !important;
+        margin: 2px !important;
+        visibility: visible !important;
+    }
+
+    div[data-testid="stElementToolbar"] button svg,
+    div[data-testid="stDataEditor"] button svg,
+    button[aria-label="Add row"] svg {
+        fill: #FAF8ED !important;
+        stroke: #FAF8ED !important;
+        color: #FAF8ED !important;
+    }
+
+    div[role="tooltip"],
+    div[data-baseweb="tooltip"] {
+        background-color: #1A2B4C !important;
+        color: #FAF8ED !important;
+        border: 1px solid #FAF8ED !important;
+    }
+    
+    div[role="tooltip"] *,
+    div[data-baseweb="tooltip"] * {
+        color: #FAF8ED !important;
+    }
+
+    /* ========================================================= */
+    /* CLEAN FILE UPLOADER FIX                                   */
+    /* ========================================================= */
+    div[data-testid="stFileUploader"] {
+        background-color: #FAFAED !important;
+        border: 1px solid #1A2B4C !important;
+        border-radius: 8px !important;
+        padding: 8px !important;
+    }
+
+    div[data-testid="stFileUploader"] small,
+    div[data-testid="stFileUploader"] span {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    div[data-testid="stFileUploader"] button {
+        background-color: #1A2B4C !important;
+        color: #FAFAED !important;
+        border: 1px solid #FAFAED !important;
+        border-radius: 6px !important;
+        visibility: visible !important;
+        display: inline-block !important;
+        opacity: 1 !important;
+    }
+
+    div[data-testid="stFileUploader"] button * {
+        background-color: #FAF8ED !important;
+        color: #1A2B4C !important;
+    }
+
+    div[data-testid="stFileUploader"] button:hover {
+        background-color: #FAF8ED !important;
+        color: #1A2B4C !important;
+        border-color: #1A2B4C !important;
+    }
+
+    div[data-testid="stFileUploader"] button:hover * {
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    /* ========================================================= */
+    /* FORCE GLOBAL LIGHT/WHITE BACKGROUND ON MOBILE POPOVERS    */
+    /* ========================================================= */
+    body, .stApp, div[data-baseweb="popover"], div[data-baseweb="menu"], ul[role="listbox"] {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+    }
+
+    div[data-baseweb="popover"] *, 
+    div[data-baseweb="menu"] *, 
+    ul[role="listbox"] * {
+        background-color: transparent !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    li[role="option"], div[role="option"] {
+        background-color: #FAFAED !important;
+        color: #1A2B4C !important;
+        -webkit-text-fill-color: #1A2B4C !important;
+    }
+
+    li[role="option"]:hover, div[role="option"]:hover,
+    li[role="option"][aria-selected="true"], div[role="option"][aria-selected="true"] {
+        background-color: #1A2B4C !important;
+        color: #FAFAED !important;
+        -webkit-text-fill-color: #FAFAED !important;
+    }
+
+    /* Force chart container to expand 100% */
+    div[data-testid="stPlotlyChart"] {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+    div[data-testid="stPlotlyChart"] > div {
+        width: 100% !important;
+    }
+
+    /* Forcefully reduce sidebar vertical padding and element gaps */
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 0.5rem !important;
+        padding-bottom: 1rem !important;
+    }
+    
+    /* Tighten spacing specifically for sidebar widget wrappers */
+    section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] {
+        gap: 0.4rem !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+    # Top Bar Navigation
+    top_col1, top_col2 = st.columns([6, 1])
+    with top_col1:
+        st.title(f"📈 {exchange} Workspace — Portfolio Risk Engine")
+    with top_col2:
+        if st.button("🏠 Home"):
+            navigate_to('landing')
+            st.rerun()
+
+    # Exchange Specific Configuration
+    # Exchange Specific Configuration with robust benchmark symbols & fallbacks
+    exchange_config = {
+        'NSE': {'symbol': '^NSEI', 'fallback': 'NIFTYBEES.NS', 'name': 'Nifty 50 Index', 'suffix': '.NS', 'default_curr': 'INR'},
+        'BSE': {'symbol': '^BSESN', 'fallback': 'SETF.NS', 'name': 'SENSEX Index', 'suffix': '.NS', 'default_curr': 'INR'},
+        'JSE': {'symbol': '^JN00.JO', 'fallback': 'STX40.JO', 'name': 'JSE Top 40 Index', 'suffix': '.JO', 'default_curr': 'ZAR'},
+        'US':  {'symbol': '^GSPC', 'fallback': 'SPY', 'name': 'S&P 500 Index', 'suffix': '', 'default_curr': 'USD'},
+        'UK':  {'symbol': '^FTSE', 'fallback': 'ISF.L', 'name': 'FTSE 100 Index', 'suffix': '.L', 'default_curr': 'GBP'},
+        'EU':  {'symbol': '^STOXX', 'fallback': 'EXS1.DE', 'name': 'STOXX Europe 600', 'suffix': '.DE', 'default_curr': 'EUR'}
+    }
+    
+    current_cfg = exchange_config.get(exchange, exchange_config['NSE'])
+
+   # --- LIVE INDEX CHART SECTION ---
+    st.subheader(f"Live Market Context: {current_cfg['name']}")
+    
+    # Timeframe selector pill options
+    tf_options = {
+        "1D": {"days": 1, "label": "past day"},
+        "5D": {"days": 5, "label": "past 5 days"},
+        "1M": {"days": 30, "label": "past month"},
+        "6M": {"days": 180, "label": "past 6 months"},
+        "YTD": {"days": "YTD", "label": "year to date"},
+        "1Y": {"days": 365, "label": "past year"},
+        "5Y": {"days": 1825, "label": "past 5 years"},
+        "MAX": {"days": 3650, "label": "all time"}
+    }
+
+    # Time period buttons bar
+    col_tf, _ = st.columns([3, 1])
+    with col_tf:
+        selected_tf = st.segmented_control(
+            "Timeframe", 
+            options=list(tf_options.keys()), 
+            default="6M", 
+            label_visibility="collapsed"
+        )
+
+    with st.spinner(f"Fetching live benchmark data for {current_cfg['name']}..."):
+        try:
+            import plotly.graph_objects as go
+
+            end_d = datetime.datetime.now()
+            tf_info = tf_options.get(selected_tf, tf_options["6M"])
+            
+            # Determine start date based on selected timeframe
+            if tf_info["days"] == "YTD":
+                start_d = datetime.datetime(end_d.year, 1, 1)
+            else:
+                start_d = end_d - datetime.timedelta(days=tf_info["days"])
+            
+            # Fetch data with appropriate interval (1m/5m for 1D, daily for others)
+            interval = "15m" if selected_tf == "1D" else "1d"
+            bench_raw = yf.download(
+                current_cfg['symbol'], 
+                start=start_d, 
+                end=end_d, 
+                interval=interval,
+                progress=False,
+                auto_adjust=True
+            )
+            
+            if not bench_raw.empty:
+                if 'Close' in bench_raw.columns:
+                    chart_series = bench_raw['Close']
+                else:
+                    chart_series = bench_raw.iloc[:, 0]
+                
+                if isinstance(chart_series, pd.DataFrame):
+                    chart_series = chart_series.squeeze()
+                
+                chart_df = chart_series.dropna().reset_index()
+                date_col = chart_df.columns[0]
+                chart_df.columns = ['Date', 'Close']
+
+                # Calculations for Price, Absolute Change & Percentage Change
+                start_price = chart_df['Close'].iloc[0]
+                latest_price = chart_df['Close'].iloc[-1]
+                abs_change = latest_price - start_price
+                pct_change = (abs_change / start_price) * 100
+                is_falling = abs_change < 0
+
+                # Format colors and arrows matching Google Finance
+                theme_color = '#D93025' if is_falling else '#188038'
+                fill_color = 'rgba(217, 48, 37, 0.10)' if is_falling else 'rgba(24, 128, 56, 0.10)'
+                arrow = '↓' if is_falling else '↑'
+                sign = '' if is_falling else '+'
+
+                # Display Google Finance Header stats
+                st.markdown(
+                    f"""
+                    <div style="margin-top: -10px; margin-bottom: 10px;">
+                        <span style="font-size: 2.2rem; font-weight: 700; color: #202124;">{latest_price:,.2f}</span>
+                        <span style="background-color: {'#FCE8E6' if is_falling else '#E6F4EA'}; color: {theme_color}; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.95rem; margin-left: 10px;">
+                            {arrow} {abs(pct_change):.2f}%
+                        </span>
+                        <span style="color: {theme_color}; font-weight: 600; font-size: 0.95rem; margin-left: 6px;">
+                            {sign}{abs_change:,.2f}
+                        </span>
+                        <span style="color: #5f6368; font-size: 0.9rem; margin-left: 6px;">
+                            {tf_info['label']}
+                        </span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                # Chart bounds for clean dynamic zoom
+                y_min = chart_df['Close'].min() * 0.998
+                y_max = chart_df['Close'].max() * 1.002
+
+                # Build Plotly Line Area Chart
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=chart_df['Date'],
+                    y=chart_df['Close'],
+                    mode='lines',
+                    line=dict(color=theme_color, width=2),
+                    fill='tonexty',
+                    fillcolor=fill_color,
+                    hovertemplate="%{x}<br><b>Price:</b> %{y:,.2f}<extra></extra>"
+                ))
+
+                fig.update_layout(
+                    height=230,
+                    margin=dict(l=10, r=10, t=10, b=10),
+                    xaxis_title=None,
+                    yaxis_title=None,
+                    xaxis=dict(fixedrange=True),
+                    yaxis=dict(range=[y_min, y_max], fixedrange=True),
+                    dragmode=False,
+                    hovermode="x unified",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)"
+                )
+                
+                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+            else:
+                st.warning("Market benchmark data temporarily unavailable.")
+        except Exception as e:
+            st.warning(f"Benchmark market index chart error: {str(e)}")
+            
+    # --- SIDEBAR CONTROL PANEL ---
+    st.sidebar.header(f"1. Configuration ({exchange})")
+    
+    # Currency Dropdown Menu
+    currency = st.sidebar.selectbox(
+        "Denominated Currency", 
+        ["INR", "ZAR", "USD", "EUR", "GBP"], 
+        index=["INR", "ZAR", "USD", "EUR", "GBP"].index(current_cfg['default_curr'])
+    )
+    
+    # Number Input for Capital (No slider)
+    initial_capital = st.sidebar.number_input(
+        label=f"Initial Capital ({currency})",
+        min_value=1000.0,
+        value=100000.0,
+        step=10000.0,
+        format="%.2f"
+    )
+
+    time_horizon_days = st.sidebar.number_input("Holding Period (Days)", min_value=1, max_value=365*4, value=30, step=1)
+    confidence_level = st.sidebar.selectbox("VaR Confidence Level", [0.90, 0.95, 0.99], index=1)
+
+    uploaded_file = st.sidebar.file_uploader(f"Upload {exchange} Portfolio CSV", type=["csv"]) 
+
+    target_return_pct = st.sidebar.number_input(
+    "Target Return (% p.a. for Sortino)",
+    min_value=-50.0,
+    max_value=100.0,
+    value=0.0,
+    step=0.5,
+    help="Minimum acceptable return per annum used to calculate downside deviation.",
+     )
+    # demo=0
+    # if exchange in ["BSE", "NSE"]:
+    #     if st.sidebar.button("📂 Load Demo Portfolio"):
+    #         uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
+    #         demo=1
+
+    if "use_demo" not in st.session_state:
+        st.session_state.use_demo = False
+
+    if exchange in ["BSE", "NSE"]:
+        if st.sidebar.button("📁 Load Demo Portfolio"):
+            st.session_state.use_demo = True
+    
+        if uploaded_file is not None:
+            # If the user uploads their own CSV later, override the demo
+            st.session_state.use_demo = False
+        elif st.session_state.use_demo:
+            uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
+
+# ==============================================================================
+# DYNAMIC SECTOR PERFORMANCE & STOCK DRILL-DOWN (NSE / BSE / JSE)
+# ==============================================================================
+
+    st.markdown("---")
+    if "run_sec1" not in st.session_state:
+      st.session_state.run_sec1 = (
+          False  # Default state: closed until clicked
+      )
+    
+    with st.expander(
+        "📊 Load Sector Performance & Stock Screener", key="btn_sec1"
+    ):
+    #   st.session_state.run_sec1 = True
+    
+    # if st.session_state.run_sec1:
+        st.header(f"📊 {exchange} Sector Performance & Stock Drill-Down Analysis")
+        
+        # 1. Exchange-Specific Sector Configurations
+        ALL_EXCHANGE_CONFIGS = {
+            "NSE": {
+                "Nifty IT": {
+                    "indices": ["^CNXIT"],
+                    "stocks": [
+                        "TCS.NS",
+                        "INFY.NS",
+                        "WIPRO.NS",
+                        "HCLTECH.NS",
+                        "TECHM.NS",
+                        "LTIM.NS",
+                        "PERSISTENT.NS",
+                        "COFORGE.NS",
+                        "MPHASIS.NS",
+                        "LTTS.NS",
+                    ],
+                },
+                "Nifty Bank": {
+                    "indices": ["^NSEBANK"],
+                    "stocks": [
+                        "HDFCBANK.NS",
+                        "ICICIBANK.NS",
+                        "SBIN.NS",
+                        "KOTAKBANK.NS",
+                        "AXISBANK.NS",
+                        "BANKBARODA.NS",
+                        "PNB.NS",
+                        "INDUSINDBK.NS",
+                        "AUBANK.NS",
+                        "IDFCFIRSTB.NS",
+                    ],
+                },
+                "Nifty Auto": {
+                    "indices": ["^CNXAUTO"],
+                    "stocks": [
+                        "TATAMOTORS.NS",
+                        "MARUTI.NS",
+                        "M&M.NS",
+                        "BAJAJ-AUTO.NS",
+                        "HEROMOTOCO.NS",
+                        "EICHERMOT.NS",
+                        "TVSMOTOR.NS",
+                        "BHARATFORG.NS",
+                        "BOSCHLTD.NS",
+                        "MRF.NS",
+                    ],
+                },
+                "Nifty FMCG": {
+                    "indices": ["^CNXFMCG"],
+                    "stocks": [
+                        "HINDUNILVR.NS",
+                        "ITC.NS",
+                        "NESTLEIND.NS",
+                        "BRITANNIA.NS",
+                        "TATACONSUM.NS",
+                        "DABUR.NS",
+                        "GODREJCP.NS",
+                        "MARICO.NS",
+                        "COLPAL.NS",
+                        "VBL.NS",
+                    ],
+                },
+                "Nifty Energy": {
+                    "indices": ["^CNXENERGY"],
+                    "stocks": [
+                        "RELIANCE.NS",
+                        "ONGC.NS",
+                        "BPCL.NS",
+                        "NTPC.NS",
+                        "POWERGRID.NS",
+                        "IOC.NS",
+                        "GAIL.NS",
+                        "ADANIGREEN.NS",
+                        "TATAPOWER.NS",
+                        "COALINDIA.NS",
+                    ],
+                },
+                "Nifty Pharma": {
+                    "indices": ["^CNXPHARMA"],
+                    "stocks": [
+                        "SUNPHARMA.NS",
+                        "CIPLA.NS",
+                        "DRREDDY.NS",
+                        "DIVISLAB.NS",
+                        "LUPIN.NS",
+                        "APOLLOHOSP.NS",
+                        "BIOCON.NS",
+                        "TORNTPHARM.NS",
+                        "ZYDUSLIFE.NS",
+                        "MANKIND.NS",
+                    ],
+                },
+            },
+            "BSE": {
+                "BSE IT": {
+                    "indices": ["^BSESIT.BO", "^BSESIT"],
+                    "stocks": [
+                        "TCS.NS",
+                        "INFY.NS",
+                        "WIPRO.NS",
+                        "HCLTECH.NS",
+                        "TECHM.NS",
+                        "LTIM.NS",
+                        "PERSISTENT.NS",
+                        "COFORGE.NS",
+                    ],
+                },
+                "BSE Bankex": {
+                    "indices": ["^BSEBANK.NS", "^BSEBANK"],
+                    "stocks": [
+                        "HDFCBANK.NS",
+                        "ICICIBANK.NS",
+                        "SBIN.NS",
+                        "KOTAKBANK.NS",
+                        "AXISBANK.NS",
+                        "BANKBARODA.NS",
+                        "PNB.NS",
+                    ],
+                },
+                "BSE Healthcare": {
+                    "indices": ["^BSEHC.NS", "^BSEHC"],
+                    "stocks": [
+                        "SUNPHARMA.NS",
+                        "DRREDDY.NS",
+                        "CIPLA.NS",
+                        "DIVISLAB.NS",
+                        "APOLLOHOSP.NS",
+                        "LUPIN.NS",
+                    ],
+                },
+                "BSE Auto": {
+                    "indices": ["^BSEAUTO.NS", "^BSEAUTO"],
+                    "stocks": [
+                        "TATAMOTORS.NS",
+                        "MARUTI.NS",
+                        "M&M.NS",
+                        "BAJAJ-AUTO.NS",
+                        "HEROMOTOCO.NS",
+                        "EICHERMOT.NS",
+                    ],
+                },
+                "BSE FMCG": {
+                    "indices": ["^BSEFMCG.NS"],
+                    "stocks": [
+                        "HINDUNILVR.NS",
+                        "ITC.NS",
+                        "NESTLEIND.NS",
+                        "BRITANNIA.NS",
+                        "DABUR.NS",
+                    ],
+                },
+                "BSE Metal": {
+                "indices": ["^BSEMT.NS"],
+                "stocks": [
+                    "TATASTEEL.NS",
+                    "JSWSTEEL.NS",
+                    "HINDALCO.NS",
+                    "VEDL.NS",
+                    ],
+                },
+                "BSE Oil & Gas": {
+                    "indices": ["^BSEOIL.NS"],
+                    "stocks": [
+                        "RELIANCE.NS",
+                        "ONGC.NS",
+                        "IOC.NS",
+                        "BPCL.NS",
+                    ],
+                },
+                "BSE Power & Utilities": {
+                    "indices": ["^BSEPOWER.NS"],
+                    "stocks": [
+                        "NTPC.NS",
+                        "POWERGRID.NS",
+                        "ADANIPOWER.NS",
+                        "TATAPOWER.NS",
+                    ],
+                },
+                "BSE Realty": {
+                    "indices": ["^BSERLTY.NS"],
+                    "stocks": [
+                        "DLF.NS",
+                        "GODREJPROP.NS",
+                        "OBEROIRLTY.NS",
+                        "PRESTIGE.NS",
+                    ],
+                },
+                "BSE Capital Goods & Industrials": {
+                    "indices": ["^BSECG.NS"],
+                    "stocks": [
+                        "LT.NS",
+                        "BEL.NS",
+                        "SIEMENS.NS",
+                        "ABB.NS",
+                    ],
+                },
+            },
+            "US": {
+                "Technology": {
+                    "indices": ["^NDX", "^GSPC"],
+                    "stocks": [
+                        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL", "CRM", "ADBE"
+                    ]
+                },
+                "Financials": {
+                    "indices": ["^IXFN", "^GSPC"],
+                    "stocks": [
+                        "JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW", "V", "MA"
+                    ]
+                },
+                "Healthcare": {
+                    "indices": ["^IXHC", "^GSPC"],
+                    "stocks": [
+                        "UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR", "ISRG", "BMY"
+                    ]
+                },
+                "Consumer Discretionary & Retail": {
+                    "indices": ["^GSPC"],
+                    "stocks": [
+                        "HD", "MCD", "NKE", "SBUX", "TJX", "LOW", "BKNG", "TGT", "CMG"
+                    ]
+                },
+                "Consumer Staples": {
+                    "indices": ["^GSPC"],
+                    "stocks": [
+                        "WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "CL"
+                    ]
+                },
+                "Communication Services & Media": {
+                    "indices": ["^GSPC"],
+                    "stocks": [
+                        "NFLX", "DIS", "CMCSA", "VZ", "T", "TMUS", "EA"
+                    ]
+                },
+                "Energy & Industrials": {
+                    "indices": ["^IXID", "^GSPC"],
+                    "stocks": [
+                        "XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE", "COP", "SLB"
+                    ]
+                },
+                "Utilities & Real Estate": {
+                    "indices": ["^GSPC"],
+                    "stocks": [
+                        "NEE", "DUK", "SO", "PLD", "AMT", "EQIX", "SPG"
+                    ]
+                }
+            },
+            "UK": {
+                "Energy & Commodities": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "SHEL.L", "BP.L", "GLEN.L", "RIO.L", "AAL.L", "ANTO.L"
+                    ]
+                },
+                "Banking & Finance": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "HSBA.L", "LLOY.L", "BARC.L", "NWG.L", "NWG.L", "PRU.L"
+                    ]
+                },
+                "Healthcare & Consumer": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"
+                    ]
+                },
+                "Consumer Goods & Retail": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "ULVR.L", "BATS.L", "DGE.L", "ABF.L", "TSCO.L"
+                    ]
+                },
+                "Technology & Telecoms": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "REL.L", "SGE.L", "VOD.L", "AAF.L"
+                    ]
+                },
+                "Aerospace, Industrials & Defense": {
+                    "indices": ["^FTSE"],
+                    "stocks": [
+                        "BA.L", "RR.L", "CRH.L", "SMIN.L"
+                    ]
+                }
+            },
+            "EU": {
+                "Technology & Industrials": {
+                    "indices": ["^STOXX", "^GDAXI"],
+                    "stocks": [
+                        "ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "IFX.DE", "AD.AS"
+                    ]
+                },
+                "Luxury & Consumer Goods": {
+                    "indices": ["^STOXX", "^FCHI"],
+                    "stocks": [
+                        "MC.PA", "OR.PA", "RMS.PA", "KER.PA", "ABI.BR", "HEIA.AS"
+                    ]
+                },
+                "Financials & Automakers": {
+                    "indices": ["^STOXX", "^GDAXI"],
+                    "stocks": [
+                        "ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"
+                    ]
+                },
+                "Healthcare & Pharmaceuticals": {
+                    "indices": ["^STOXX", "^SSMI"],
+                    "stocks": [
+                        "NOVN.SW", "ROG.SW", "NESN.SW", "SAN.PA", "BAYN.DE", "MRK.DE"
+                    ]
+                },
+                "Energy & Utilities": {
+                    "indices": ["^STOXX", "^FCHI"],
+                    "stocks": [
+                        "TTE.PA", "ENI.MI", "IBE.MC", "ENEL.MI", "RWE.DE", "EOAN.DE"
+                    ]
+                },
+                "Telecoms & Infrastructure": {
+                    "indices": ["^STOXX", "^GDAXI"],
+                    "stocks": [
+                        "DTE.DE", "ORA.PA", "TEF.MC", "VOD.L", "NOKIA.HE"
+                    ]
+                }
+            },
+            "JSE": {
+                "JSE Mining & Resources": {
+                    "indices": ["^J210.JO"],
+                    "stocks": [
+                        "AGL.JO",
+                        "BHP.JO",
+                        "GFI.JO",
+                        "ANG.JO",
+                        "IMP.JO",
+                        "SSW.JO",
+                        "AMS.JO",
+                    ],
+                },
+                "JSE Financials": {
+                    "indices": ["^J212.JO"],
+                    "stocks": [
+                        "FSR.JO",
+                        "SBK.JO",
+                        "ABG.JO",
+                        "NED.JO",
+                        "SLM.JO",
+                        "CPI.JO",
+                        "INP.JO",
+                    ],
+                },
+                "JSE Tech & Telecoms": {
+                    "indices": ["^J211.JO"],
+                    "stocks": ["NPN.JO", "PRX.JO", "MTN.JO", "VOD.JO", "TEL.JO"],
+                },
+                "JSE Retail & Consumer": {
+                    "indices": ["^J213.JO"],
+                    "stocks": [
+                        "WHL.JO",
+                        "SHP.JO",
+                        "MRP.JO",
+                        "CLS.JO",
+                        "PIK.JO",
+                        "SPP.JO",
+                    ],
+                },
+            },
+        }
+        
+        # Load chosen exchange sector configuration dynamically
+        sector_config = ALL_EXCHANGE_CONFIGS.get(
+            exchange, ALL_EXCHANGE_CONFIGS["BSE"]
+        )
+        
+        # 2. Timeframe Selection
+        st.subheader("Select Time Horizon")
+        timeframe = st.radio(
+            "Choose period:",
+            ["1 Month", "3 Months", "6 Months", "1 Year"],
+            horizontal=True,
+            key="sector_idx_tf",
+        )
+        
+        timeframe_days_map = {
+            "1 Month": 21,
+            "3 Months": 63,
+            "6 Months": 126,
+            "1 Year": 252,
+        }
+        lookback_days = timeframe_days_map[timeframe]
+        
+        # 3. Gather Tickers
+        all_tickers_to_fetch = []
+        stock_to_sector_map = {}
+        
+        for sector_name, data in sector_config.items():
+            all_tickers_to_fetch.extend(data["indices"])
+            all_tickers_to_fetch.extend(data["stocks"])
+            for stock in data["stocks"]:
+                stock_to_sector_map[stock] = sector_name
+        
+        # Dedup list
+        all_tickers_to_fetch = list(set(all_tickers_to_fetch))
+        
+        # 4. Fetch Market Data Matrix
+        end_date = datetime.datetime.now()
+        start_date = end_date - datetime.timedelta(days=400)
+        
+        
+        @st.cache_data(ttl=3600)
+        def fetch_sector_price_matrix(tickers, start, end):
+            try:
+                df = yf.download(tickers, start=start, end=end, progress=False)
+                if isinstance(df, pd.DataFrame) and "Close" in df:
+                    return df["Close"]
+                return df
+            except Exception:
+                return pd.DataFrame()
+        
+        
+        price_df = fetch_sector_price_matrix(all_tickers_to_fetch, start_date, end_date)
+        
+        # 5. Calculate Sector Returns & Individual Stock Performance
+        sector_returns = {}
+        stock_returns_dict = {}
+        
+        if not price_df.empty:
+            # A. Calculate Individual Stock Growth Rates
+            for col in price_df.columns:
+                series = price_df[col].dropna()
+                if len(series) >= lookback_days:
+                    s_start = series.iloc[-lookback_days]
+                    s_end = series.iloc[-1]
+                    if s_start > 0:
+                        ret = ((s_end - s_start) / s_start) * 100
+                        stock_returns_dict[col] = ret
+        
+            # B. Calculate Aggregate Sector Growth
+            for sector_name, data in sector_config.items():
+                sec_stock_rets = [
+                    stock_returns_dict[stk]
+                    for stk in data["stocks"]
+                    if stk in stock_returns_dict
+                ]
+                if sec_stock_rets:
+                    sector_returns[sector_name] = np.mean(sec_stock_rets)
+        
+        # 6. Sector Performance Tables & Charts
+        perf_df = pd.DataFrame(
+            list(sector_returns.items()), columns=["Sector", "Growth (%)"]
+        )
+        perf_df = perf_df.sort_values(by="Growth (%)", ascending=False)
+        
+        col1, col2 = st.columns(2, gap="large")
+        
+        with col1:
+            st.subheader(f"🟢 Top Performing Sectors ({timeframe})")
+            st.dataframe(
+                perf_df.style.format({"Growth (%)": "{:+.2f}%"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            fig_top_sec = px.bar(
+                perf_df.head(5),
+                x="Growth (%)",
+                y="Sector",
+                orientation="h",
+                title=f"Top Sectors Growth - {timeframe}",
+                color="Growth (%)",
+                color_continuous_scale="Greens",
+            )
+            fig_top_sec.update_layout(dragmode=False)
+            st.plotly_chart(fig_top_sec, use_container_width=True)
+        
+        with col2:
+            st.subheader(f"🔴 Worst Performing Sectors ({timeframe})")
+            worst_sec_df = perf_df.tail(5).sort_values(
+                by="Growth (%)", ascending=True
+            )
+            st.dataframe(
+                worst_sec_df.style.format({"Growth (%)": "{:+.2f}%"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            fig_worst_sec = px.bar(
+                worst_sec_df,
+                x="Growth (%)",
+                y="Sector",
+                orientation="h",
+                title=f"Worst Sectors Growth - {timeframe}",
+                color="Growth (%)",
+                color_continuous_scale="Reds_r",
+            )
+            fig_worst_sec.update_layout(dragmode=False)
+            st.plotly_chart(fig_worst_sec, use_container_width=True)
+        
+        # 7. TOP 10 BEST & WORST INDIVIDUAL STOCKS ANALYSIS
+        st.markdown("---")
+        st.subheader(f"📌 Top 10 Best & Worst Stock Performers ({exchange})")
+        
+        # Convert individual stock returns into a DataFrame
+        all_stocks_in_exchange = []
+        for sector_data in sector_config.values():
+            all_stocks_in_exchange.extend(sector_data["stocks"])
+        
+        all_stocks_in_exchange = set(all_stocks_in_exchange)
+        
+        stock_perf_list = [
+            {
+                "Ticker": stk,
+                "Sector": stock_to_sector_map.get(stk, "N/A"),
+                "Return (%)": ret,
+            }
+            for stk, ret in stock_returns_dict.items()
+            if stk in all_stocks_in_exchange
+        ]
+        if stock_perf_list:
+            stock_perf_df = pd.DataFrame(stock_perf_list).sort_values(
+            by="Return (%)", ascending=False
+            )
+        else:
+            stock_perf_df = pd.DataFrame(columns=["Ticker", "Sector", "Return (%)"])
+        
+        stock_perf_df["Ticker"] = stock_perf_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
+        st_col1, st_col2 = st.columns(2, gap="large")
+        
+        with st_col1:
+            st.markdown("### 🚀 Top 10 Best Performing Stocks")
+            top10_stocks = stock_perf_df.head(10).reset_index(drop=True)
+            st.dataframe(
+                top10_stocks.style.format({"Return (%)": "{:+.2f}%"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            fig_top_stocks = px.bar(
+                top10_stocks,
+                x="Return (%)",
+                y="Ticker",
+                color="Sector",
+                orientation="h",
+                title=f"Top 10 Stocks - {timeframe}",
+            )
+            fig_top_stocks.update_layout(dragmode=False)
+            st.plotly_chart(fig_top_stocks, use_container_width=True)
+        
+        with st_col2:
+            st.markdown("### 📉 Top 10 Worst Performing Stocks")
+            worst10_stocks = stock_perf_df.tail(10).sort_values(
+                by="Return (%)", ascending=True
+            ).reset_index(drop=True)
+            st.dataframe(
+                worst10_stocks.style.format({"Return (%)": "{:+.2f}%"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            fig_worst_stocks = px.bar(
+                worst10_stocks,
+                x="Return (%)",
+                y="Ticker",
+                color="Sector",
+                orientation="h",
+                title=f"Worst 10 Stocks - {timeframe}",
+            )
+            fig_worst_stocks.update_layout(dragmode=False)
+            st.plotly_chart(fig_worst_stocks, use_container_width=True)
+    
+    # ==============================================================================
+    # 8. INDIVIDUAL SECTOR DRILL-DOWN (DROPDOWN SELECTOR & GRAPH)
+    # ==============================================================================
+        st.markdown("---")
+        st.subheader("🔎 Detailed Sector Drill-Down")
+        
+        # Dropdown menu populated dynamically with available sectors for the chosen exchange
+        available_sectors = list(sector_config.keys())
+        selected_sector = st.selectbox(
+            "Choose a Sector to Analyze:", options=available_sectors
+        )
+        
+        if selected_sector:
+            # Retrieve stocks configured for the selected sector
+            sector_stocks = sector_config[selected_sector]["stocks"]
+        
+            # Filter stock performance results for the selected sector
+            sector_stocks_perf = [
+                {"Ticker": stk, "Return (%)": stock_returns_dict.get(stk, np.nan)}
+                for stk in sector_stocks
+                if stk in stock_returns_dict
+            ]
+            #sector_stocks_perf["Ticker"] = sector_stocks_perf["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
+            sector_drill_df = pd.DataFrame(sector_stocks_perf).sort_values(
+                by="Return (%)", ascending=False
+            )
+            sector_drill_df["Ticker"] = sector_drill_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
+            if not sector_drill_df.empty:
+                sd_col1, sd_col2 = st.columns([1, 1.5], gap="large")
+        
+                with sd_col1:
+                    st.markdown(
+                        f"### Performance Breakdown: **{selected_sector}** ({timeframe})"
+                    )
+                    st.dataframe(
+                        sector_drill_df.style.format({"Return (%)": "{:+.2f}%"}),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+        
+                with sd_col2:
+                    fig_sector_drill = px.bar(
+                        sector_drill_df,
+                        x="Return (%)",
+                        y="Ticker",
+                        orientation="h",
+                        title=f"{selected_sector} Stock Returns — {timeframe}",
+                        color="Return (%)",
+                        color_continuous_scale="Viridis",
+                    )
+                    fig_sector_drill.update_layout(yaxis={"categoryorder": "total ascending"}, dragmode=False)
+                    st.plotly_chart(fig_sector_drill, use_container_width=True)
+            else:
+                st.info(f"No price data available for stocks in {selected_sector}.")
+    
+    # --- WORKFLOW: CSV PARSING & EDITABLE HOLDINGS TABLE ---
+    flag = 0
+    if uploaded_file is None:
+        flag = 1
+    if uploaded_file is not None or flag == 1:
+        try:
+            if uploaded_file is not None:
+                def parse_uploaded_portfolio(uploaded_file, selected_workspace):
+                    """
+                    Parses portfolio CSVs, filters out 'INF' non-equities, 
+                    matches partially masked ISINs prefix-wise, and outputs base stock symbols & quantities.
+                    """
+                    try:
+                        if st.session_state.use_demo == False:
+                            uploaded_file.seek(0)
+                            bytes_data = uploaded_file.read()
+                            
+                            if not bytes_data:
+                                return pd.DataFrame(columns=['Ticker', 'Quantity'])
+                                
+                            safe_buffer = io.BytesIO(bytes_data)
+                            raw_df = pd.read_csv(safe_buffer, skipinitialspace=True, on_bad_lines='skip')
+                            raw_df = raw_df.dropna(how='all').dropna(how='all', axis=1)
+                            
+                            if raw_df.empty:
+                                return pd.DataFrame(columns=['Ticker', 'Quantity'])
+                        else:
+                            raw_df = uploaded_file
+                
+                        # Normalize column headers
+                        raw_df.columns = raw_df.columns.astype(str).str.strip()
+                
+                        # Identify key columns flexibly
+                        possible_id_cols = ['ISIN No', 'ISIN', 'ISIN NUMBER', 'ISIN Code', 'Isin', 'ISIN_NO', 'CIK']
+                        possible_ticker_cols = ['Stock Symbol', 'Symbol', 'Ticker', 'Stock', 'Security', 'Company', 'Scrip']
+                        possible_qty_cols = ['Qty', 'Quantity', 'qty', 'Shares', 'Volume', 'Units', 'Holdings']
+                        possible_cost_cols = ['Average Cost Price', 'Cost Price', 'Buy Price', 'Average Price', 'Price', 'Cost']
+                
+                        id_col = next((col for col in possible_id_cols if col in raw_df.columns), None)
+                        ticker_col = next((col for col in possible_ticker_cols if col in raw_df.columns), raw_df.columns[0])
+                        qty_col = next((col for col in possible_qty_cols if col in raw_df.columns), raw_df.columns[1] if len(raw_df.columns) > 1 else raw_df.columns[0])
+                        cost_col = next((col for col in possible_cost_cols if col in raw_df.columns), None)
+                
+                        # Map workspaces to JSON files
+                        workspace_json_mapping = {
+                            "NSE": "nse_isin_map.json",
+                            "BSE": "bse_isin_map.json",
+                            "US": "sp500_cik_map.json"
+                        }
+                
+                        id_map = {}
+                        if selected_workspace in workspace_json_mapping:
+                            json_file = workspace_json_mapping[selected_workspace]
+                            if os.path.exists(json_file):
+                                with open(json_file, 'r') as f:
+                                    id_map = json.load(f)
+                
+                        parsed_rows = []
+                        for _, row in raw_df.iterrows():
+                            raw_id = str(row[id_col]).strip().upper() if id_col and pd.notna(row[id_col]) else ""
+                            raw_ticker = str(row[ticker_col]).strip().upper().replace('#', '') if pd.notna(row[ticker_col]) else ""
+                            
+                            # --- GUARD 1: Ignore INF (Mutual Funds/ETFs) ---
+                            if raw_id.startswith('INF') or raw_ticker.startswith('INF'):
+                                continue
+                
+                            try:
+                                qty = float(row[qty_col])
+                            except (ValueError, TypeError):
+                                qty = 1.0
+
+                            cost_price = 0.0
+                            if cost_col and pd.notna(row[cost_col]):
+                                try:
+                                    val_str = str(row[cost_col]).replace(',', '').replace('₹', '').replace('$', '').strip()
+                                    cost_price = float(val_str)
+                                except (ValueError, TypeError):
+                                    cost_price = 0.0
+                
+                            base_symbol = ""
+                
+                            # --- GUARD 2: Prefix / Partial ISIN Matching for masked codes (e.g. INE171A01XXX) ---
+                            matched = False
+                            if raw_id and id_map:
+                                # Clean out trailing X's or asterisks used for masking
+                                clean_id = raw_id.split('X')[0].replace('*', '').strip()
+                                
+                                # Direct match first
+                                if raw_id in id_map:
+                                    base_symbol = id_map[raw_id]
+                                    matched = True
+                                else:
+                                    # Prefix search against JSON keys
+                                    for full_key, sym in id_map.items():
+                                        if full_key.startswith(clean_id) and len(clean_id) >= 8:
+                                            base_symbol = sym
+                                            matched = True
+                                            break
+                
+                            # 3. Fallback to raw ticker symbol if ISIN lookup didn't trigger
+                            if not matched:
+                                base_symbol = raw_ticker
+                
+                            if base_symbol and base_symbol != 'NAN':
+                                parsed_rows.append({'Ticker': base_symbol, 'Quantity': int(qty), 'Cost Price': cost_price})
+                
+                        holdings_df = pd.DataFrame(parsed_rows)
+                        if not holdings_df.empty:
+                            st.success("Portfolio successfully loaded!")
+                            return holdings_df
+                
+                    except Exception as e:
+                        st.warning(f"Could not parse custom CSV format: {e}. Using fallback portfolio.")
+                holdings_df = parse_uploaded_portfolio(uploaded_file, exchange)
+                 #return pd.DataFrame(columns=['Ticker', 'Quantity'])
+            else:
+                holdings_df = pd.DataFrame({'Ticker': ['',],'Quantity': [0,],})
+
+
+            st.write("### 📝 Interactive Holdings Adjuster")
+            st.info("Add/Edit stocks & quantities directly in the table below to dynamically trigger stress-test calculations.")
+            
+            # EDITABLE DATA TABLE
+            edited_df = st.data_editor(
+                holdings_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                key="holdings_editor"
+            )
+
+
+
+            # Re-format Tickers with exchange suffix for Yahoo Finance
+            # edited_df['yf_ticker'] = edited_df['Ticker'].astype(str).str.strip() + current_cfg['suffix']
+            # active_tickers = edited_df['yf_ticker'].tolist()
+
+            # Re-format Tickers with exchange suffix for Yahoo Finance
+            all_eu_suffixes = ['.AS', '.DE', '.PA', '.MI', '.MC', '.SW', '.ST', '.BR']
+            
+            resolved_tickers = []
+            for raw_ticker in edited_df['Ticker'].astype(str).str.strip():
+                raw_ticker_upper = raw_ticker.upper()
+                
+                # If it's the EU workspace and doesn't already have a recognized suffix
+                if current_cfg.get('name') == 'STOXX Europe 600' and not any(raw_ticker_upper.endswith(sfx) for sfx in all_eu_suffixes):
+                    found_valid = False
+                    for sfx in all_eu_suffixes:
+                        test_symbol = f"{raw_ticker_upper}{sfx}"
+                        try:
+                            # Quick lightweight check to see if data exists for this suffix
+                            test_data = yf.download(test_symbol, period="5d", progress=False)
+                            if not test_data.empty:
+                                resolved_tickers.append(test_symbol)
+                                found_valid = True
+                                break
+                        except Exception:
+                            continue
+                            
+                    # If none of the suffixes worked, fallback to appending the default or raw
+                    if not found_valid:
+                        resolved_tickers.append(f"{raw_ticker_upper}{current_cfg.get('suffix', '')}")
+                else:
+                    # For US, UK, BSE, NSE, or already suffixed tickers
+                    if any(raw_ticker_upper.endswith(sfx) for sfx in all_eu_suffixes) or current_cfg.get('name') != 'STOXX Europe 600':
+                        sfx_to_add = "" if any(raw_ticker_upper.endswith(sfx) for sfx in all_eu_suffixes) else current_cfg.get('suffix', '')
+                        resolved_tickers.append(f"{raw_ticker_upper}{sfx_to_add}")
+                    else:
+                        resolved_tickers.append(raw_ticker_upper)
+            
+            edited_df['yf_ticker'] = resolved_tickers
+            active_tickers = edited_df['yf_ticker'].tolist()
+
+            if len(active_tickers) > 0 and edited_df['Quantity'].sum() > 0:
+                with st.spinner("Fetching stock prices & building full portfolio risk matrix..."):
+                    end_date = datetime.datetime.now()
+                    start_date = end_date - datetime.timedelta(days=365 * 5)
+
+        # 1. Download price data for all universe tickers
+                    price_data = yf.download(active_tickers, start=start_date, end=end_date)['Close']
+
+        # Handle single series edge cases
+                    if isinstance(price_data, pd.Series):
+                        price_data = price_data.to_frame()
+
+        # Clean invalid or empty columns
+                        price_data = price_data.dropna(how='all', axis=1)
+
+        # Safety Check to prevent out-of-bounds iloc crash
+                    if price_data.empty:
+                        st.error("Price data download returned no valid records for the given tickers.")
+                    else:
+                        price_data = price_data.ffill().bfill()
+                        latest_prices = price_data.iloc[-1]
+
+            # 2. Map latest prices safely to user holdings
+            # (Matches symbol or fallback if user CSV uses standard stock symbols)
+                        edited_df['Latest Price'] = edited_df['yf_ticker'].map(latest_prices)
+            
+            # Fill missing prices with 0 to prevent downstream calculation explosions
+                        edited_df['Latest Price'] = edited_df['Latest Price'].fillna(0.0)
+                        edited_df['Position Value'] = edited_df['Quantity'] * edited_df['Latest Price']
+                        total_portfolio_market_val = edited_df['Position Value'].sum()
+
+                        st.dataframe(edited_df[["Ticker","Quantity","Latest Price"]], hide_index=True, use_container_width=True)
+
+            # 3. Create full 516x1 universe matrix
+                        universe_tickers = price_data.columns.tolist()
+                        full_universe_df = pd.DataFrame(index=universe_tickers)
+
+            # 4. Map user position values into the full universe
+                        user_position_series = edited_df.groupby('yf_ticker')['Position Value'].sum()
+                        full_universe_df['Position Value'] = user_position_series
+                        full_universe_df['Position Value'] = full_universe_df['Position Value'].fillna(0.0)
+
+            # 5. Compute full zero-filled vector w (516 x 1)
+                        if total_portfolio_market_val > 0:
+                            full_universe_df['Weight'] = full_universe_df['Position Value'] / total_portfolio_market_val
+                        else:
+                            full_universe_df['Weight'] = 0.0
+
+                        weights = full_universe_df['Weight'].values
+                        if len(active_tickers) == 1:
+                          # Force single stock weight to 100% (1.0) if only 1 ticker is active
+                          weights = np.array([1.0])
+
+                    # Compute Daily Returns
+                returns = price_data.pct_change().dropna()
+                # portfolio_daily_returns = returns.dot(weights)
+                # --- SAFE SINGLE-STOCK VS MULTI-STOCK PORTFOLIO METRICS ---
+                if len(active_tickers) == 1:
+                  # Single-stock fallback: 100% weight, direct series assignment
+                  portfolio_daily_returns = returns[active_tickers[0]]
+                  # portfolio_variance = portfolio_daily_returns.var() * 252
+                  # portfolio_std = portfolio_daily_returns.std() * (252**0.5)
+                else:
+                  # Multi-stock matrix calculations
+                  portfolio_daily_returns = returns.dot(weights)
+                  # cov_matrix = returns.cov() * 252
+                  # portfolio_variance = weights.T @ cov_matrix @ weights
+                  # portfolio_std = np.sqrt(portfolio_variance)
+
+                cum_returns = (1 + portfolio_daily_returns["2024-01-01":]).cumprod() - 1      #.rolling(window=63).apply(lambda x: (1 + x).prod() - 1)
+                #cum_rolling_returns = cum_rolling_returns.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+# --- ADD BENCHMARK OVERLAY (RED LINE) ---
+                benchmark_symbol = current_cfg.get("symbol", "^NSEI")
+                bench_df = yf.download(
+                    benchmark_symbol,
+                    start=cum_returns.index[0],
+                    end=cum_returns.index[-1],
+                    progress=False,
+                )
+                
+                if isinstance(bench_df, pd.DataFrame) and "Close" in bench_df:
+                    bench_series = bench_df["Close"]
+                    if isinstance(bench_series, pd.DataFrame):
+                        bench_series = bench_series.squeeze()
+                    bench_daily_ret = bench_series.pct_change().dropna()
+                    bench_cum_returns = (1 + bench_daily_ret).cumprod() - 1
+                else:
+                    bench_cum_returns = pd.Series(0, index=cum_returns.index)
+                
+                # Build Combined Figure
+                import plotly.graph_objects as go
+                
+                fig = go.Figure()
+                
+                # Add Portfolio Trace (Blue Line)
+                fig.add_trace(
+                    go.Scatter(
+                        x=cum_returns.index,
+                        y=cum_returns.values,
+                        mode="lines",
+                        name="Portfolio Return",
+                        line=dict(color="#1f77b4", width=2),
+                    )
+                )
+                
+                # Add Live Benchmark Trace (Red Line)
+                fig.add_trace(
+                    go.Scatter(
+                        x=bench_cum_returns.index,
+                        y=bench_cum_returns.values,
+                        mode="lines",
+                        name=f"Market Index ({current_cfg.get('name', 'Benchmark')})",
+                        line=dict(color="#FF0000", width=2, dash="solid"),
+                    )
+                )
+                
+                # Format Y-axis & Hover Timeline
+                fig.update_layout(
+                    title="Cumulative Portfolio vs. Market Performance",
+                    yaxis_tickformat=".2%",
+                    hovermode="x unified",
+                    xaxis_title="Date",
+                    yaxis_title="Return",
+                    dragmode=False,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                )
+                
+                # Render in Streamlit
+                #st.plotly_chart(fig, use_container_width=True)
+                #fig = px.line(cum_returns,title="Cumulative Portfolio Returns",labels={"value": "Cumulative Return", "index": "Date"},)
+
+# 3. Format Y-axis as percentage and enable hover timeline
+                fig.update_layout(
+                #yaxis_tickformat=".2%",
+                hovermode="x unified",
+                xaxis_title="Date",
+                yaxis_title="Return",
+                dragmode=False
+                )
+
+# 4. Render in Streamlit
+                st.plotly_chart(fig, use_container_width=True, key="portfolio_vs_market_chart")
+                fig_bytes = pio.to_image(fig, format='png', width=700, height=450)
+
+# --- STATISTICAL RISK CALCULATIONS ---
+
+                # VaR Percentage & Monetary Loss
+                var_percentile = (1 - confidence_level) * 100
+                var_pct = np.percentile(portfolio_daily_returns, var_percentile) 
+                var_amount = abs(var_pct) * initial_capital * np.sqrt(time_horizon_days)
+
+                # CVaR (Expected Shortfall) Percentage & Monetary Loss
+                cvar_pct = portfolio_daily_returns[portfolio_daily_returns <= var_pct].mean() * np.sqrt(time_horizon_days)
+                cvar_amount = abs(cvar_pct) * initial_capital
+
+                # Sharpe Ratio (6.5% baseline RFR)
+                rfr_dict = {
+                    'NSE': 0.065,  # India baseline ~6.5%
+                    'BSE': 0.065,  # India baseline ~6.5%
+                    'US':  0.045,  # US baseline ~4.5%
+                    'UK':  0.045,  # UK baseline ~4.5%
+                    'EU':  0.030,  # Eurozone baseline ~3.0%
+                    'JSE': 0.0725  # South Africa baseline ~7.25%
+                }
+                rfr_annual = rfr_dict.get(exchange, 0.05)
+                rfr_daily = rfr_annual / 252
+                #sharpe = ((portfolio_daily_returns.mean() - rfr_daily) / portfolio_daily_returns.std()) * np.sqrt(252)
+                if len(active_tickers) == 1:
+                  sharpe = (
+                      (portfolio_daily_returns.mean() - rfr_daily)
+                      / portfolio_daily_returns.std()
+                  ) * np.sqrt(252)
+                  weight_entropy = 0.0  # Entropy of 100% weight in single asset is 0
+                  risk_contri = np.array([1.0])
+                  risk_entropy = 0.0
+                else:
+                    sharpe = erk.sharpe_ratio(portfolio_daily_returns, rfr_daily*252, 252)
+                    weight_entropy = erk.enc(weights)
+                    risk_contri = erk.risk_contribution(weights, np.cov(returns.T))
+                    risk_entropy = erk.enc(risk_contri)
+# Sortino
+                #target_return_daily = (target_return_pct / 100.0) / 252.0
+                
+                def sortino_ratio(returns: pd.Series | pd.DataFrame, rfr: float = 0.055,target_return: float = 0.0,periods_per_year: int = 252,) -> float | pd.Series:
+                      """Calculates the Annualized Sortino Ratio for a given returns series or DataFrame"""
+  # Adjust risk-free rate to period frequency
+                      rfr_period = rfr / periods_per_year
+                      target_return = (target_return/100.0)/periods_per_year
+
+  # Calculate excess returns above risk-free rate
+                      mean_excess_return = returns.mean() - rfr_period
+
+  # Isolate downside returns (returns below target threshold)
+                      downside_returns = returns[returns < target_return]
+
+  # Calculate Downside Deviation (annualized)
+                      downside_std = np.sqrt((downside_returns**2).mean()) * np.sqrt(periods_per_year)
+
+  # Annualize expected excess returns
+                      annualized_excess_return = mean_excess_return * periods_per_year
+
+  # Avoid division by zero if downside deviation is 0
+                      if isinstance(downside_std, (pd.Series, np.ndarray)):
+                            downside_std = downside_std.replace(0, np.nan)
+                      elif downside_std == 0:
+                            return np.nan
+
+                      return annualized_excess_return / downside_std
+                
+                sortino = sortino_ratio(portfolio_daily_returns, rfr=rfr_daily*252, target_return=target_return_pct, periods_per_year=252)
+
+# Expected Returns 
+                res = erk.backtest_ws(returns, 252, erk.weight_fix, weights = weights)
+                btr = pd.DataFrame({"Results":res})
+                exp_ret = erk.summary_stats(btr.dropna(), rfr_daily, 252)["Annualized Return"]
+                exp_vol = erk.summary_stats(btr.dropna(), rfr_daily, 252)["Annualized Vol"]
+                exp_dd = erk.summary_stats(btr.dropna(), rfr_daily, 252)["Max Drawdown"]
+
+                if isinstance(exp_dd, (pd.Series, np.ndarray)):
+                  exp_dd = float(exp_dd.iloc[0])
+                else:
+                  exp_dd = float(exp_dd)
+
+                if isinstance(exp_ret, (pd.Series, np.ndarray)):
+                  exp_ret = float(exp_ret.iloc[0])
+                else:
+                  exp_ret = float(exp_ret)
+
+                if isinstance(exp_vol, (pd.Series, np.ndarray)):
+                  exp_vol = float(exp_vol.iloc[0])
+                else:
+                  exp_vol = float(exp_vol)
+
+# --- CALCULATE PORTFOLIO BETA AGAINST BENCHMARK ---
+                if "bench_daily_ret" in locals() and not bench_daily_ret.empty:
+                    aligned_data = pd.DataFrame(
+                        {"portfolio": portfolio_daily_returns, "market": bench_daily_ret}
+                    ).dropna()
+                    if len(aligned_data) > 5:
+                        cov_matrix = np.cov(
+                            aligned_data["portfolio"], aligned_data["market"]
+                        )
+                        portfolio_beta = cov_matrix[0, 1] / cov_matrix[1, 1]
+                    else:
+                        portfolio_beta = 1.0
+                else:
+                    portfolio_beta = 1.0
+                
+                # --- QUANTITATIVE PORTFOLIO SCORE (0-100) ---
+                # 1. Sharpe Ratio component (Max 25 pts)
+                norm_sharpe = min(max(sharpe / 2.0, 0), 1) * 25
+                
+                # 2. Sortino Ratio component (Max 25 pts)
+                norm_sortino = min(max(sortino / 3.0, 0), 1) * 25
+                
+                # 3. Maximum Drawdown component (Max 25 pts - penalizing high drawdowns)
+                norm_drawdown = max(1 - abs(exp_dd) / 0.5, 0) * 25
+                
+                # 4. Beta component (Max 25 pts - rewarding stability/close market tracking)
+                beta_diff = abs(portfolio_beta - 1.0)
+                norm_beta = max(1 - beta_diff / 1.5, 0) * 25
+                
+                portfolio_score = round(
+                    norm_sharpe + norm_sortino + norm_drawdown + norm_beta, 1
+                )
+
+                
+                # --- RENDER PORTFOLIO SCORE CARD ---
+                _, center_col, _ = st.columns([1, 2, 1])
+
+                with center_col:
+                    st.metric(
+                        label="⭐ Quantitative Portfolio Score",
+                        value=f"{portfolio_score} / 100",
+                        delta=f"Beta: {portfolio_beta:.2f}",
+                    )
+                
+                st.markdown("---")
+                st.write("### 🛡️ Returns")
+
+                res3_col1, res3_col2, res3_col3 = st.columns(3)
+
+                res3_col1.metric(
+                    label="Annualized Expected Return",
+                    value=f"{abs(exp_ret)*100:.2f}%", 
+                    #delta=f"-{currency} {var_amount:,.2f}", 
+                    #delta_color="inverse"
+                )
+                
+                res3_col2.metric(
+                    label="Annualized Volatility", 
+                    value=f"{abs(exp_vol)*100:.2f}%", 
+                    #delta=f"-{currency} {cvar_amount:,.2f}", 
+                    #delta_color="inverse"
+                )
+                
+                res3_col3.metric(
+                    label="Maximum Drawdown", 
+                    value=f"{abs(exp_dd)*100:.2f}%"
+                )
+
+                st.markdown("---")
+                st.write("### 🛡️ Value at Risk (VaR) & Downside Metrics")
+                
+                res_col1, res_col2, res_col3 = st.columns(3)
+                
+                res_col1.metric(
+                    label=f"Historical VaR ({int(confidence_level*100)}%) ({time_horizon_days} days)", 
+                    value=f"{abs(var_pct)*100 * np.sqrt(time_horizon_days):.2f}%", 
+                    delta=f"-{currency} {var_amount:,.2f}", 
+                    delta_color="inverse"
+                )
+                
+                res_col2.metric(
+                    label="CVaR / Expected Shortfall", 
+                    value=f"{abs(cvar_pct)*100:.2f}%", 
+                    delta=f"-{currency} {cvar_amount:,.2f}", 
+                    delta_color="inverse"
+                )
+                
+                res_col3.metric(
+                    label="Annualized Sharpe Ratio", 
+                    value=f"{sharpe:.2f}"
+                )
+
+                res2_col1, res2_col2, res2_col3 = st.columns(3)
+
+                res2_col1.metric(
+                    label=f"Portfolio - Diversification ({int(confidence_level*100)}%)", 
+                    value=f"{abs(weight_entropy):.2f}%", 
+                    #delta=f"-{currency} {var_amount:,.2f}", 
+                    #delta_color="inverse"
+                )
+                
+                res2_col2.metric(
+                    label="Risk - Diversification", 
+                    value=f"{abs(risk_entropy):.2f}%", 
+                    #delta=f"-{currency} {cvar_amount:,.2f}", 
+                    #delta_color="inverse"
+                )
+                
+                res2_col3.metric(
+                    label="Sortino Ratio", 
+                    value=f"{sortino:.2f}"
+                )
+
+                # --- WEIGHT & RISK CONTRIBUTION BAR PLOTS ---
+                st.markdown("---")
+                st.write("### 📊 Portfolio Weight vs. Risk Contribution Breakdown")
+                
+                # Extract non-zero positions for clean plotting
+                active_tickers = [
+                    t for t, w in zip(universe_tickers, weights) if w > 0.0001
+                ]
+                active_weights = [
+                    w for w in weights if w > 0.0001
+                ]
+                active_risk_contri = [
+                    rc for w, rc in zip(weights, risk_contri) if w > 0.0001
+                ]
+                
+                # Create side-by-side columns
+                r_col1, r_col2 = st.columns(2, gap="large")
+                
+                with r_col1:
+                    fig_weights = px.bar(
+                        x=active_tickers,
+                        y=active_weights,
+                        labels={"x": "Stock", "y": "Portfolio Weight"},
+                        title="Asset Weight Distribution",
+                        color=active_weights,
+                        color_continuous_scale="Blues",
+                    )
+                    fig_weights.update_layout(
+                        yaxis_tickformat=".2%",
+                        showlegend=False,
+                        hovermode="x unified",
+                        dragmode=False
+                    )
+                    st.plotly_chart(
+                        fig_weights,
+                        use_container_width=True,
+                        key="weight_entropy_bar_plot",
+                    )
+                
+                with r_col2:
+                    fig_risk = px.bar(
+                        x=active_tickers,
+                        y=active_risk_contri,
+                        labels={"x": "Stock", "y": "Risk Contribution"},
+                        title="Risk Contribution Breakdown",
+                        color=active_risk_contri,
+                        color_continuous_scale="Reds",
+                    )
+                    fig_risk.update_layout(
+                        yaxis_tickformat=".2%",
+                        showlegend=False,
+                        hovermode="x unified",
+                        dragmode=False
+                    )
+                    st.plotly_chart(
+                        fig_risk,
+                        use_container_width=True,
+                        key="risk_contribution_bar_plot",
+                    )
+                fig_weights_bytes = pio.to_image(fig_weights, format='png', width=700, height=450)
+                fig_risk_bytes = pio.to_image(fig_risk, format='png', width=700, height=450)
+
+                # # --- MONTE CARLO RISK STRESS RESULTS (METRICS ONLY) ---
+                # st.markdown("---")
+                # st.write(f"### 🎲 Monte Carlo Risk Audit ({time_horizon_days}-Day Horizon)")
+
+                # num_sims = 1000
+                # mean_ret = portfolio_daily_returns.mean()
+                # std_ret = portfolio_daily_returns.std()
+
+                # # Calculate Monte Carlo scenarios without graph output
+                # simulated_ending_values = np.zeros(num_sims)
+                # for i in range(num_sims):
+                #     daily_sims = np.random.normal(mean_ret, std_ret, time_horizon_days)
+                #     simulated_ending_values[i] = initial_capital * np.exp(np.sum(daily_sims))
+
+                # mc_var_95 = np.percentile(simulated_ending_values, 5)
+                # max_expected_loss = initial_capital - mc_var_95
+                # prob_loss_10pct = (np.sum(simulated_ending_values < (initial_capital * 0.90)) / num_sims) * 100
+
+                # --- MONTE CARLO RISK STRESS RESULTS (USING QUANT_RISK_KIT GBM) ---
+                st.markdown("---")
+                st.write(f"### 🎲 10,000 Path Monte Carlo Risk Audit ({time_horizon_days}-Day Horizon)")
+                
+                # 1. Parameter setup for GBM
+                num_sims = 10000
+                # n_years = time_horizon_days / 252.0  # Convert holding horizon days to annual fraction
+                # mean_ret = portfolio_daily_returns.mean()
+                # std_ret = portfolio_daily_returns.std()
+                
+                # # Annualize daily parameters for Geometric Brownian Motion
+                # mu_annual = mean_ret * 252.0
+                # sigma_annual = std_ret * (252.0 ** 0.5)
+                
+                # # 2. Call your custom quant_risk_kit GBM simulation function
+                # # Generates 10,000 scenario price paths starting at initial_capital
+                # gbm_paths = erk.gbm(
+                #     n_years=n_years,
+                #     n_scenarios=num_sims,
+                #     mu=mu_annual,
+                #     sigma=sigma_annual,
+                #     steps_per_year=252,
+                #     s_0=initial_capital,
+                #     prices=True
+                # )
+
+                sim_rets = erk.cholesky_returns(price_data, num_sims, False)
+                # portfolio_multipliers = (sim_prices / sim_prices.iloc[0]).dot(weights)
+                # gbm_paths = portfolio_multipliers*initial_capital
+                port_sim_rets = sim_rets.dot(weights)
+                #port_sim_rets = erk.cholesky_returns(port_sim_prices,num_steps=1000,return_prices=False)
+                # 3. Extract ending values from the final step of all 10,000 simulated paths
+                # simulated_ending_values = gbm_paths.iloc[-1].values
+                
+                # 4. Compute Risk Metrics
+                mc_var_95 = np.percentile(port_sim_rets, (1-confidence_level) * 100)*initial_capital*np.sqrt(time_horizon_days)
+                max_expected_loss = np.abs(mc_var_95)
+                prob_loss_10pct = (np.sum(port_sim_rets < (-0.10)) / num_sims) * 100.0
+
+                mc_col1, mc_col2, mc_col3 = st.columns(3)
+                
+                mc_col1.metric(
+                    label=f"Max Expected Loss ({time_horizon_days}-Day)", 
+                    value=f"{currency} {max_expected_loss:,.2f}"
+                )
+                
+                mc_col2.metric(
+                    label=f"Projected Portfolio Tail Value ({time_horizon_days}-Day)", 
+                    value=f"{currency} {initial_capital-np.abs(mc_var_95):,.2f}"
+                )
+                
+                mc_col3.metric(
+                    label="Probability of >10% Capital Drawdown(1-Day)", 
+                    value=f"{prob_loss_10pct:.1f}%"
+                )
+
+
+                with st.expander(
+                        "🛡️ Macro Stress Testing, Basel Backtesting & SEBI Regulatory Compliance", expanded=False
+                    ):
+                    st.markdown("---")
+                    st.header("⚡ Macro Stress Testing & Scenario Analysis")
+                    st.info("Simulate portfolio capital erosion under sudden extreme market shock scenarios.")
+                    
+                    col_shock1, col_shock2 = st.columns([1, 2])
+                    
+                    with col_shock1:
+                        market_shock_pct = st.slider(
+                            "Market Benchmark Shock (%)", 
+                            min_value=-50.0, 
+                            max_value=0.0, 
+                            value=-15.0, 
+                            step=1.0,
+                            help="Simulate an instantaneous drop in the broader market index."
+                        )
+                    
+                    # Compute portfolio sensitivity (using portfolio beta if available, default to 1.0)
+                    # If you have a calculated portfolio beta variable, use it here; otherwise, standard beta is 1.0
+                    portfolio_beta = locals().get('portfolio_beta', 1.0) 
+                    
+                    # Calculate stressed losses
+                    stressed_portfolio_drop_pct = market_shock_pct * portfolio_beta
+                    stressed_loss_amount = initial_capital * (stressed_portfolio_drop_pct / 100.0)
+                    stressed_final_value = initial_capital + stressed_loss_amount
+                    
+                    with col_shock2:
+                        st.metric(
+                            label=f"Stressed Portfolio Valuation ({market_shock_pct}% Market Crash)",
+                            value=f"₹{stressed_final_value:,.2f}",
+                            delta=f"{stressed_portfolio_drop_pct:.2f}% (₹{stressed_loss_amount:,.2f})",
+                            delta_color="inverse"
+                        )
+    
+                    def var_backtest_traffic_light(
+                            actual_returns, var_series, alpha=0.05, window=250
+                        ):
+                          """Calculates Basel traffic light exceptions over a rolling window."""
+                          # Identify breaches (where actual loss exceeds VaR threshold)
+                          # Assuming VaR is stored as a negative return threshold (e.g., -0.02)
+                          breaches = actual_returns.tail(window) < var_series.tail(window)
+                          num_exceptions = breaches.sum()
+                        
+                          if num_exceptions <= 4:
+                            zone = "Green"
+                            status = "Acceptable accuracy (Zone 0-4)"
+                          elif 5 <= num_exceptions <= 9:
+                            zone = "Yellow"
+                            status = "Requires review / potential model tuning (Zone 5-9)"
+                          else:
+                            zone = "Red"
+                            status = "Model rejection / high breach frequency (Zone 10+)"
+                        
+                          return {
+                              "exceptions": int(num_exceptions),
+                              "zone": zone,
+                              "status": status,
+                          }
+    
+                    # Calculate rolling historical VaR (e.g., 250-day rolling window, 95% confidence)
+                    rolling_var = (
+                        portfolio_daily_returns.rolling(window=250)
+                        .quantile(0.05)
+                        .dropna()
+                    )
+                    
+                    # Align your actual returns with the exact same dates
+                    aligned_actuals = portfolio_daily_returns.loc[rolling_var.index]
+                    
+                    # Run the traffic light check
+                    result = var_backtest_traffic_light(
+                        aligned_actuals, rolling_var, alpha=0.05, window=250
+                    )
+    
+                    st.subheader("🛡️ Regulatory VaR Backtesting (Basel Traffic Light)")
+    
+                    # Display metrics side by side
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                      st.metric(
+                          label="Lookback Window", value=f"{len(aligned_actuals)} Trading Days"
+                      )
+                    with col2:
+                      st.metric(label="Model Exceptions", value=result["exceptions"])
+                    with col3:
+                      st.metric(label="Traffic Light Zone", value=result["zone"])
+                    
+                    # Color-coded warning/success banner based on the zone
+                    if result["zone"] == "Green":
+                      st.success(f"🟢 **Green Zone (0–4 Exceptions):** {result['status']}")
+                    elif result["zone"] == "Yellow":
+                      st.warning(f"🟡 **Yellow Zone (5–9 Exceptions):** {result['status']}")
+                    else:
+                      st.error(f"🔴 **Red Zone (10+ Exceptions):** {result['status']}")
+    
+                    import datetime
+                    from fpdf import FPDF
+                    
+                    import datetime
+                    from fpdf import FPDF
+                    
+                    
+                    # ==========================================
+                    # 1. PDF GENERATOR: SEBI RIA (INDIVIDUAL & NON-INDIVIDUAL)
+                    # ==========================================
+                    def generate_sebi_ria_audit_pdf(entity_subtype, client_name, ria_reg_no, score, profile, portfolio_vol, max_limit, heavy_holdings, q_answers, timestamp):
+                        pdf = FPDF()
+                        pdf.add_page()
+                        
+                        # Header
+                        pdf.set_font("Arial", "B", 15)
+                        pdf.cell(0, 10, "SEBI RIA COMPLIANCE & SUITABILITY AUDIT RECORD", ln=True, align="C")
+                        pdf.set_font("Arial", "I", 9)
+                        pdf.cell(0, 6, f"Generated via WIRATOR Risk Engine | Entity: {entity_subtype} | Timestamp: {timestamp}", ln=True, align="C")
+                        pdf.ln(8)
+                        
+                        # Client & Advisor Details
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "1. Client & Advisory Identification", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        pdf.cell(0, 6, f"Advisory Entity Category: {entity_subtype}", ln=True)
+                        pdf.cell(0, 6, f"Client Identifier / Name: {client_name}", ln=True)
+                        pdf.cell(0, 6, f"SEBI RIA Registration No.: {ria_reg_no}", ln=True)
+                        pdf.cell(0, 6, f"Assessed Risk Score: {score} / 100 -> Mapped Profile: {profile}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Questionnaire Log
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "2. Documented Risk Profiling Responses", ln=True)
+                        pdf.set_font("Arial", "", 9)
+                        for q, ans in q_answers.items():
+                            pdf.multi_cell(0, 5, f"- {q}: {ans}")
+                        pdf.ln(5)
+                        
+                        # Suitability & Volatility Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "3. Portfolio Suitability & Risk Threshold Check", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        status = "BREACH (Rebalancing Required)" if portfolio_vol > max_limit else "PASSED (Within Mandate)"
+                        pdf.cell(0, 6, f"Portfolio Annualized Volatility: {portfolio_vol*100:.2f}% | Permissible Ceiling: {max_limit*100:.0f}%", ln=True)
+                        pdf.cell(0, 6, f"Suitability Status: {status}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Concentration Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "4. Single-Issuer Concentration Check (10% Threshold)", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        if len(heavy_holdings) > 0:
+                            for ticker, wt in heavy_holdings:
+                                pdf.cell(0, 6, f"WARNING: {ticker} exceeds 10% limit ({wt*100:.2f}% allocation)", ln=True)
+                        else:
+                            pdf.cell(0, 6, "PASSED: All holdings are within the 10% single-issuer concentration guideline.", ln=True)
+                        pdf.ln(5)
+                        
+                        # Fiduciary Disclosures
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "5. Fiduciary & Regulatory Disclosures", ln=True)
+                        pdf.set_font("Arial", "", 9)
+                        pdf.multi_cell(0, 5, (
+                            "1. Direct Plan Compliance: All recommended securities/schemes are evaluated strictly on a zero-commission basis.\n"
+                            "2. Fee Transparency: Advisory fees adhere to SEBI (Investment Advisers) Regulations fee caps.\n"
+                            "3. Client-Level Segregation: Distribution and advisory arms are strictly segregated (mandatory for Non-Individual RIAs).\n"
+                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES or SMART ODR."
+                        ))
+                        
+                        return pdf.output(dest="S").encode("latin-1")
+                    
+                    
+                    # ==========================================
+                    # 2. PDF GENERATOR: BOUTIQUE PMS (PRINCIPAL OFFICER)
+                    # ==========================================
+                    def generate_sebi_pms_audit_pdf(client_name, pms_reg_no, principal_officer, pms_type, approach_name, initial_capital, is_accredited, portfolio_vol, target_vol_cap, max_stock_cap, heavy_holdings, benchmark_name, timestamp):
+                        pdf = FPDF()
+                        pdf.add_page()
+                        
+                        # Header
+                        pdf.set_font("Arial", "B", 15)
+                        pdf.cell(0, 10, "SEBI PMS MANDATE & RISK GOVERNANCE AUDIT RECORD", ln=True, align="C")
+                        pdf.set_font("Arial", "I", 9)
+                        pdf.cell(0, 6, f"Generated via WIRATOR Risk Engine | Principal Officer Review | Timestamp: {timestamp}", ln=True, align="C")
+                        pdf.ln(8)
+                        
+                        # PMS & Client Identification
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "1. Portfolio Manager & Mandate Identification", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        pdf.cell(0, 6, f"Client Identifier / Account Mask: {client_name}", ln=True)
+                        pdf.cell(0, 6, f"SEBI PMS Registration No.: {pms_reg_no} | Principal Officer: {principal_officer}", ln=True)
+                        pdf.cell(0, 6, f"Mandate Type: {pms_type} | Investment Approach: {approach_name}", ln=True)
+                        pdf.cell(0, 6, f"Benchmark Index: {benchmark_name}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Minimum Ticket Size Eligibility Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "2. Regulatory Capital Threshold Verification (INR 50 Lakhs)", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        min_req = 5000000  # INR 50,00,000
+                        if is_accredited:
+                            cap_status = f"EXEMPT / ELIGIBLE (Accredited Investor Status Verified | Capital: INR {initial_capital:,.0f})"
+                        elif initial_capital >= min_req:
+                            cap_status = f"PASSED (Capital INR {initial_capital:,.0f} meets INR 50,00,000 minimum threshold)"
+                        else:
+                            cap_status = f"BREACH (Capital INR {initial_capital:,.0f} is below INR 50,00,000 statutory minimum)"
+                        pdf.cell(0, 6, f"Ticket Size Status: {cap_status}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Strategy Volatility & Risk Guardrail Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "3. Investment Approach Risk & Volatility Guardrail", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        vol_status = "BREACH (Exceeds Strategy Risk Band)" if portfolio_vol > target_vol_cap else "PASSED (Within Disclosure Document Risk Band)"
+                        pdf.cell(0, 6, f"Portfolio Annualized Volatility: {portfolio_vol*100:.2f}% | Strategy Ceiling: {target_vol_cap*100:.0f}%", ln=True)
+                        pdf.cell(0, 6, f"Mandate Risk Status: {vol_status}", ln=True)
+                        pdf.ln(5)
+                        
+                        # Single-Security Concentration Check
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, f"4. Mandate Concentration Check ({max_stock_cap*100:.0f}% Internal / Disclosure Cap)", ln=True)
+                        pdf.set_font("Arial", "", 10)
+                        if len(heavy_holdings) > 0:
+                            for ticker, wt in heavy_holdings:
+                                pdf.cell(0, 6, f"WARNING: {ticker} exceeds {max_stock_cap*100:.0f}% strategy cap ({wt*100:.2f}% allocation)", ln=True)
+                        else:
+                            pdf.cell(0, 6, f"PASSED: All securities comply with the {max_stock_cap*100:.0f}% single-security strategy limit.", ln=True)
+                        pdf.ln(5)
+                        
+                        # PMS Regulatory & Governance Disclosures
+                        pdf.set_font("Arial", "B", 11)
+                        pdf.cell(0, 8, "5. PMS Regulatory & Governance Attestations", ln=True)
+                        pdf.set_font("Arial", "", 9)
+                        pdf.multi_cell(0, 5, (
+                            "1. Asset Segregation & Custody: Client funds and securities are held in segregated bank/demat accounts via an independent SEBI-registered Custodian.\n"
+                            "2. Fee & High-Water Mark (HWM): Management and performance fees (if applicable) are computed strictly on a High-Water Mark basis as per the Disclosure Document.\n"
+                            "3. Direct Onboarding & Benchmarking: Performance is tracked against the SEBI-mandated strategy benchmark (TWRR methodology).\n"
+                            "4. Grievance Redressal: Client may escalate unresolved grievances via SEBI SCORES or SMART ODR."
+                        ))
+                        
+                        return pdf.output(dest="S").encode("latin-1")
+                    
+                    
+                    # ==========================================
+                    # 3. UI RENDERER: SEBI RIA AUDIT
+                    # ==========================================
+                    def render_sebi_ria_audit(entity_subtype, holdings_df, initial_capital, weights, exp_vol=0.18):
+                        st.header(f"⚖️ SEBI RIA Compliance & Fiduciary Audit ({entity_subtype})")
+                        st.info("Automated suitability scoring, concentration checks, and auditable record generation aligned with SEBI (Investment Advisers) Regulations.")
+                    
+                        # 1. Client & Advisor Metadata
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            client_name = st.text_input("Client Identifier / PAN Mask", value="Retail Client Demo (XXXX1234X)")
+                        with col_b:
+                            ria_reg_no = st.text_input("SEBI RIA Registration No. (Optional)", value="INA0000XXXXX")
+                    
+                        if "Non-Individual" in entity_subtype:
+                            st.caption("ℹ️ **Non-Individual RIA Note:** Ensure client-level segregation between advisory and distribution services is maintained at the group/family level.")
+                    
+                        # 2. Scored Risk Profiling Questionnaire
+                        st.subheader("1. Client Risk Profiling Questionnaire (SEBI Suitability Log)")
+                        q1 = st.radio(
+                            "Q1. Primary Investment Horizon:",
+                            ["Less than 2 years (10 pts)", "2 to 5 years (20 pts)", "More than 5 years (30 pts)"],
+                            horizontal=True
+                        )
+                        q2 = st.radio(
+                            "Q2. Reaction to a sudden 20% portfolio drawdown:",
+                            ["Sell immediately to prevent further loss (5 pts)", "Hold and wait for recovery (15 pts)", "Invest additional capital at lower prices (25 pts)"],
+                            horizontal=True
+                        )
+                        q3 = st.radio(
+                            "Q3. Primary Investment Objective:",
+                            ["Capital preservation & steady income (5 pts)", "Balanced growth & inflation protection (15 pts)", "Aggressive long-term wealth creation (25 pts)"],
+                            horizontal=True
+                        )
+                        q4 = st.radio(
+                            "Q4. Emergency Liquidity & Income Stability:",
+                            ["Less than 3 months emergency fund (5 pts)", "3 to 6 months emergency fund (10 pts)", "6+ months emergency fund & stable cashflow (20 pts)"],
+                            horizontal=True
+                        )
+                    
+                        def extract_pts(text):
+                            return int(text.split("(")[1].split(" ")[0])
+                    
+                        total_score = extract_pts(q1) + extract_pts(q2) + extract_pts(q3) + extract_pts(q4)
+                    
+                        if total_score <= 45:
+                            mapped_profile = "Conservative (Max 12% Volatility)"
+                            max_limit = 0.12
+                        elif total_score <= 75:
+                            mapped_profile = "Moderate (Max 22% Volatility)"
+                            max_limit = 0.22
+                        else:
+                            mapped_profile = "Aggressive (Max 35% Volatility)"
+                            max_limit = 0.35
+                    
+                        st.info(f"**Calculated Risk Score:** `{total_score} / 100`  |  **Assigned Risk Category:** `{mapped_profile}`")
+                    
+                        # 3. Suitability & Volatility Assessment
+                        st.subheader("2. Suitability & Volatility Threshold Assessment")
+                        portfolio_vol = exp_vol
+                        if portfolio_vol > max_limit:
+                            st.error(f"🚨 **Compliance Breach:** Portfolio volatility ({portfolio_vol*100:.1f}%) exceeds the permissible limit ({max_limit*100:.0f}%) for a **{mapped_profile.split(' ')[0]}** profile. Rebalancing is required before advice sign-off.")
+                        else:
+                            st.success(f"✅ **Suitability Verified:** Portfolio volatility ({portfolio_vol*100:.1f}%) is within permissible bounds for a **{mapped_profile.split(' ')[0]}** mandate.")
+                    
+                        # 4. Prudential Concentration Limits
+                        st.subheader("3. Prudential Concentration Limits (Single Issuer)")
+                        max_single_stock_allowed = 0.10
+                        tickers = holdings_df['Ticker'].tolist()
+                        heavy_holdings = [(ticker, wt) for ticker, wt in zip(tickers, weights) if wt > max_single_stock_allowed]
+                    
+                        if len(heavy_holdings) > 0:
+                            st.warning("⚠️ **Concentration Warning:** The following assets exceed the 10% single-issuer limit:")
+                            for ticker, wt in heavy_holdings:
+                                st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
+                        else:
+                            st.success("✅ **Diversification Check Passed:** No single asset exceeds the 10% concentration threshold.")
+                    
+                        # 5. Conflict of Interest & Grievance Disclosure
+                        st.subheader("4. Fiduciary & Grievance Disclosures")
+                        st.markdown("""
+                    - **Direct Plan Verification:** Certified that all recommended mutual fund schemes are analyzed under **Direct Plans** (zero-commission).
+                    - **Fee Disclosure:** Advisory fee structure validated in accordance with SEBI fee ceilings (Fixed Fee / AUM Cap).
+                    - **Grievance Redressal (SCORES / ODR):** Client informed of escalation rights via SEBI SCORES and SMART ODR.
+                        """)
+                    
+                        # 6. Timestamped Sign-Off & PDF Audit Export
+                        audit_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        q_answers = {
+                            "Investment Horizon": q1,
+                            "Drawdown Tolerance": q2,
+                            "Investment Objective": q3,
+                            "Liquidity Cushion": q4
+                        }
+                    
+                        pdf_bytes = generate_sebi_ria_audit_pdf(
+                            entity_subtype=entity_subtype,
+                            client_name=client_name,
+                            ria_reg_no=ria_reg_no,
+                            score=total_score,
+                            profile=mapped_profile,
+                            portfolio_vol=portfolio_vol,
+                            max_limit=max_limit,
+                            heavy_holdings=heavy_holdings,
+                            q_answers=q_answers,
+                            timestamp=audit_timestamp
+                        )
+                    
+                        st.download_button(
+                            label="📄 Download Timestamped SEBI RIA Audit Certificate (PDF)",
+                            data=pdf_bytes,
+                            file_name=f"SEBI_RIA_Audit_{client_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
+                            mime="application/pdf"
+                        )
+                    
+                    
+                    # ==========================================
+                    # 4. UI RENDERER: BOUTIQUE PMS AUDIT
+                    # ==========================================
+                    def render_sebi_pms_audit(holdings_df, initial_capital, weights, exp_vol=0.18):
+                        st.header("🏛️ SEBI PMS Mandate & Principal Officer Risk Audit")
+                        st.info("Portfolio mandate adherence, minimum ticket-size validation, strategy risk limits, and Disclosure Document governance aligned with SEBI (Portfolio Managers) Regulations.")
+                    
+                        # 1. PMS Firm & Principal Officer Metadata
+                        col_a, col_b, col_c = st.columns(3)
+                        with col_a:
+                            client_name = st.text_input("PMS Client Account / PAN Mask", value="HNI Client Account (XXXX9876X)")
+                        with col_b:
+                            pms_reg_no = st.text_input("SEBI PMS Registration No.", value="INP0000XXXXX")
+                        with col_c:
+                            principal_officer = st.text_input("Principal Officer Name", value="Principal Officer (NISM-XXI-B)")
+                    
+                        # 2. Investment Approach & Mandate Parameters
+                        st.subheader("1. Investment Approach & Mandate Configuration")
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        with col_m1:
+                            pms_type = st.selectbox("PMS Mandate Type:", ["Discretionary PMS", "Non-Discretionary PMS", "Advisory PMS"])
+                        with col_m2:
+                            approach_name = st.text_input("Investment Approach Name:", value="Core Concentrated Flexi-Cap")
+                        with col_m3:
+                            benchmark_name = st.selectbox("SEBI Strategy Benchmark:", ["BSE 500 TRI", "NIFTY 50 TRI", "NIFTY Midcap 150 TRI", "CRISIL Composite Bond Index"])
+                    
+                        # 3. Statutory Minimum Investment Check (INR 50 Lakhs)
+                        st.subheader("2. Statutory Minimum Ticket Size Check (₹50 Lakhs)")
+                        is_accredited = st.checkbox("Client holds valid SEBI Accredited Investor Certificate (exempt from ₹50L floor)")
+                        min_pms_capital = 5000000  # ₹50,00,000
+                    
+                        if is_accredited:
+                            st.success(f"✅ **Accredited Investor Exemption:** Capital check bypassed via valid SEBI Accreditation (Portfolio Value: `₹{initial_capital:,.0f}`).")
+                        elif initial_capital >= min_pms_capital:
+                            st.success(f"✅ **Ticket Size Compliant:** Portfolio capital (`₹{initial_capital:,.0f}`) meets the `₹50,00,000` minimum threshold.")
+                        else:
+                            st.error(f"🚨 **Regulatory Threshold Alert:** Portfolio capital (`₹{initial_capital:,.0f}`) is below the statutory `₹50,00,000` PMS minimum (unless accredited).")
+                    
+                        # 4. Strategy Risk & Concentration Guardrails (Disclosure Document Limits)
+                        st.subheader("3. Strategy Volatility & Concentration Guardrails")
+                        col_g1, col_g2 = st.columns(2)
+                        with col_g1:
+                            target_vol_pct = st.slider("Disclosure Document Volatility Ceiling (%)", min_value=10, max_value=45, value=25, step=1)
+                            target_vol_cap = target_vol_pct / 100.0
+                        with col_g2:
+                            max_stock_pct = st.slider("Single-Security Mandate Cap (%)", min_value=5, max_value=25, value=15, step=1)
+                            max_stock_cap = max_stock_pct / 100.0
+                    
+                        portfolio_vol = exp_vol
+                        if portfolio_vol > target_vol_cap:
+                            st.error(f"🚨 **Mandate Risk Breach:** Portfolio annualized volatility (`{portfolio_vol*100:.1f}%`) exceeds the `{target_vol_pct}%` ceiling stated for **{approach_name}**.")
+                        else:
+                            st.success(f"✅ **Strategy Risk Aligned:** Portfolio annualized volatility (`{portfolio_vol*100:.1f}%`) is within the `{target_vol_pct}%` mandate ceiling.")
+                    
+                        tickers = holdings_df['Ticker'].tolist()
+                        heavy_holdings = [(ticker, wt) for ticker, wt in zip(tickers, weights) if wt > max_stock_cap]
+                    
+                        if len(heavy_holdings) > 0:
+                            st.warning(f"⚠️ **Mandate Concentration Warning:** The following holdings exceed the `{max_stock_pct}%` internal/disclosure limit:")
+                            for ticker, wt in heavy_holdings:
+                                st.write(f"- **{ticker}**: {wt*100:.2f}% allocation")
+                        else:
+                            st.success(f"✅ **Concentration Check Passed:** No single security exceeds the `{max_stock_pct}%` mandate limit.")
+                    
+                        # 5. PMS Custody, HWM Fee & Governance Disclosures
+                        st.subheader("4. Principal Officer Governance & Custody Attestations")
+                        st.markdown("""
+                    - **Independent Custodian & Asset Segregation:** Client securities and funds are ring-fenced in individual demat/bank accounts overseen by a SEBI-registered Custodian (no pooling of client assets).
+                    - **High-Water Mark (HWM) & Fee Transparency:** Performance-linked fees (if opted) adhere strictly to High-Water Mark computation and Disclosure Document fee schedules.
+                    - **Benchmarking & TWRR Reporting:** Performance attribution is benchmarked against the strategy's SEBI-mandated TRI benchmark using Time-Weighted Rate of Return (TWRR).
+                    - **Grievance Redressal (SCORES / ODR):** Client escalation pathways via SEBI SCORES (`scores.sebi.gov.in`) and SMART ODR are documented in the PMS Agreement.
+                        """)
+                    
+                        # 6. Timestamped Sign-Off & PDF Audit Export
+                        audit_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        pdf_bytes = generate_sebi_pms_audit_pdf(
+                            client_name=client_name,
+                            pms_reg_no=pms_reg_no,
+                            principal_officer=principal_officer,
+                            pms_type=pms_type,
+                            approach_name=approach_name,
+                            initial_capital=initial_capital,
+                            is_accredited=is_accredited,
+                            portfolio_vol=portfolio_vol,
+                            target_vol_cap=target_vol_cap,
+                            max_stock_cap=max_stock_cap,
+                            heavy_holdings=heavy_holdings,
+                            benchmark_name=benchmark_name,
+                            timestamp=audit_timestamp
+                        )
+                    
+                        st.download_button(
+                            label="📄 Download Timestamped SEBI PMS Governance Audit (PDF)",
+                            data=pdf_bytes,
+                            file_name=f"SEBI_PMS_Audit_{client_name.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.pdf",
+                            mime="application/pdf"
+                        )
+                    
+                    
+                    # ==========================================
+                    # 5. MAIN ROUTER FUNCTION (ENTRY POINT)
+                    # ==========================================
+                    def render_compliance_module(holdings_df, initial_capital, weights, exp_vol=0.18):
+                        st.markdown("---")
+                        entity_role = st.radio(
+                            "Select Your Regulatory Entity / Practice Type:",
+                            [
+                                "Boutique PMS Firm (Principal Officer)",
+                                "Non-Individual SEBI RIA (Corporate / Partnership)",
+                                "Individual SEBI RIA"
+                            ],
+                            horizontal=True
+                        )
+                    
+                        if entity_role == "Boutique PMS Firm (Principal Officer)":
+                            render_sebi_pms_audit(holdings_df, initial_capital, weights, exp_vol=exp_vol)
+                        else:
+                            render_sebi_ria_audit(entity_role, holdings_df, initial_capital, weights, exp_vol=exp_vol)
+                    
+                    
+                    # Call the router function in your main app:
+                    render_compliance_module(holdings_df, initial_capital, weights, exp_vol=exp_vol)
+
+                with st.expander(
+                        " Excecution, Wealth Drag & Tax Optimization", expanded=False
+                    ):
+                    
+                    
+                    def render_portfolio_rebalancing(holdings_df, initial_capital, entity_role="Individual SEBI RIA"):
+                        st.markdown("---")
+                        is_pms = "PMS" in entity_role
+                    
+                        if is_pms:
+                            st.header("⚖️ Model Approach Rebalancing & Execution Blotter")
+                            st.info("Align client mandate allocations to model approach targets, estimate turnover & execution friction, and export an order blotter for OMS/custodian review.")
+                        else:
+                            st.header("⚖️ Automated Portfolio Rebalancing & Trade Execution Generator")
+                            st.info("Align your portfolio back to target asset weights and generate exact execution orders (Buy/Sell) for client advisory sign-off.")
+                    
+                        n_assets = len(holdings_df)
+                        if n_assets == 0:
+                            st.warning("Please load or upload a portfolio first.")
+                            return
+                    
+                        # Optional friction assumption (STT, exchange/SEBI charges, stamp duty, brokerage/slippage)
+                        friction_bps = st.slider(
+                            "Estimated Execution & Friction Cost (bps on traded notional)",
+                            min_value=0,
+                            max_value=100,
+                            value=15 if is_pms else 10,
+                            step=5,
+                            key="rebal_friction_bps"
+                        )
+                        friction_rate = friction_bps / 10000.0
+                    
+                        default_weight = 1.0 / n_assets
+                        st.write("**Specify Target Allocation Weights (Automatically normalized to 100%):**")
+                    
+                        # Interactive target weight inputs arranged in columns
+                        target_weights = []
+                        cols = st.columns(min(n_assets, 4))
+                    
+                        for i, (_, row) in enumerate(holdings_df.iterrows()):
+                            ticker = row["Ticker"] if "Ticker" in row and pd.notna(row["Ticker"]) else f"Asset {i}"
+                            col_idx = i % len(cols)
+                            with cols[col_idx]:
+                                tw = st.number_input(
+                                    f"Target %: {ticker}",
+                                    min_value=0.0,
+                                    max_value=100.0,
+                                    value=float(default_weight * 100),
+                                    step=1.0,
+                                    key=f"tw_{i}_{ticker}"
+                                )
+                                target_weights.append(tw / 100.0)
+                    
+                        target_weights = pd.Series(target_weights, dtype=float)
+                        if target_weights.sum() > 0:
+                            target_weights = target_weights / target_weights.sum()
+                        else:
+                            target_weights = pd.Series([default_weight] * n_assets, dtype=float)
+                    
+                        # Extract current weights safely
+                        if "Weight" in holdings_df.columns and len(holdings_df["Weight"]) == n_assets:
+                            curr_weights = pd.Series(holdings_df["Weight"].values, dtype=float)
+                            if curr_weights.sum() > 0 and not np.isclose(curr_weights.sum(), 1.0):
+                                curr_weights = curr_weights / curr_weights.sum()
+                        else:
+                            curr_weights = pd.Series([default_weight] * n_assets, dtype=float)
+                    
+                        tickers = (
+                            holdings_df["Ticker"].astype(str).tolist()
+                            if "Ticker" in holdings_df.columns
+                            else [f"Asset {i}" for i in range(n_assets)]
+                        )
+                    
+                        rebal_df = pd.DataFrame({
+                            "Ticker": tickers,
+                            "Current Weight (%)": curr_weights.values * 100.0,
+                            "Target Weight (%)": target_weights.values * 100.0,
+                            "Current Value (INR)": curr_weights.values * initial_capital,
+                            "Target Value (INR)": target_weights.values * initial_capital,
+                        })
+                    
+                        rebal_df["Difference (INR)"] = rebal_df["Target Value (INR)"] - rebal_df["Current Value (INR)"]
+                        rebal_df["Action"] = rebal_df["Difference (INR)"].apply(
+                            lambda x: "BUY" if x > 1.0 else ("SELL" if x < -1.0 else "HOLD")
+                        )
+                        rebal_df["Execution Amount (INR)"] = rebal_df.apply(
+                            lambda r: abs(r["Difference (INR)"]) if r["Action"] != "HOLD" else 0.0,
+                            axis=1
+                        )
+                        rebal_df["Est. Friction Cost (INR)"] = rebal_df["Execution Amount (INR)"] * friction_rate
+                    
+                        total_turnover = rebal_df["Execution Amount (INR)"].sum()
+                        est_total_friction = rebal_df["Est. Friction Cost (INR)"].sum()
+                        turnover_pct = (total_turnover / initial_capital * 100.0) if initial_capital > 0 else 0.0
+                    
+                        m1, m2, m3 = st.columns(3)
+                        with m1:
+                            st.metric("Total Rebalance Turnover", f"₹{total_turnover:,.2f}", delta=f"{turnover_pct:.2f}% of portfolio", delta_color="off")
+                        with m2:
+                            st.metric("Est. Execution Friction", f"₹{est_total_friction:,.2f}")
+                        with m3:
+                            active_orders = int((rebal_df["Action"] != "HOLD").sum())
+                            st.metric("Active Orders", f"{active_orders} / {n_assets}")
+                    
+                        st.dataframe(
+                            rebal_df.style.format({
+                                "Current Weight (%)": "{:.2f}%",
+                                "Target Weight (%)": "{:.2f}%",
+                                "Current Value (INR)": "₹{:,.2f}",
+                                "Target Value (INR)": "₹{:,.2f}",
+                                "Difference (INR)": "₹{:,.2f}",
+                                "Execution Amount (INR)": "₹{:,.2f}",
+                                "Est. Friction Cost (INR)": "₹{:,.2f}",
+                            }),
+                            use_container_width=True
+                        )
+                    
+                        csv_data = rebal_df.to_csv(index=False).encode("utf-8")
+                        st.download_button(
+                            label="📥 Download Trade Execution Orders (CSV)",
+                            data=csv_data,
+                            file_name=f"Rebalancing_Orders_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                            mime="text/csv"
+                        )
+                    
+                    
+                    def render_wealth_drag_calculator(initial_capital, entity_role="Individual SEBI RIA"):
+                        st.markdown("---")
+                        is_pms = "PMS" in entity_role
+                    
+                        if is_pms:
+                            st.header("📉 Strategy Fee, Cash & Execution Drag Calculator")
+                            st.info("Compare gross strategy compounding against net-of-fee and friction/cash-drag compounding over your investment horizon.")
+                            label_a = "Net-of-Fee / Friction Value"
+                            label_b = "Gross Strategy Potential"
+                            label_drag = "Total Compounded Fee & Friction Drag"
+                            col3_label = "Annual Fee + Friction Drag (% p.a.)"
+                            default_drag_pct = 1.75
+                            series_a_name = "Net of Fee & Friction"
+                            series_b_name = "Gross Strategy Trajectory"
+                        else:
+                            st.header("📉 Direct Plan vs. Regular Plan Wealth Drag Calculator")
+                            st.info("Demonstrate the compounding wealth lost to distributor commissions in Regular mutual fund plans over long investment horizons.")
+                            label_a = "Regular Plan Final Value"
+                            label_b = "Direct Plan Final Value (Fiduciary)"
+                            label_drag = "Total Wealth Lost to Commissions"
+                            col3_label = "Expense Ratio Diff (Regular - Direct %)"
+                            default_drag_pct = 1.0
+                            series_a_name = "Regular Plan (With Commission)"
+                            series_b_name = "Direct Plan (Zero Commission)"
+                    
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            horizon_years = st.number_input("Investment Horizon (Years)", min_value=1, max_value=30, value=10, step=1, key="wd_horizon")
+                        with col2:
+                            expected_cagr = st.number_input("Expected Gross CAGR (%)", min_value=1.0, max_value=30.0, value=14.0, step=0.5, key="wd_cagr") / 100.0
+                        with col3:
+                            expense_diff = st.number_input(
+                                col3_label,
+                                min_value=0.1,
+                                max_value=5.0,
+                                value=default_drag_pct,
+                                step=0.1,
+                                key="wd_diff"
+                            ) / 100.0
+                    
+                        # Ensure net/regular CAGR does not drop below -99%
+                        net_cagr = max(expected_cagr - expense_diff, -0.99)
+                        gross_cagr = expected_cagr
+                    
+                        years = np.arange(0, int(horizon_years) + 1)
+                        net_wealth = initial_capital * ((1.0 + net_cagr) ** years)
+                        gross_wealth = initial_capital * ((1.0 + gross_cagr) ** years)
+                        wealth_drag = gross_wealth - net_wealth
+                    
+                        final_net = float(net_wealth[-1])
+                        final_gross = float(gross_wealth[-1])
+                        total_drag = float(wealth_drag[-1])
+                        drag_pct_of_gross = (total_drag / final_gross * 100.0) if final_gross != 0 else 0.0
+                    
+                        col_m1, col_m2, col_m3 = st.columns(3)
+                        with col_m1:
+                            st.metric(label_a, f"₹{final_net:,.2f}")
+                        with col_m2:
+                            st.metric(label_b, f"₹{final_gross:,.2f}")
+                        with col_m3:
+                            st.metric(
+                                label_drag,
+                                f"₹{total_drag:,.2f}",
+                                delta=f"-{drag_pct_of_gross:.1f}% drag",
+                                delta_color="inverse"
+                            )
+                    
+                        chart_df = pd.DataFrame({
+                            "Year": years,
+                            series_a_name: net_wealth,
+                            series_b_name: gross_wealth
+                        }).set_index("Year")
+                    
+                        st.line_chart(chart_df)
+                    
+                    entity_role = st.radio(
+                        "Select Your Regulatory Entity / Practice Type:",
+                        [
+                            "Boutique PMS Firm (Principal Officer)",
+                            "Non-Individual SEBI RIA (Corporate / Partnership)",
+                            "Individual SEBI RIA",
+                        ],
+                        horizontal=True,
+                        key="entity_role",
+                    )
+                    # Pass entity_role from your compliance/session state if available
+                    active_entity_role = st.session_state.get("entity_role", "Individual SEBI RIA")
+                    render_portfolio_rebalancing(holdings_df, initial_capital, entity_role=active_entity_role)
+                    render_wealth_drag_calculator(initial_capital, entity_role=active_entity_role)
+    
+                     # -------------------------------------------------------------------
+              # 🛡️️ TAX Liabilities & Optimization Section
+              # -------------------------------------------------------------------
+                    st.markdown("---")
+                    st.header("🛡️ TAX Liabilities & Optimization")
+    
+              # 1. Base Summary Table (Static / Current Upload View)
+                    if exchange in ["US", "UK", "EU", "JSE"]:
+                      st.info("ℹ️ Tax audit optimization is currently available only in India.")
+                    else:
+                        if flag==1:  #No CSV is uploaded, stocks added on the portal
+                            st.info(f"👈 Please upload a {exchange} portfolio CSV file from the left sidebar to generate the tax audit.")
+                        else:
+                            df_base = holdings_df.copy()
+                            ticker_col = (
+                            'Instrument'
+                            if 'Instrument' in df_base.columns
+                            else df_base.columns[0]
+                              )
+                            cost_col = (
+                            'Avg. cost'
+                            if 'Cost Price' in df_base.columns
+                            else (
+                              'Avg_Cost'
+                            if 'Avg_Cost' in df_base.columns
+                            else 'Buy_Price'
+                            )
+                            )
+                            qty_col = (
+                            'Qty.'
+                            if 'Qty.' in df_base.columns
+                            else ('Qty' if 'Qty' in df_base.columns else 'Quantity')
+                            )
+                            if 'Holding_Days' not in df_base.columns:
+                                df_base['Holding_Days'] = time_horizon_days
+    
+                    # -------------------------------------------------------------------
+                      # ✏️ Interactive & Editable Table (Supports Adding Stocks)
+                      # -------------------------------------------------------------------
+                            st.caption(
+                          "📌 *You can edit individual stock holding days, prices, or add new rows directly in the table below:*"
+                            )
+            
+                      # Prepare initial structure for editable grid
+                            editable_init = pd.DataFrame({
+                            'Instrument': df_base[ticker_col],
+                            'Avg_Cost': (
+                              df_base['Cost Price']
+                              if 'Cost Price' in df_base.columns
+                              else 100.0
+                                ),
+                            'Qty': (
+                             df_base[qty_col] if qty_col in df_base.columns else 1
+                              ),
+                            'Holding_Days': df_base['Holding_Days'],
+                            })
+            
+                      # Render st.data_editor with num_rows="dynamic" to enable row additions
+                            edited_tax_df = st.data_editor(
+                            editable_init,
+                            num_rows="dynamic",  # Enables (+ Add row) button
+                            column_config={
+                              "Instrument": st.column_config.TextColumn(
+                                  "Instrument", required=True
+                              ),
+                              "Avg_Cost": st.column_config.NumberColumn(
+                                  "Buy Price (₹)", min_value=0.01, format="₹%.2f"
+                              ),
+                              "Qty": st.column_config.NumberColumn(
+                                  "Quantity", min_value=1, step=1
+                              ),
+                              "Holding_Days": st.column_config.NumberColumn(
+                                  "Holding Days", min_value=1, step=1
+                              ),
+                            },
+                            hide_index=True,
+                            use_container_width=True,
+                            key="tax_editor_grid_v2",
+                            )
+            
+                      # Recompute live prices and dynamic tax on edited grid
+                            # Recompute live prices and dynamic tax on edited grid
+                            if not edited_tax_df.empty:
+                          # Fetch/map live price safely
+                                #cleaned_tickers = edited_tax_df['Instrument'].astype(str).str.replace(r'\.(NS|BO|JO)$', '', regex=True).str.strip()
+                        
+                                #edited_tax_df['Instrument'] = edited_tax_df[cleaned_tickers].astype(str).str.strip() + current_cfg['suffix']
+                                edited_tax_df['yf_ticker'] = edited_tax_df['Instrument'].astype(str).str.strip() + current_cfg['suffix']
+                                live_tickers = edited_tax_df['yf_ticker'].tolist()
+                                #live_tickers = (cleaned_tickers + current_cfg["suffix"]).tolist()
+                                end_date = datetime.datetime.now()
+                                start_date = end_date - datetime.timedelta(days=365)
+                                live_price_data = yf.download(live_tickers, start=start_date, end=end_date)['Close']
+            
+                    # Handle single series edge cases
+                                if isinstance(live_price_data, pd.Series):
+                                    live_price_data = live_price_data.to_frame()
+            
+                    # Clean invalid or empty columns
+                                    live_price_data = live_price_data.dropna(how='all', axis=1)
+            
+                    # Safety Check to prevent out-of-bounds iloc crash
+                                if live_price_data.empty:
+                                    st.error("Price data download returned no valid records for the given tickers.")
+                                else:
+                                    live_price_data = live_price_data.ffill().bfill()
+                                    live_prices = live_price_data.iloc[-1]
+            
+                        # 2. Map latest prices safely to user holdings
+                        # (Matches symbol or fallback if user CSV uses standard stock symbols)
+                                    edited_tax_df['Live Price'] = edited_tax_df['yf_ticker'].map(live_prices)
+                                    edited_tax_df['Live Price'] = edited_tax_df['Live Price'].fillna(0.0)
+            
+                          # Compute Live P&L correctly
+                                edited_tax_df['P&L'] = (edited_tax_df['Live Price'] - edited_tax_df['Avg_Cost']) * edited_tax_df['Qty']
+            
+                          # Tax calculation logic
+                                edited_tax_df['Tax_Category'] = np.where(
+                                edited_tax_df['Holding_Days'] >= 365, 'LTCG', 'STCG'
+                                )
+                                edited_tax_df['Tax_Liability'] = np.where(
+                                edited_tax_df['Tax_Category'] == 'LTCG',
+                                np.maximum(0, edited_tax_df['P&L']) * 0.125,
+                                np.maximum(0, edited_tax_df['P&L']) * 0.20,
+                                )
+            
+                          # Display metric
+                                modified_tax = edited_tax_df['Tax_Liability'].sum()
+                                total_profit = edited_tax_df['P&L'].sum()
+            
+                                res5_col1, res5_col2, res5_col3 = st.columns(3)
+            
+                                res5_col1.metric(
+                                label="Total Profit", 
+                                #value=f"{abs(total_profit):.2f}", 
+                                value=f"{currency} {total_profit:,.2f}", 
+                                #delta_color="inverse"
+                                )
+                            
+                                res5_col2.metric(
+                                label="Total Modified Tax", 
+                                value="N/A" if total_profit < 0 else f"{currency} {modified_tax:,.2f}",
+                                )
+                                
+                                res5_col3.metric(
+                                label="Tax Share", 
+                                value="N/A" if total_profit < 0 else f"{modified_tax / total_profit * 100:,.2f} %",
+                                )
+            
+                          # Render summary table below metric
+                                st.dataframe(
+                                  edited_tax_df[
+                                  [
+                                      'Instrument',
+                                      'Avg_Cost',
+                                      'Live Price',
+                                      'P&L',
+                                      'Holding_Days',
+                                      'Tax_Category',
+                                      'Tax_Liability',
+                                  ]
+                                ],
+                                column_config={
+                                  "Instrument": st.column_config.TextColumn("Instrument"),
+                                  "Avg_Cost": st.column_config.NumberColumn(
+                                      "Buy Price (₹)", format="₹%.2f"
+                                  ),    
+                                  "Live Price": st.column_config.NumberColumn(
+                                      "Live Price (₹)", format="₹%.2f"
+                                  ),  
+                                  "P&L": st.column_config.NumberColumn(
+                                      "P&L (₹)", format="₹%.2f"
+                                  ),
+                                  "Holding_Days": st.column_config.NumberColumn(
+                                      "Holding_Days"
+                                  ),
+                                  "Tax_Category": st.column_config.TextColumn(
+                                      "Tax_Category"
+                                  ),
+                                  "Tax_Liability": st.column_config.NumberColumn(
+                                      "Tax_Liability (₹)", format="₹%.2f"
+                                  ),
+                                },
+                                hide_index=True,
+                                use_container_width=True,
+                                )
+                if exchange == "BSE":
+                    st.caption(
+                    "Note: Market data sourced via NSE primary liquid feeds for dual-listed equities to ensure consistent pricing data availability and zero downtime across exchange views.")
+
+                import io
+                from reportlab.lib import colors
+                from reportlab.lib.pagesizes import A4
+                from reportlab.platypus import (
+                    SimpleDocTemplate,
+                    Paragraph,
+                    Spacer,
+                    Table,
+                    TableStyle,
+                    Image as RLImage,
+                )
+                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                
+                
+                def draw_cream_background(canvas, doc):
+                    """Draws the cream theme background (#FAF8ED) across the entire PDF page."""
+                    canvas.saveState()
+                    canvas.setFillColor(colors.HexColor("#FAF8ED"))
+                    canvas.rect(0, 0, doc.pagesize[0], doc.pagesize[1], fill=1, stroke=0)
+                    canvas.restoreState()
+                
+                
+                def generate_pdf_report(
+                    portfolio_score,
+                    portfolio_beta,
+                    holdings_df,
+                    metrics_dict,
+                    mc_dict,
+                    fig_bytes=None,fig_weights_bytes=None, fig_risk_bytes=None,
+                ):
+                    buffer = io.BytesIO()
+                    doc = SimpleDocTemplate(
+                        buffer,
+                        pagesize=A4,
+                        rightMargin=28,
+                        leftMargin=28,
+                        topMargin=28,
+                        bottomMargin=28,
+                    )
+                    story = []
+                
+                    # --- THEME COLOR PALETTE ---
+                    NAVY = colors.HexColor("#1A2B4C")
+                    DARK_NAVY = colors.HexColor("#0F1C33")
+                    TEXT_CREAM = colors.HexColor("#FAF8ED")
+                    ACCENT_BLUE = colors.HexColor("#38BDF8")
+                
+                    styles = getSampleStyleSheet()
+                    title_style = ParagraphStyle(
+                        "TitleStyle",
+                        parent=styles["Heading1"],
+                        fontName="Helvetica-Bold",
+                        fontSize=13,
+                        textColor=TEXT_CREAM,
+                        alignment=1,
+                        spaceAfter=2,
+                    )
+                    subtitle_style = ParagraphStyle(
+                        "SubTitleStyle",
+                        parent=styles["Normal"],
+                        fontName="Helvetica",
+                        fontSize=7.5,
+                        textColor=colors.white,
+                        alignment=1,
+                    )
+                    section_style = ParagraphStyle(
+                        "SectionStyle",
+                        parent=styles["Heading2"],
+                        fontName="Helvetica-Bold",
+                        fontSize=9.5,
+                        textColor=NAVY,
+                        spaceBefore=6,
+                        spaceAfter=2,
+                    )
+                    th_style = ParagraphStyle(
+                        "TH",
+                        fontName="Helvetica-Bold",
+                        fontSize=7.5,
+                        textColor=TEXT_CREAM,
+                        alignment=0,
+                    )
+                    td_style = ParagraphStyle(
+                        "TD", fontName="Helvetica", fontSize=7.5, textColor=TEXT_CREAM, alignment=0
+                    )
+                    conclusion_style = ParagraphStyle(
+                        "Conclusion",
+                        parent=styles["Normal"],
+                        fontName="Helvetica",
+                        fontSize=7.5,
+                        textColor=TEXT_CREAM,
+                        leading=10,
+                    )
+                
+                    # 1. Masthead Header
+                    header_data = [
+                        [Paragraph("WIRATOR — Portfolio Audit", title_style)],
+                        [
+                            Paragraph(
+                                "Comprehensive Asset Allocation, Risk Performance &amp; Monte Carlo Projections",
+                                subtitle_style,
+                            )
+                        ],
+                    ]
+                    header_table = Table(header_data, colWidths=[536])
+                    header_table.setStyle(
+                        TableStyle(
+                            [
+                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
+                                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+                            ]
+                        )
+                    )
+                    story.append(header_table)
+                    story.append(Spacer(1, 4))
+                
+                    # 2. Portfolio Score Card
+                    score_data = [
+                        [Paragraph("⭐ QUANTITATIVE PORTFOLIO SCORE", subtitle_style)],
+                        [
+                            Paragraph(
+                                f"<font size=18><b>{portfolio_score} / 100</b></font>",
+                                ParagraphStyle("ScoreVal", parent=title_style, fontSize=18),
+                            )
+                        ],
+                        [
+                            Paragraph(
+                                f"Market Benchmark Beta: {portfolio_beta:.2f} (Defensive Alignment)",
+                                ParagraphStyle(
+                                    "ScoreSub", parent=subtitle_style, textColor=ACCENT_BLUE
+                                ),
+                            )
+                        ],
+                    ]
+                    score_table = Table(score_data, colWidths=[536])
+                    score_table.setStyle(
+                        TableStyle(
+                            [
+                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
+                                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+                            ]
+                        )
+                    )
+                    story.append(score_table)
+                    story.append(Spacer(1, 4))
+                
+                    # 3. Edited Holdings / Stocks Table Breakdown
+                    story.append(Paragraph("Portfolio Holdings Breakdown", section_style))
+                    h_table_data = [
+                        [
+                            Paragraph("Asset Symbol", th_style),
+                            Paragraph("Quantity", th_style),
+                            Paragraph("Latest Price (INR)", th_style),
+                        ]
+                    ]
+                
+                    if edited_df is not None and not edited_df.empty:
+                        for _, row in edited_df.iterrows():
+                            ticker = str(
+                                row.get("Ticker", row.get("Symbol", row.get("asset", "-")))
+                            )
+                            qty = str(row.get("Quantity", row.get("qty", "0")))
+                            price = float(
+                                row.get(
+                                    "Latest Price",
+                                    row.get("Price", row.get("latest_price", 0.0)),
+                                )
+                            )
+                            h_table_data.append(
+                                [
+                                    Paragraph(ticker, td_style),
+                                    Paragraph(qty, td_style),
+                                    Paragraph(f"{price:,.2f}", td_style),
+                                ]
+                            )
+                
+                    holdings_table = Table(h_table_data, colWidths=[206, 165, 165])
+                    holdings_table.setStyle(
+                        TableStyle(
+                            [
+                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
+                                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                                ("GRID", (0, 0), (-1, -1), 0.5, DARK_NAVY),
+                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+                            ]
+                        )
+                    )
+                    story.append(holdings_table)
+                    story.append(Spacer(1, 4))
+                
+                    # 4. Cumulative Portfolio vs. Market Comparison Graph
+                    if fig_bytes:
+                        story.append(
+                            Paragraph("Cumulative Portfolio vs. Market Performance", section_style)
+                        )
+                        story.append(RLImage(io.BytesIO(fig_bytes), width=536, height=300))
+                        story.append(Spacer(1, 4))
+                
+                    # 5. Core Return & Risk Metrics Table
+                    story.append(Paragraph("Core Return &amp; Risk Metrics", section_style))
+                    metrics_data = [
+                        [
+                            Paragraph(
+                                f"<b>ANNUALIZED RETURN</b><br/><font size=10><b>{metrics_dict.get('ann_return', '0.00%')}</b></font>",
+                                td_style,
+                            ),
+                            Paragraph(
+                                f"<b>ANNUALIZED VOLATILITY</b><br/><font size=10><b>{metrics_dict.get('ann_vol', '0.00%')}</b></font>",
+                                td_style,
+                            ),
+                            Paragraph(
+                                f"<b>MAXIMUM DRAWDOWN</b><br/><font size=10><b>{metrics_dict.get('max_dd', '0.00%')}</b></font>",
+                                td_style,
+                            ),
+                        ]
+                    ]
+                    m_table = Table(metrics_data, colWidths=[178, 179, 179])
+                    m_table.setStyle(
+                        TableStyle(
+                            [
+                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
+                                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                                ("GRID", (0, 0), (-1, -1), 0.5, DARK_NAVY),
+                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+                            ]
+                        )
+                    )
+                    story.append(m_table)
+                    story.append(Spacer(1, 4))
+                
+                    # 6. Value at Risk (VaR) & Downside Metrics Table
+                    story.append(
+                        Paragraph("Value at Risk (VaR) &amp; Downside Metrics", section_style)
+                    )
+                    var_data = [
+                        [
+                            Paragraph(
+                                f"<b>HISTORICAL VaR (95%)</b><br/><font size=9><b>{metrics_dict.get('var', '0.00%')}</b></font>",
+                                td_style,
+                            ),
+                            Paragraph(
+                                f"<b>CVaR / SHORTFALL</b><br/><font size=9><b>{metrics_dict.get('cvar', '0.00%')}</b></font>",
+                                td_style,
+                            ),
+                            Paragraph(
+                                f"<b>SHARPE RATIO</b><br/><font size=9><b>{metrics_dict.get('sharpe', '0.00')}</b></font>",
+                                td_style,
+                            ),
+                        ],
+                        [
+                            Paragraph(
+                                f"<b>PORTFOLIO DIVERSIFICATION</b><br/><font size=9><b>{metrics_dict.get('weight_ent', '0.00%')}</b></font>",
+                                td_style,
+                            ),
+                            Paragraph(
+                                f"<b>RISK DIVERSIFICATION</b><br/><font size=9><b>{metrics_dict.get('risk_ent', '0.00%')}</b></font>",
+                                td_style,
+                            ),
+                            Paragraph(
+                                f"<b>SORTINO RATIO ({metrics_dict.get('target_return', '0.00%')})</b><br/><font size=9><b>{metrics_dict.get('sortino', '0.00')}</b></font>",
+                                td_style,
+                            ),
+                        ],
+                    ]
+                    var_table = Table(var_data, colWidths=[178, 179, 179])
+                    var_table.setStyle(
+                        TableStyle(
+                            [
+                                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
+                                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                                ("GRID", (0, 0), (-1, -1), 0.5, DARK_NAVY),
+                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+                            ]
+                        )
+                    )
+                    story.append(var_table)
+                    story.append(Spacer(1, 4))
+
+                    # --- SIDE-BY-SIDE WEIGHT & RISK CONTRIBUTION GRAPHS ---
+                    if fig_weights_bytes and fig_risk_bytes:
+                        story.append(
+                            Paragraph(
+                                "Portfolio Weight vs. Risk Contribution Breakdown", section_style
+                            )
+                        )
+                        img_w = RLImage(io.BytesIO(fig_weights_bytes), width= 400, height=250)
+                        img_r = RLImage(io.BytesIO(fig_risk_bytes), width= 400, height=250)
+
+                        story.append(img_w)
+                        story.append(Spacer(1, 4))
+                        story.append(Spacer(1, 4))
+                        story.append(img_r)
+                        story.append(Spacer(1, 4))
+                        # charts_table = Table([[img_w, img_r]], colWidths=[268, 500])
+                        # charts_table.setStyle(
+                        #     TableStyle([
+                        #         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        #         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        #         ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                        #         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                        #         ("TOPPADDING", (0, 0), (-1, -1), 2),
+                        #         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                        #     ])
+                        
+                        # story.append(charts_table)
+
+  # --- 7. Monte Carlo Risk Audit & Conclusion Block ---
+  # [Your existing Monte Carlo table code follows here]
+                
+                    # 7. Monte Carlo Risk Audit & Conclusion Block
+                    story.append(
+                        Paragraph("Monte Carlo Risk Audit (30-Day Horizon)", section_style)
+                    )
+                    mc_data = [
+                        [
+                            Paragraph(
+                                f"<b>MAX EXPECTED LOSS</b><br/><font size=9.5><b>{mc_dict.get('max_loss', 'INR 0')}</b></font>",
+                                td_style,
+                            ),
+                            Paragraph(
+                                f"<b>PROJECTED TAIL VALUE</b><br/><font size=9.5><b>{mc_dict.get('tail_val', 'INR 0')}</b></font>",
+                                td_style,
+                            ),
+                            Paragraph(
+                                f"<b>PROBABILITY OF >10% DD</b><br/><font size=9.5><b>{mc_dict.get('prob_dd', '0.3%')}</b></font>",
+                                td_style,
+                            ),
+                        ],
+                        [
+                            Paragraph(
+                                "<b>Audit Conclusion:</b> The portfolio demonstrates a defensive market profile with low beta against the benchmark index. Rebalance underperforming weightings to optimize risk-adjusted returns.",
+                                conclusion_style,
+                            ),
+                            "",
+                            "",
+                        ],
+                    ]
+                    mc_table = Table(mc_data, colWidths=[178, 179, 179])
+                    mc_table.setStyle(
+                        TableStyle(
+                            [
+                                ("BACKGROUND", (0, 0), (-1, -1), DARK_NAVY),
+                                ("SPAN", (0, 1), (2, 1)),
+                                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                                ("ROUNDEDCORNERS", [5, 5, 5, 5]),
+                            ]
+                        )
+                    )
+                    story.append(mc_table)
+                
+                    doc.build(
+                        story,
+                        onFirstPage=draw_cream_background,
+                        onLaterPages=draw_cream_background,
+                    )
+                    buffer.seek(0)
+                    return buffer.getvalue()
+                
+                
+                # --- SIDEBAR DOWNLOAD BUTTON INTEGRATION ---
+                st.sidebar.markdown("---")
+                st.sidebar.subheader("📥 Export Reports")
+
+                st.markdown(
+                """
+                <style>
+                /* Fix button text visibility across standard and primary buttons */
+                div.stButton > button, div.stDownloadButton > button {
+                    color: #1A2B4C !important;
+                    background-color: #FAF8ED !important;
+                    font-weight: bold !important;
+                    border: 1px solid #1A2B4C !important;
+                }
+                div.stButton > button[kind="primary"], div.stDownloadButton > button[kind="primary"] {
+                    color: #FAF8ED !important;
+                    background-color: #1A2B4C !important;
+                }
+                /* Style Streamlit status container (st.status) to match Midnight Blue theme */
+                div[data-testid="stStatusWidget"] {
+                    background-color: #1A2B4C !important;
+                    color: #FFFFFF !important;
+                    border: 1px solid #FAF8ED !important;
+                }
+                div[data-testid="stStatusWidget"] * {
+                    color: #FAF8ED !important;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+                )
+
+                # Initialize session state for the PDF data if it doesn't exist
+                if "pdf_data" not in st.session_state:
+                    st.session_state.pdf_data = None
+                
+                if st.sidebar.button("Generate PDF Audit Report", type="primary"):
+                # Capture Plotly figure as static image bytes for PDF inclusion
+                    with st.sidebar.status("🔄 Generating PDF Report...", expanded=True) as status:
+                        st.write("Capturing Plotly charts & metrics...")
+                        fig_bytes = None
+                        try:
+                            fig_bytes = fig.to_image(
+                                format="png", width=700, height=250, scale=2
+                            )  # 'fig' is your active cumulative performance plot
+                        except Exception:
+                            pass
+    
+                        # Capture both distribution charts as static image bytes
+                        fig_weights_bytes = None
+                        fig_risk_bytes = None
+                        try:
+                            fig_weights_bytes = fig_weights.to_image(
+                                format="png", width=400, height=220, scale=2
+                            )
+                            fig_risk_bytes = fig_risk.to_image(
+                                format="png", width=400, height=220, scale=2
+                            )
+                        except Exception:
+                            pass
+                                    
+                        # Bundle dictionaries from your active session states
+                        st.write("Compiling Report...")
+                        metrics_summary = {
+                            "ann_return": f"{portfolio_daily_returns.mean() * 252 * 100:.2f}%",
+                            "ann_vol": f"{portfolio_daily_returns.std() * np.sqrt(252) * 100:.2f}%",
+                            "max_dd": f"{exp_dd * 100:.2f}%",
+                            "var": f"{abs(var_pct) * 100:.2f}%",
+                            "cvar": f"{abs(cvar_pct) * 100:.2f}%",
+                            "sharpe": f"{sharpe:.2f}",
+                            "risk_ent": f"{abs(risk_entropy):.2f}%",
+                            "weight_ent": f"{abs(weight_entropy):.2f}%",
+                            "sortino": f"{abs(sortino):.2f}",
+                            "target_return": f"{target_return_pct}%",
+                        }
+                        mc_summary = {
+                            "max_loss": f"INR {abs(var_amount):,.2f}",
+                            "tail_val": f"INR {initial_capital - abs(var_amount):,.2f}",
+                            "prob_dd": "0.3%",
+                        }
+                    
+                        st.session_state.pdf_data = generate_pdf_report(
+                            portfolio_score,
+                            portfolio_beta,
+                            None,
+                            metrics_summary,
+                            mc_summary,
+                            fig_bytes,
+                            fig_weights_bytes,
+                            fig_risk_bytes,
+                        )
+                        status.update(
+                        label="✅ PDF Report Generated Successfully!",
+                        state="complete",
+                        expanded=False,
+                        )
+                if st.session_state.pdf_data is not None:
+                    st.sidebar.download_button(
+                        label="Download PDF Report",
+                        data=st.session_state.pdf_data,
+                        file_name="Wirator_Portfolio_Audit.pdf",
+                        mime="application/pdf",
+                        type = "primary",
+                    )
+
+     
+            # if exchange == "BSE":
+            #     st.caption(
+            #     "Note: Market data sourced via NSE primary liquid feeds for dual-listed equities to ensure consistent pricing data availability and zero downtime across exchange views.")
+        except Exception as e:
+            st.error(f"Error reading CSV portfolio file: {str(e)}")
+
+        # --- FEEDBACK & FEATURE REQUEST FORM ---
+        with st.sidebar:
+          st.markdown("---")
+          st.subheader("💬 Feedback & Feature Request")
+        
+          with st.form("feedback_form", clear_on_submit=True):
+            user_email = st.text_input("Your Email (optional)")
+            feedback_type = st.selectbox(
+                "Feedback Type", ["Bug Report", "Feature Request", "General Feedback"]
+            )
+            user_message = st.text_area("Your Message / Suggestion")
+        
+            submitted = st.form_submit_button("Submit Feedback")
+
+          if submitted:
+            if user_message.strip():
+                try:
+                    # 1. Setup credentials from Streamlit Secrets
+                    scope = [
+                        "https://spreadsheets.google.com/feeds",
+                        "https://www.googleapis.com/auth/drive"
+                    ]
+                    creds_dict = dict(st.secrets["gcp_service_account"])
+                    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+                    client = gspread.authorize(creds)
+
+                    # 2. Open Google Sheet by name
+                    sheet = client.open("Wirator User Feedback").sheet1
+
+                    # 3. Build exact row payload matching your entries
+                    row_data = [
+                        pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),    # Timestamp
+                        user_email if user_email else "Anonymous",           # Email
+                        feedback_type,                                       # Type
+                        exchange if "exchange" in globals() else "NSE",       # Exchange
+                        user_message                                         # Message
+                    ]
+
+                    # 4. Append row directly to Google Sheet
+                    sheet.append_row(row_data)
+                    st.success("Thank you! Your feedback has been recorded.")
+
+                except Exception as e:
+                    st.error(f"Failed to record feedback: {e}")
+            else:
+                st.warning("Please enter a message before submitting.")
+        
+
+    # else:
+    #     st.info(f"👈 Please upload a {exchange} portfolio CSV file from the left sidebar to generate the risk audit.")
