@@ -724,11 +724,11 @@ if st.session_state["page"] == "landing":
             <div style="font-size: 4rem; margin-bottom: 0.5rem;">🛡️</div>
             <h1 class="hero-title">WIRATOR</h1>
             <div class="hero-subtitle">Institutional Portfolio Risk Audit & Monte Carlo Stress Testing</div>
-            <div class="slogan-badge">Optimize. Comply. Grow.</div>
+            <div class="slogan-badge">Sharper Risk. Stronger Proof.</div>
             <p class="hero-description">
-                <b>WIRATOR</b> is an open-access institutional-grade wealthtech platform for Investment Advisors.
-                It converts portfolio holdings into audit-ready <b>VaR</b>, <b>CVaR</b>, Monte Carlo risk models, macro stress test scenarios,
-                <b>Sharpe Style Factor Attribution</b>, <b>automated SEBI fiduciary audit certificates</b>, tax-loss optimization matrices, and precision rebalancing execution sheets.
+                Turn every rebalance into a clearer and more defensible decision.
+                See where real risk sits, test <b>forward</b> outcomes before committing capital.
+                Leave with timestamped suitability records that back up your judgment across single clients and batches.
             </p>
         </div>
         """,
@@ -737,7 +737,7 @@ if st.session_state["page"] == "landing":
 
     st.markdown('<div class="workspace-header">Select Stock Exchange Workspace</div>', unsafe_allow_html=True)
 
-    r1_col1, r1_col2, r1_col3 = st.columns(3, gap="medium")
+    r1_col1, r1_col2 = st.columns(2, gap="medium")
     with r1_col1:
         if st.button("🇮🇳 National Stock Exchange (NSE)", use_container_width=True):
             navigate_to("analytics", exchange="NSE")
@@ -746,24 +746,24 @@ if st.session_state["page"] == "landing":
         if st.button("🇮🇳 Bombay Stock Exchange (BSE)", use_container_width=True):
             navigate_to("analytics", exchange="BSE")
             st.rerun()
-    with r1_col3:
-        if st.button("🇺🇸 US Markets (S&P 500 / Nasdaq)", use_container_width=True):
-            navigate_to("analytics", exchange="US")
-            st.rerun()
+    # with r1_col3:
+    #     if st.button("🇺🇸 US Markets (S&P 500 / Nasdaq)", use_container_width=True):
+    #         navigate_to("analytics", exchange="US")
+    #         st.rerun()
 
-    r2_col1, r2_col2, r2_col3 = st.columns(3, gap="medium")
-    with r2_col1:
-        if st.button("🇬🇧 London Stock Exchange (FTSE 100)", use_container_width=True):
-            navigate_to("analytics", exchange="UK")
-            st.rerun()
-    with r2_col2:
-        if st.button("🇪🇺 European Markets (STOXX 600)", use_container_width=True):
-            navigate_to("analytics", exchange="EU")
-            st.rerun()
-    with r2_col3:
-        if st.button("🇿🇦 Johannesburg Stock Exchange (JSE)", use_container_width=True):
-            navigate_to("analytics", exchange="JSE")
-            st.rerun()
+    # r2_col1, r2_col2, r2_col3 = st.columns(3, gap="medium")
+    # with r2_col1:
+    #     if st.button("🇬🇧 London Stock Exchange (FTSE 100)", use_container_width=True):
+    #         navigate_to("analytics", exchange="UK")
+    #         st.rerun()
+    # with r2_col2:
+    #     if st.button("🇪🇺 European Markets (STOXX 600)", use_container_width=True):
+    #         navigate_to("analytics", exchange="EU")
+    #         st.rerun()
+    # with r2_col3:
+    #     if st.button("🇿🇦 Johannesburg Stock Exchange (JSE)", use_container_width=True):
+    #         navigate_to("analytics", exchange="JSE")
+    #         st.rerun()
 
 
 # ==============================================================================
@@ -1129,13 +1129,13 @@ elif st.session_state["page"] == "analytics":
     )
     uploaded_file = st.sidebar.file_uploader(f"Upload {exchange} Portfolio CSV", type=["csv"])
 
-    if exchange in ["BSE", "NSE"]:
-        if st.sidebar.button("📁 Load Demo Portfolio"):
-            st.session_state["use_demo"] = True
-        if uploaded_file is not None:
-            st.session_state["use_demo"] = False
-        elif st.session_state["use_demo"] and os.path.exists("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv"):
-            uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
+    # if exchange in ["BSE", "NSE"]:
+    #     if st.sidebar.button("📁 Load Demo Portfolio"):
+    #         st.session_state["use_demo"] = True
+    #     if uploaded_file is not None:
+    #         st.session_state["use_demo"] = False
+    #     elif st.session_state["use_demo"] and os.path.exists("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv"):
+    #         uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
 
     rfr_dict = {"NSE": 0.065, "BSE": 0.065, "US": 0.045, "UK": 0.045, "EU": 0.030, "JSE": 0.0725}
     rfr_annual = rfr_dict.get(exchange, 0.05)
@@ -1151,7 +1151,6 @@ elif st.session_state["page"] == "analytics":
     ])
 
     with sec_tab2:
-        st.markdown("---")
         st.subheader(f"{exchange} Sector Performance & Stock Leaders")
         sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["BSE"])
 
