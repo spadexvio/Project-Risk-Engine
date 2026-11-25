@@ -127,11 +127,13 @@ def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
         possible_ticker_cols = ["Stock Symbol", "Symbol", "Ticker", "Stock", "Security", "Company", "Scrip"]
         possible_qty_cols = ["Qty", "Quantity", "qty", "Shares", "Volume", "Units", "Holdings"]
         possible_cost_cols = ["Average Cost Price", "Cost Price", "Buy Price", "Average Price", "Avg Cost", "Avg_Cost", "Price", "Cost"]
+        possible_days_cols = ["Holding_Days", "Holding Days", "Days Held", "HoldingPeriod", "Holding_Period", "Days", "Age_Days"]
 
         id_col = next((col for col in possible_id_cols if col in raw_df.columns), None)
         ticker_col = next((col for col in possible_ticker_cols if col in raw_df.columns), raw_df.columns[0])
         qty_col = next((col for col in possible_qty_cols if col in raw_df.columns), raw_df.columns[1] if len(raw_df.columns) > 1 else raw_df.columns[0])
         cost_col = next((col for col in possible_cost_cols if col in raw_df.columns), None)
+        days_col = next((col for col in possible_days_cols if col in raw_df.columns), None)
 
         has_valid_cost_col = cost_col is not None
 
@@ -173,6 +175,13 @@ def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
                 except (ValueError, TypeError):
                     cost_price = np.nan
 
+            holding_days = np.nan
+            if days_col and pd.notna(row[days_col]):
+                try:
+                    holding_days = int(float(str(row[days_col]).strip()))
+                except (ValueError, TypeError):
+                    holding_days = np.nan
+
             base_symbol = ""
             matched = False
             if raw_id and id_map:
@@ -191,7 +200,10 @@ def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
                 base_symbol = raw_ticker
 
             if base_symbol and base_symbol != "NAN":
-                parsed_rows.append({"Ticker": base_symbol, "Quantity": int(qty), "Cost Price": cost_price})
+                row_dict = {"Ticker": base_symbol, "Quantity": int(qty), "Cost Price": cost_price}
+                if days_col is not None:
+                    row_dict["Holding_Days"] = holding_days
+                parsed_rows.append(row_dict)
 
         holdings_df = pd.DataFrame(parsed_rows)
         has_cost = bool(has_valid_cost_col and valid_cost_entries > 0)
@@ -201,6 +213,127 @@ def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
     except Exception as e:
         st.warning(f"Could not parse custom CSV format: {e}. Using fallback portfolio.")
     return pd.DataFrame(columns=["Ticker", "Quantity", "Cost Price"]), False
+
+
+def compute_optimizer_target_weights(ret_df, ordered_tickers, ordered_yf_syms, method_key, rfr_annual=0.065):
+    """Computes target weights (%) using quant_risk_kit functions (weight_ew, weight_gmv, msr, weight_erc)."""
+    n_assets = len(ordered_tickers)
+    if n_assets == 0:
+        return {}
+    if ret_df.empty or len(ordered_yf_syms) == 0:
+        eq = round(100.0 / n_assets, 2)
+        return {t: eq for t in ordered_tickers}
+
+    sub_ret = ret_df[ordered_yf_syms].dropna()
+    if sub_ret.empty or sub_ret.shape[0] < 5:
+        eq = round(100.0 / n_assets, 2)
+        return {t: eq for t in ordered_tickers}
+
+    try:
+        if method_key == "EW":
+            w_arr = np.asarray(erk.weight_ew(sub_ret), dtype=float)
+        elif method_key == "GMV":
+            w_arr = np.asarray(erk.weight_gmv(sub_ret, cov_estimator=erk.shrinkage_cov), dtype=float)
+        elif method_key == "MSR":
+            er_ann = erk.annualized_returns(sub_ret, periods_per_year=252)
+            cov_ann = erk.shrinkage_cov(sub_ret) * 252.0
+            w_arr = np.asarray(erk.msr(er_ann, cov_ann, risk_free_rate=rfr_annual), dtype=float)
+        elif method_key == "ERC":
+            w_arr = np.asarray(erk.weight_erc(sub_ret, cov_estimator=erk.shrinkage_cov), dtype=float)
+        else:
+            w_arr = np.repeat(1.0 / n_assets, n_assets)
+    except Exception:
+        w_arr = np.repeat(1.0 / n_assets, n_assets)
+
+    w_arr = np.clip(w_arr, 0.0, 1.0)
+    if w_arr.sum() > 0:
+        w_arr = w_arr / w_arr.sum()
+    else:
+        w_arr = np.repeat(1.0 / n_assets, n_assets)
+
+    pcts = np.round(w_arr * 100.0, 2)
+    # Adjust rounding residual on largest weight so sum is cleanly 100.00
+    diff_100 = round(100.0 - float(pcts.sum()), 2)
+    if abs(diff_100) <= 0.10 and len(pcts) > 0:
+        max_i = int(np.argmax(pcts))
+        pcts[max_i] = round(max(0.0, pcts[max_i] + diff_100), 2)
+
+    return {bt: float(pcts[i]) for i, bt in enumerate(ordered_tickers)}
+
+
+def calculate_sell_tax_for_row(action_str, live_price, cost_price, current_qty, proposed_qty, tax_regime):
+    """Calculates What-If Capital Gains Tax on realized P&L of the sold shares only; returns (tax_amount_or_nan, display_str)."""
+    is_sell = "SELL" in str(action_str).upper()
+    sold_qty = max(0.0, float(current_qty) - float(proposed_qty))
+    if not is_sell or sold_qty <= 1e-6:
+        return np.nan, "N/A"
+    if cost_price is None or np.isnan(cost_price) or float(cost_price) <= 0:
+        return np.nan, "N/A (No Cost)"
+    realized_gain = (float(live_price) - float(cost_price)) * sold_qty
+    if realized_gain <= 0:
+        return 0.0, "N/A"
+    rate = 0.20 if str(tax_regime).upper().startswith("STCG") else 0.125
+    tax_amt = realized_gain * rate
+    return float(tax_amt), f"{tax_amt:,.2f}"
+
+
+def build_broker_execution_csv_df(
+    client_id,
+    exchange,
+    tickers,
+    live_prices,
+    curr_qtys,
+    prop_vals,
+    friction_rate,
+    starting_cash,
+    cash_flow_delta=0.0,
+):
+    """Builds broker execution CSV with columns: Client_ID, Exchange, Ticker, Series, Action, Order_Qty, Limit_Price, Est_Notional, Est_Friction, Residual_Cash."""
+    series_code = "EQ" if exchange in ["NSE", "BSE"] else "COMMON"
+    rows = []
+    running_cash = float(starting_cash) + float(cash_flow_delta)
+
+    for i, tkr in enumerate(tickers):
+        lp = float(live_prices[i])
+        cq = float(curr_qtys[i])
+        pv = float(prop_vals[i])
+        target_qty = round(pv / lp) if lp > 0 else 0
+        delta_qty = int(target_qty - round(cq))
+
+        if delta_qty > 0:
+            action = "BUY"
+            order_qty = delta_qty
+            est_notional = order_qty * lp
+            est_friction = est_notional * friction_rate
+            running_cash -= (est_notional + est_friction)
+        elif delta_qty < 0:
+            action = "SELL"
+            order_qty = abs(delta_qty)
+            est_notional = order_qty * lp
+            est_friction = est_notional * friction_rate
+            running_cash += (est_notional - est_friction)
+        else:
+            continue
+
+        rows.append({
+            "Client_ID": client_id,
+            "Exchange": exchange,
+            "Ticker": tkr,
+            "Series": series_code,
+            "Action": action,
+            "Order_Qty": int(order_qty),
+            "Limit_Price": round(lp, 2),
+            "Est_Notional": round(est_notional, 2),
+            "Est_Friction": round(est_friction, 2),
+            "Residual_Cash": round(running_cash, 2),
+        })
+
+    if not rows:
+        return pd.DataFrame(columns=[
+            "Client_ID", "Exchange", "Ticker", "Series", "Action",
+            "Order_Qty", "Limit_Price", "Est_Notional", "Est_Friction", "Residual_Cash"
+        ])
+    return pd.DataFrame(rows)
 
 
 def get_default_batch_df(current_cfg):
@@ -286,14 +419,12 @@ def compute_quant_metrics(ret_series, rfr_annual=0.065, target_return_pct=6.5, c
             "summary_df": pd.DataFrame(),
         }
 
-    # erk.summary_stats for Annualized Return, Annualized Vol, Sharpe Ratio, Max Drawdown, Cornish-Fisher VaR, Historic CVaR
     stats_df = erk.summary_stats(s.to_frame("Portfolio"), riskfree_rate=rfr_annual, periods_per_year=periods_per_year)
     ann_ret = float(stats_df["Annualized Return"].iloc[0] * 100.0)
     ann_vol = float(stats_df["Annualized Vol"].iloc[0] * 100.0)
     sharpe_val = float(stats_df["Sharpe Ratio"].iloc[0])
     max_dd = float(abs(stats_df["Max Drawdown"].iloc[0]) * 100.0)
 
-    # Tail risk at user-selected confidence level using erk functions scaled to horizon_days
     tail_pct = round((1.0 - confidence_level) * 100.0, 4)
     scale_h = np.sqrt(max(int(horizon_days), 1))
     hist_var_1d = float(erk.var_historic(s, level=tail_pct))
@@ -336,7 +467,6 @@ def compute_risk_and_diversification(ret_matrix, weights, asset_labels):
 
     w_norm = w / w.sum()
     covmat = ret_matrix.cov() * 252.0
-    # Regularize slightly if singular so portfolio_vola / risk_contribution never divide by zero
     cov_reg = covmat + np.eye(n_assets) * 1e-8
 
     rc_series = erk.risk_contribution(pd.Series(w_norm, index=cov_reg.index), cov_reg)
@@ -381,10 +511,8 @@ def run_cholesky_monte_carlo(price_matrix, weights, initial_val, horizon_days=30
 
     steps = max(int(horizon_days), 1)
     sims = max(int(n_sims), 50)
-    # erk.cholesky_returns calls pct_change().dropna() on simulated prices, so request steps + 1 to get `steps` return rows
     sim_steps = steps + 1
 
-    # Add tiny jitter to prices if any column is completely flat to ensure positive-definite covariance for Cholesky
     clean_prices = price_matrix.copy()
     for col in clean_prices.columns:
         if clean_prices[col].pct_change().dropna().std() == 0:
@@ -395,7 +523,6 @@ def run_cholesky_monte_carlo(price_matrix, weights, initial_val, horizon_days=30
 
     for s_idx in range(sims):
         try:
-            # Explicitly pass return_prices=False so erk.cholesky_returns returns simulated returns
             sim_rets_df = erk.cholesky_returns(clean_prices, num_steps=sim_steps, return_prices=False)
             port_step_rets = sim_rets_df.values @ w
             if len(port_step_rets) < steps:
@@ -410,13 +537,13 @@ def run_cholesky_monte_carlo(price_matrix, weights, initial_val, horizon_days=30
     terminal_rets_pct = ((terminal_vals - float(initial_val)) / max(float(initial_val), 1.0)) * 100.0
     return {
         "paths": all_paths,
-        "p5": np.percentile(all_paths, (1-confidence_level)*100, axis=1),
+        "p5": np.percentile(all_paths, (1 - confidence_level) * 100, axis=1),
         "p50": np.percentile(all_paths, 50, axis=1),
-        "p95": np.percentile(all_paths, confidence_level*100, axis=1),
+        "p95": np.percentile(all_paths, confidence_level * 100, axis=1),
         "mean_end": float(np.mean(terminal_vals)),
         "median_end": float(np.median(terminal_vals)),
-        "p5_end": float(np.percentile(terminal_vals, (1-confidence_level)*100)),
-        "p95_end": float(np.percentile(terminal_vals, confidence_level*100)),
+        "p5_end": float(np.percentile(terminal_vals, (1 - confidence_level) * 100)),
+        "p95_end": float(np.percentile(terminal_vals, confidence_level * 100)),
         "prob_loss": float(np.mean(terminal_rets_pct < 0.0) * 100.0),
     }
 
@@ -444,6 +571,8 @@ def render_risk_diversification_and_mc_section(
     post_max_stock,
     pre_max_sec,
     post_max_sec,
+    tax_impact_amt=None,
+    tax_regime_label="LTCG (12.5%)",
 ):
     """Renders identical comprehensive Pre vs Post metrics, Benchmark Graph, Weight/Risk Diversification & Monte Carlo for both Single Client & Batch."""
     # Row 1: Mandate & Tail Risk KPIs
@@ -462,12 +591,16 @@ def render_risk_diversification_and_mc_section(
     qm4.metric("Max Drawdown", f"{post_metrics['max_dd']:.2f}%", delta=f"{post_metrics['max_dd'] - pre_metrics['max_dd']:+.2f}% vs pre", delta_color="inverse")
     qm5.metric("Max Stock / Sector", f"{post_max_stock:.1f}% / {post_max_sec:.1f}%", delta=f"Stk {post_max_stock - pre_max_stock:+.1f}% | Sec {post_max_sec - pre_max_sec:+.1f}%", delta_color="off")
 
-    # Row 3: Diversification (ENC on Weights & Risk Contributions via erk.enc)
-    dv1, dv2, dv3, dv4 = st.columns(4)
+    # Row 3: Diversification (ENC on Weights & Risk Contributions via erk.enc) & What-If Rebalance Tax Impact
+    dv1, dv2, dv3, dv4, dv5 = st.columns(5)
     dv1.metric("Weight Diversification (ENC)", f"{post_div['weight_enc']:.1f}%", delta=f"{post_div['weight_enc'] - pre_div['weight_enc']:+.1f}% vs pre")
     dv2.metric("Risk Diversification (ENC)", f"{post_div['risk_enc']:.1f}%", delta=f"{post_div['risk_enc'] - pre_div['risk_enc']:+.1f}% vs pre")
     dv3.metric("Pre-Trade Weight ENC", f"{pre_div['weight_enc']:.1f}%")
     dv4.metric("Pre-Trade Risk ENC", f"{pre_div['risk_enc']:.1f}%")
+    if tax_impact_amt is None or np.isnan(tax_impact_amt) or tax_impact_amt <= 0:
+        dv5.metric("Est. Rebalance Tax", "N/A", delta="No taxable sell", delta_color="off")
+    else:
+        dv5.metric("Est. Rebalance Tax", f"{currency} {tax_impact_amt:,.2f}", delta=f"{tax_regime_label} on sells", delta_color="inverse")
 
     # Summary Stats Table from erk.summary_stats (Pre vs Post)
     if not pre_metrics["summary_df"].empty and not post_metrics["summary_df"].empty:
@@ -564,7 +697,6 @@ def render_risk_diversification_and_mc_section(
     with mc_c2:
         day_axis = np.arange(0, mc_res["paths"].shape[0])
         fig_mc = go.Figure()
-        # Plot sample individual simulated paths faintly for visual clarity
         sample_count = min(25, mc_res["paths"].shape[1])
         for p_idx in range(sample_count):
             fig_mc.add_trace(go.Scatter(
@@ -630,7 +762,8 @@ def build_audit_packet_pdf(entity_type, workspace_mode, exchange, currency, clie
     pdf.cell(0, 7, _fpdf_clean("2. Pre-Trade Diff & Mandate Gate Result"), ln=True)
     pdf.set_font("Arial", "", 9.5)
     pdf.cell(0, 5.5, _fpdf_clean(f"Gate Status: {gate_result['status'].upper()} | Missing Rationale: {'Yes' if gate_result['missing_rationale'] else 'No'}"), ln=True)
-    pdf.cell(0, 5.5, _fpdf_clean(f"Turnover: {diff_summary.get('turnover_pct', 0.0):.2f}% | Est. Friction: {currency} {diff_summary.get('friction_cost', 0.0):,.2f}"), ln=True)
+    tax_str = f"{currency} {diff_summary.get('tax_impact', 0.0):,.2f}" if diff_summary.get("tax_impact", 0.0) > 0 else "N/A"
+    pdf.cell(0, 5.5, _fpdf_clean(f"Turnover: {diff_summary.get('turnover_pct', 0.0):.2f}% | Est. Friction: {currency} {diff_summary.get('friction_cost', 0.0):,.2f} | Est. Tax: {tax_str}"), ln=True)
     pdf.cell(0, 5.5, _fpdf_clean(f"Volatility: {diff_summary.get('pre_vol', 0.0):.2f}% -> {diff_summary.get('post_vol', 0.0):.2f}% | CVaR: {diff_summary.get('pre_cvar', 0.0):.2f}% -> {diff_summary.get('post_cvar', 0.0):.2f}%"), ln=True)
     pdf.cell(0, 5.5, _fpdf_clean(f"Max Stock Wt: {diff_summary.get('pre_max_stock', 0.0):.2f}% -> {diff_summary.get('post_max_stock', 0.0):.2f}% | Max Sector Wt: {diff_summary.get('pre_max_sector', 0.0):.2f}% -> {diff_summary.get('post_max_sector', 0.0):.2f}%"), ln=True)
     if gate_result["breaches"]:
@@ -758,24 +891,6 @@ if st.session_state["page"] == "landing":
         if st.button("🇮🇳 Bombay Stock Exchange (BSE)", use_container_width=True):
             navigate_to("analytics", exchange="BSE")
             st.rerun()
-    # with r1_col3:
-    #     if st.button("🇺🇸 US Markets (S&P 500 / Nasdaq)", use_container_width=True):
-    #         navigate_to("analytics", exchange="US")
-    #         st.rerun()
-
-    # r2_col1, r2_col2, r2_col3 = st.columns(3, gap="medium")
-    # with r2_col1:
-    #     if st.button("🇬🇧 London Stock Exchange (FTSE 100)", use_container_width=True):
-    #         navigate_to("analytics", exchange="UK")
-    #         st.rerun()
-    # with r2_col2:
-    #     if st.button("🇪🇺 European Markets (STOXX 600)", use_container_width=True):
-    #         navigate_to("analytics", exchange="EU")
-    #         st.rerun()
-    # with r2_col3:
-    #     if st.button("🇿🇦 Johannesburg Stock Exchange (JSE)", use_container_width=True):
-    #         navigate_to("analytics", exchange="JSE")
-    #         st.rerun()
 
 
 # ==============================================================================
@@ -898,62 +1013,6 @@ elif st.session_state["page"] == "analytics":
     }
     current_cfg = exchange_config.get(exchange, exchange_config["NSE"])
 
-    # ALL_EXCHANGE_CONFIGS = {
-    #     "NSE": {
-    #         "Nifty IT": {"indices": ["^CNXIT"], "stocks": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS", "MPHASIS.NS", "LTTS.NS"]},
-    #         "Nifty Bank": {"indices": ["^NSEBANK"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "BANKBARODA.NS", "PNB.NS", "INDUSINDBK.NS", "AUBANK.NS", "IDFCFIRSTB.NS"]},
-    #         "Nifty Auto": {"indices": ["^CNXAUTO"], "stocks": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS", "TVSMOTOR.NS", "BHARATFORG.NS", "BOSCHLTD.NS", "MRF.NS"]},
-    #         "Nifty FMCG": {"indices": ["^CNXFMCG"], "stocks": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "TATACONSUM.NS", "DABUR.NS", "GODREJCP.NS", "MARICO.NS", "COLPAL.NS", "VBL.NS"]},
-    #         "Nifty Energy": {"indices": ["^CNXENERGY"], "stocks": ["RELIANCE.NS", "ONGC.NS", "BPCL.NS", "NTPC.NS", "POWERGRID.NS", "IOC.NS", "GAIL.NS", "ADANIGREEN.NS", "TATAPOWER.NS", "COALINDIA.NS"]},
-    #         "Nifty Pharma": {"indices": ["^CNXPHARMA"], "stocks": ["SUNPHARMA.NS", "CIPLA.NS", "DRREDDY.NS", "DIVISLAB.NS", "LUPIN.NS", "APOLLOHOSP.NS", "BIOCON.NS", "TORNTPHARM.NS", "ZYDUSLIFE.NS", "MANKIND.NS"]},
-    #     },
-    #     "BSE": {
-    #         "BSE IT": {"indices": ["^BSESIT.BO"], "stocks": ["TCS.NS", "INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS", "LTIM.NS", "PERSISTENT.NS", "COFORGE.NS"]},
-    #         "BSE Bankex": {"indices": ["^BSEBANK.NS"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "SBIN.NS", "KOTAKBANK.NS", "AXISBANK.NS", "BANKBARODA.NS", "PNB.NS"]},
-    #         "BSE Healthcare": {"indices": ["^BSEHC.NS"], "stocks": ["SUNPHARMA.NS", "DRREDDY.NS", "CIPLA.NS", "DIVISLAB.NS", "APOLLOHOSP.NS", "LUPIN.NS"]},
-    #         "BSE Auto": {"indices": ["^BSEAUTO.NS"], "stocks": ["TATAMOTORS.NS", "MARUTI.NS", "M&M.NS", "BAJAJ-AUTO.NS", "HEROMOTOCO.NS", "EICHERMOT.NS"]},
-    #         "BSE FMCG": {"indices": ["^BSEFMCG.NS"], "stocks": ["HINDUNILVR.NS", "ITC.NS", "NESTLEIND.NS", "BRITANNIA.NS", "DABUR.NS"]},
-    #         "BSE Metal": {"indices": ["^BSEMT.NS"], "stocks": ["TATASTEEL.NS", "JSWSTEEL.NS", "HINDALCO.NS", "VEDL.NS"]},
-    #         "BSE Oil & Gas": {"indices": ["^BSEOIL.NS"], "stocks": ["RELIANCE.NS", "ONGC.NS", "IOC.NS", "BPCL.NS"]},
-    #         "BSE Power & Utilities": {"indices": ["^BSEPOWER.NS"], "stocks": ["NTPC.NS", "POWERGRID.NS", "ADANIPOWER.NS", "TATAPOWER.NS"]},
-    #         "BSE Realty": {"indices": ["^BSERLTY.NS"], "stocks": ["DLF.NS", "GODREJPROP.NS", "OBEROIRLTY.NS", "PRESTIGE.NS"]},
-    #         "BSE Capital Goods & Industrials": {"indices": ["^BSECG.NS"], "stocks": ["LT.NS", "BEL.NS", "SIEMENS.NS", "ABB.NS"]},
-    #     },
-    #     "US": {
-    #         "Technology": {"indices": ["^NDX", "^GSPC"], "stocks": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "AMD", "ORCL", "CRM", "ADBE"]},
-    #         "Financials": {"indices": ["^IXFN", "^GSPC"], "stocks": ["JPM", "BAC", "WFC", "MS", "GS", "BLK", "C", "AXP", "SPGI", "SCHW", "V", "MA"]},
-    #         "Healthcare": {"indices": ["^IXHC", "^GSPC"], "stocks": ["UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "AMGN", "DHR", "ISRG", "BMY"]},
-    #         "Consumer Discretionary & Retail": {"indices": ["^GSPC"], "stocks": ["HD", "MCD", "NKE", "SBUX", "TJX", "LOW", "BKNG", "TGT", "CMG"]},
-    #         "Consumer Staples": {"indices": ["^GSPC"], "stocks": ["WMT", "PG", "KO", "PEP", "COST", "PM", "MO", "CL"]},
-    #         "Communication Services & Media": {"indices": ["^GSPC"], "stocks": ["NFLX", "DIS", "CMCSA", "VZ", "T", "TMUS", "EA"]},
-    #         "Energy & Industrials": {"indices": ["^IXID", "^GSPC"], "stocks": ["XOM", "CVX", "GE", "CAT", "UNP", "RTX", "HON", "BA", "LMT", "DE", "COP", "SLB"]},
-    #         "Utilities & Real Estate": {"indices": ["^GSPC"], "stocks": ["NEE", "DUK", "SO", "PLD", "AMT", "EQIX", "SPG"]},
-    #     },
-    #     "UK": {
-    #         "Energy & Commodities": {"indices": ["^FTSE"], "stocks": ["SHEL.L", "BP.L", "GLEN.L", "RIO.L", "AAL.L", "ANTO.L"]},
-    #         "Banking & Finance": {"indices": ["^FTSE"], "stocks": ["HSBA.L", "LLOY.L", "BARC.L", "NWG.L", "PRU.L"]},
-    #         "Healthcare & Consumer": {"indices": ["^FTSE"], "stocks": ["AZN.L", "GSK.L", "ULVR.L", "BATS.L", "RB.L", "DGE.L"]},
-    #         "Consumer Goods & Retail": {"indices": ["^FTSE"], "stocks": ["ULVR.L", "BATS.L", "DGE.L", "ABF.L", "TSCO.L"]},
-    #         "Technology & Telecoms": {"indices": ["^FTSE"], "stocks": ["REL.L", "SGE.L", "VOD.L", "AAF.L"]},
-    #         "Aerospace, Industrials & Defense": {"indices": ["^FTSE"], "stocks": ["BA.L", "RR.L", "CRH.L", "SMIN.L"]},
-    #     },
-    #     "EU": {
-    #         "Technology & Industrials": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["ASML.AS", "SAP.DE", "SIE.DE", "AIR.PA", "IFX.DE", "AD.AS"]},
-    #         "Luxury & Consumer Goods": {"indices": ["^STOXX", "^FCHI"], "stocks": ["MC.PA", "OR.PA", "RMS.PA", "KER.PA", "ABI.BR", "HEIA.AS"]},
-    #         "Financials & Automakers": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["ALV.DE", "MBG.DE", "BMW.DE", "VOW3.DE", "SAN.MC", "BNP.PA"]},
-    #         "Healthcare & Pharmaceuticals": {"indices": ["^STOXX", "^SSMI"], "stocks": ["NOVN.SW", "ROG.SW", "NESN.SW", "SAN.PA", "BAYN.DE", "MRK.DE"]},
-    #         "Energy & Utilities": {"indices": ["^STOXX", "^FCHI"], "stocks": ["TTE.PA", "ENI.MI", "IBE.MC", "ENEL.MI", "RWE.DE", "EOAN.DE"]},
-    #         "Telecoms & Infrastructure": {"indices": ["^STOXX", "^GDAXI"], "stocks": ["DTE.DE", "ORA.PA", "TEF.MC", "VOD.L", "NOKIA.HE"]},
-    #     },
-    #     "JSE": {
-    #         "JSE Mining & Resources": {"indices": ["^J210.JO"], "stocks": ["AGL.JO", "BHP.JO", "GFI.JO", "ANG.JO", "IMP.JO", "SSW.JO", "AMS.JO"]},
-    #         "JSE Financials": {"indices": ["^J212.JO"], "stocks": ["FSR.JO", "SBK.JO", "ABG.JO", "NED.JO", "SLM.JO", "CPI.JO", "INP.JO"]},
-    #         "JSE Tech & Telecoms": {"indices": ["^J211.JO"], "stocks": ["NPN.JO", "PRX.JO", "MTN.JO", "VOD.JO", "TEL.JO"]},
-    #         "JSE Retail & Consumer": {"indices": ["^J213.JO"], "stocks": ["WHL.JO", "SHP.JO", "MRP.JO", "CLS.JO", "PIK.JO", "SPP.JO"]},
-    #     },
-    # }
-        
-    # ALL_EXCHANGE_CONFIGS = "stock-sectors-nse-bse.json"
     try:
         with open("stock-sectors-nse-bse.json", "r", encoding="utf-8") as f:
             ALL_EXCHANGE_CONFIGS = json.load(f)
@@ -1150,14 +1209,6 @@ elif st.session_state["page"] == "analytics":
         format="%.2f",
     )
     uploaded_file = st.sidebar.file_uploader(f"Upload {exchange} Portfolio CSV", type=["csv"])
-
-    # if exchange in ["BSE", "NSE"]:
-    #     if st.sidebar.button("📁 Load Demo Portfolio"):
-    #         st.session_state["use_demo"] = True
-    #     if uploaded_file is not None:
-    #         st.session_state["use_demo"] = False
-    #     elif st.session_state["use_demo"] and os.path.exists("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv"):
-    #         uploaded_file = pd.read_csv("Stocks _ Arghadeep  - 8511471544_PortFolioEqtSummary.csv")
 
     rfr_dict = {"NSE": 0.065, "BSE": 0.065, "US": 0.045, "UK": 0.045, "EU": 0.030, "JSE": 0.0725}
     rfr_annual = rfr_dict.get(exchange, 0.05)
@@ -1426,11 +1477,12 @@ elif st.session_state["page"] == "analytics":
                     if not has_cost_col or parsed_for_tax["Cost Price"].isna().all():
                         tax_cost_missing = True
                     else:
+                        detected_days = parsed_for_tax["Holding_Days"].fillna(int(time_horizon_days)) if "Holding_Days" in parsed_for_tax.columns else int(time_horizon_days)
                         base_tax_df = pd.DataFrame({
                             "Instrument": parsed_for_tax["Ticker"],
                             "Avg_Cost": parsed_for_tax["Cost Price"],
                             "Qty": parsed_for_tax["Quantity"].clip(lower=1),
-                            "Holding_Days": int(time_horizon_days),
+                            "Holding_Days": detected_days,
                         })
 
             if tax_cost_missing:
@@ -1631,11 +1683,55 @@ elif st.session_state["page"] == "analytics":
                 st.error("Unable to fetch market prices for the specified tickers.")
                 st.stop()
 
+            valid_yf_ordered = [yt for _, yt in valid_pairs]
+            valid_bt_ordered = [bt for bt, _ in valid_pairs]
+            price_matrix_valid = p_df[valid_yf_ordered]
+            ret_matrix = price_matrix_valid.pct_change().dropna()
+
+            # Portfolio Optimizer Presets (using erk.weight_ew, erk.weight_gmv, erk.msr, erk.weight_erc)
+            st.markdown("#### ⚙️ Portfolio Optimizer Presets (Auto-Fill Target Weights)")
+            opt_c1, opt_c2, opt_c3, opt_c4 = st.columns(4)
+            clicked_opt = None
+            with opt_c1:
+                if st.button("⚖️ Equally Weighted (EW)", use_container_width=True, key="sc_opt_ew"):
+                    clicked_opt = "EW"
+            with opt_c2:
+                if st.button("🛡️ Global Min Volatility (GMV)", use_container_width=True, key="sc_opt_gmv"):
+                    clicked_opt = "GMV"
+            with opt_c3:
+                if st.button("🚀 Max Sharpe Ratio (MSR)", use_container_width=True, key="sc_opt_msr"):
+                    clicked_opt = "MSR"
+            with opt_c4:
+                if st.button("🎯 Equal Risk Contribution (ERC)", use_container_width=True, key="sc_opt_erc"):
+                    clicked_opt = "ERC"
+
+            if clicked_opt is not None:
+                opt_wts_map = compute_optimizer_target_weights(
+                    ret_matrix, valid_bt_ordered, valid_yf_ordered, clicked_opt, rfr_annual=rfr_annual
+                )
+                for bt_opt, w_opt in opt_wts_map.items():
+                    st.session_state[f"sc_tw_{bt_opt}"] = float(w_opt)
+                st.rerun()
+
             qty_map = {}
+            cost_val_sum_map = {}
+            days_map = {}
+            has_holding_days_col = "Holding_Days" in client_holdings_df.columns
             for _, r in client_holdings_df.iterrows():
                 bt = str(r.get("Ticker", "")).strip().upper()
                 if bt:
-                    qty_map[bt] = qty_map.get(bt, 0.0) + float(r.get("Quantity", 0.0) or 0.0)
+                    q_row = float(r.get("Quantity", 0.0) or 0.0)
+                    c_row = pd.to_numeric(r.get("Cost Price", np.nan), errors="coerce")
+                    qty_map[bt] = qty_map.get(bt, 0.0) + q_row
+                    if pd.notna(c_row) and c_row > 0 and q_row > 0:
+                        cost_val_sum_map[bt] = cost_val_sum_map.get(bt, 0.0) + (float(c_row) * q_row)
+                    if has_holding_days_col and pd.notna(r.get("Holding_Days", np.nan)):
+                        days_map[bt] = int(float(r.get("Holding_Days")))
+
+            avg_cost_map = {
+                bt: (cost_val_sum_map[bt] / qty_map[bt]) if (bt in cost_val_sum_map and qty_map.get(bt, 0.0) > 0) else np.nan
+                for bt in valid_bt_ordered
+            }
 
             current_vals = np.array([qty_map.get(bt, 0.0) * float(p_df[yt].iloc[-1]) for bt, yt in valid_pairs], dtype=float)
             total_curr_equity = float(current_vals.sum())
@@ -1671,26 +1767,72 @@ elif st.session_state["page"] == "analytics":
             trade_notional_per_asset = prop_val_per_asset - curr_val_per_asset
             friction_rate = friction_bps / 10000.0
 
+            actions_list = [
+                "EXIT / SELL" if (prop_wts[i] <= 1e-6 and curr_wts[i] > 1e-6)
+                else ("NEW / BUY" if (curr_wts[i] <= 1e-6 and prop_wts[i] > 1e-6)
+                else ("BUY" if trade_notional_per_asset[i] > 1.0 else ("SELL" if trade_notional_per_asset[i] < -1.0 else "HOLD")))
+                for i in range(len(valid_pairs))
+            ]
+
+            has_any_sell_sc = any("SELL" in act for act in actions_list)
+            sc_tax_regime_default = "LTCG (12.5%)"
+            if has_any_sell_sc and days_map:
+                sell_days = [days_map[bt] for i, (bt, _) in enumerate(valid_pairs) if "SELL" in actions_list[i] and bt in days_map]
+                if sell_days and all(d < 365 for d in sell_days):
+                    sc_tax_regime_default = "STCG (20%)"
+
+            if has_any_sell_sc:
+                tx_tog_c1, tx_tog_c2 = st.columns([1.8, 2.2])
+                with tx_tog_c1:
+                    sc_tax_regime = st.radio(
+                        "What-If Capital Gains Tax Regime (Triggered on Sell Actions)",
+                        options=["LTCG (12.5%)", "STCG (20%)"],
+                        index=0 if sc_tax_regime_default == "LTCG (12.5%)" else 1,
+                        horizontal=True,
+                        key="sc_whatif_tax_regime",
+                    )
+                with tx_tog_c2:
+                    if days_map:
+                        st.info("ℹ️ Holding days detected in CSV (<365d = STCG 20%, ≥365d = LTCG 12.5%); overridden if toggled manually.")
+                    else:
+                        st.caption("Applies 12.5% (LTCG) or 20% (STCG) on realized P&L of sold shares only.")
+            else:
+                sc_tax_regime = "LTCG (12.5%)"
+
+            row_tax_amts = []
+            row_tax_strs = []
+            for i, (bt, yt) in enumerate(valid_pairs):
+                lp_i = float(p_df[yt].iloc[-1])
+                cq_i = qty_map.get(bt, 0.0)
+                pq_i = (prop_val_per_asset[i] / lp_i) if lp_i > 0 else 0.0
+                # Auto-use per-row detected holding days unless user explicitly toggled a different regime
+                row_regime = sc_tax_regime
+                if bt in days_map and "sc_whatif_tax_regime" not in st.session_state:
+                    row_regime = "STCG (20%)" if days_map[bt] < 365 else "LTCG (12.5%)"
+                t_amt, t_disp = calculate_sell_tax_for_row(
+                    actions_list[i], lp_i, avg_cost_map.get(bt, np.nan), cq_i, pq_i, row_regime
+                )
+                row_tax_amts.append(t_amt)
+                row_tax_strs.append(f"{currency} {t_disp}" if pd.notna(t_amt) and t_amt > 0 else t_disp)
+
+            total_sc_tax_impact = float(np.nansum(row_tax_amts)) if has_any_sell_sc else 0.0
+
             unified_blotter_df = pd.DataFrame({
-                "Ticker": [bt for bt, _ in valid_pairs],
-                "Sector": [ticker_to_sector.get(bt, "Other") for bt, _ in valid_pairs],
+                "Ticker": valid_bt_ordered,
+                "Sector": [ticker_to_sector.get(bt, "Other") for bt in valid_bt_ordered],
                 "Live Price": [float(p_df[yt].iloc[-1]) for _, yt in valid_pairs],
                 "Current Wt (%)": curr_wts * 100.0,
                 "Proposed Wt (%)": prop_wts * 100.0,
                 "Delta Wt (%)": diff_wts * 100.0,
                 "Current Val": curr_val_per_asset,
                 "Proposed Val": prop_val_per_asset,
-                "Action": [
-                    "EXIT / SELL" if (prop_wts[i] <= 1e-6 and curr_wts[i] > 1e-6)
-                    else ("NEW / BUY" if (curr_wts[i] <= 1e-6 and prop_wts[i] > 1e-6)
-                    else ("BUY" if trade_notional_per_asset[i] > 1.0 else ("SELL" if trade_notional_per_asset[i] < -1.0 else "HOLD")))
-                    for i in range(len(valid_pairs))
-                ],
+                "Action": actions_list,
                 "Trade Notional": np.abs(trade_notional_per_asset),
                 "Est. Friction": np.abs(trade_notional_per_asset) * friction_rate,
+                "What-If Tax": row_tax_strs,
             })
 
-            st.write("**Pre-Trade vs. Post-Trade Allocation & Order Diff Table**")
+            st.write("**Pre-Trade vs. Post-Trade Allocation, Order Diff & What-If Tax Table**")
             st.dataframe(
                 unified_blotter_df.style.format({
                     "Live Price": f"{currency} {{:,.2f}}",
@@ -1706,16 +1848,32 @@ elif st.session_state["page"] == "analytics":
                 hide_index=True,
             )
 
+            # Broker Trade Execution CSV Export (Single Client)
+            clean_cid_sc = client_id_tag.split("(")[0].strip() or "CLIENT-001"
+            sc_exec_csv_df = build_broker_execution_csv_df(
+                client_id=clean_cid_sc,
+                exchange=exchange,
+                tickers=valid_bt_ordered,
+                live_prices=[float(p_df[yt].iloc[-1]) for _, yt in valid_pairs],
+                curr_qtys=[qty_map.get(bt, 0.0) for bt in valid_bt_ordered],
+                prop_vals=prop_val_per_asset,
+                friction_rate=friction_rate,
+                starting_cash=float(client_cash),
+                cash_flow_delta=float(cash_flow_sim),
+            )
+            st.download_button(
+                label="📥 Export Broker Trade Execution CSV",
+                data=sc_exec_csv_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"WIRATOR_Trade_Execution_{clean_cid_sc}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                key="sc_download_exec_csv",
+            )
+
             # ------------------------------------------------------------------
             # STAGE 3: PRE-TRADE DIFF, BENCHMARK GRAPH, QUANT METRICS & MONTE CARLO
             # ------------------------------------------------------------------
             st.markdown("---")
             st.markdown("## Stage 3: Pre-Trade Diff, Benchmark Comparison & Risk / Monte Carlo")
-
-            valid_yf_ordered = [yt for _, yt in valid_pairs]
-            valid_bt_ordered = [bt for bt, _ in valid_pairs]
-            price_matrix_valid = p_df[valid_yf_ordered]
-            ret_matrix = price_matrix_valid.pct_change().dropna()
 
             pre_port_ret = ret_matrix.dot(curr_wts) if curr_wts.sum() > 0 else ret_matrix.iloc[:, 0] * 0.0
             post_port_ret = ret_matrix.dot(prop_wts) if prop_wts.sum() > 0 else ret_matrix.iloc[:, 0] * 0.0
@@ -1788,6 +1946,8 @@ elif st.session_state["page"] == "analytics":
                 post_max_stock=post_max_stock,
                 pre_max_sec=pre_max_sec,
                 post_max_sec=post_max_sec,
+                tax_impact_amt=total_sc_tax_impact if has_any_sell_sc else np.nan,
+                tax_regime_label=sc_tax_regime,
             )
 
             # ------------------------------------------------------------------
@@ -1832,6 +1992,7 @@ elif st.session_state["page"] == "analytics":
             diff_summary_payload = {
                 "turnover_pct": turnover_pct,
                 "friction_cost": total_friction_amt,
+                "tax_impact": total_sc_tax_impact,
                 "pre_vol": pre_metrics["ann_vol"],
                 "post_vol": post_metrics["ann_vol"],
                 "pre_cvar": pre_metrics["hist_cvar"],
@@ -1869,10 +2030,8 @@ elif st.session_state["page"] == "analytics":
         else:
             st.caption("Define Model Target Weights, add stocks to the batch rebalance, and upload/edit a multi-client batch CSV/table.")
 
-            b_col1, b_col2 = st.columns([1.4, 2.2])
-            with b_col1:
-                st.write("**Model Target Weights (%)**")
-                default_model_df = pd.DataFrame([
+            if "batch_model_df_state" not in st.session_state:
+                st.session_state["batch_model_df_state"] = pd.DataFrame([
                     {"Ticker": "HDFCBANK", "Target_Weight_Pct": 35.0},
                     {"Ticker": "INFY", "Target_Weight_Pct": 35.0},
                     {"Ticker": "RELIANCE", "Target_Weight_Pct": 30.0},
@@ -1881,7 +2040,17 @@ elif st.session_state["page"] == "analytics":
                     {"Ticker": "MSFT", "Target_Weight_Pct": 35.0},
                     {"Ticker": "JPM", "Target_Weight_Pct": 25.0},
                 ])
-                model_target_df = st.data_editor(default_model_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="batch_model_targets")
+
+            b_col1, b_col2 = st.columns([1.4, 2.2])
+            with b_col1:
+                st.write("**Model Target Weights (%)**")
+                model_target_df = st.data_editor(
+                    st.session_state["batch_model_df_state"],
+                    num_rows="dynamic",
+                    use_container_width=True,
+                    hide_index=True,
+                    key="batch_model_targets",
+                )
             with b_col2:
                 st.write("**Client Batch (Upload CSV or Edit Rows)**")
                 batch_csv = st.file_uploader("Upload Client Batch CSV", type=["csv"], key="batch_csv_uploader")
@@ -1965,31 +2134,56 @@ elif st.session_state["page"] == "analytics":
                 if added_stk not in raw_model_map:
                     raw_model_map[added_stk] = float(b_added_wt_pct)
 
-            tot_m_pct = sum(raw_model_map.values())
-            model_wt_map = {
-                t: (wt / tot_m_pct if tot_m_pct > 0 else 1.0 / len(raw_model_map))
-                for t, wt in raw_model_map.items()
-            }
-
-            if b_combined_added:
-                st.info(f"Normalized Model Weights (including added stocks): " + ", ".join([f"**{k}**: {v*100:.1f}%" for k, v in model_wt_map.items()]))
-
-            # Gather all tickers across model + batch clients
-            all_batch_tickers = set(model_wt_map.keys())
+            # Gather all tickers across model + batch clients (also parse optional Cost_JSON / Holding_Days_JSON)
+            all_batch_tickers = set(raw_model_map.keys())
             parsed_client_holdings = []
+            parsed_client_costs = []
+            parsed_client_days = []
             for _, crow in edited_batch_df.iterrows():
                 h_dict = {}
+                c_dict = {}
+                d_dict = {}
                 raw_h = crow.get("Holdings_JSON", "{}")
                 try:
                     parsed_obj = json.loads(raw_h) if isinstance(raw_h, str) else (raw_h if isinstance(raw_h, dict) else {})
                     for k, v in parsed_obj.items():
                         ku = str(k).strip().upper()
                         if ku:
-                            h_dict[ku] = float(v)
+                            if isinstance(v, dict):
+                                h_dict[ku] = float(v.get("qty", v.get("Qty", 0.0)))
+                                if "cost" in v or "Cost" in v:
+                                    c_dict[ku] = float(v.get("cost", v.get("Cost", np.nan)))
+                                if "days" in v or "Holding_Days" in v:
+                                    d_dict[ku] = int(float(v.get("days", v.get("Holding_Days", 0))))
+                            else:
+                                h_dict[ku] = float(v)
                             all_batch_tickers.add(ku)
                 except Exception:
                     pass
+
+                # Optional separate Cost_JSON / Holding_Days_JSON columns in batch CSV
+                for col_c in ["Cost_JSON", "Avg_Cost_JSON"]:
+                    if col_c in crow and pd.notna(crow[col_c]):
+                        try:
+                            co = json.loads(crow[col_c]) if isinstance(crow[col_c], str) else crow[col_c]
+                            if isinstance(co, dict):
+                                for k, v in co.items():
+                                    c_dict[str(k).strip().upper()] = float(v)
+                        except Exception:
+                            pass
+                for col_d in ["Holding_Days_JSON", "Days_JSON"]:
+                    if col_d in crow and pd.notna(crow[col_d]):
+                        try:
+                            do = json.loads(crow[col_d]) if isinstance(crow[col_d], str) else crow[col_d]
+                            if isinstance(do, dict):
+                                for k, v in do.items():
+                                    d_dict[str(k).strip().upper()] = int(float(v))
+                        except Exception:
+                            pass
+
                 parsed_client_holdings.append(h_dict)
+                parsed_client_costs.append(c_dict)
+                parsed_client_days.append(d_dict)
 
             all_t_list = sorted(all_batch_tickers)
             yf_b_syms = resolve_yf_tickers(all_t_list, current_cfg)
@@ -2012,6 +2206,42 @@ elif st.session_state["page"] == "analytics":
             price_b_valid = p_b_df[valid_b_yt]
             ret_b_df = price_b_valid.pct_change().dropna()
 
+            # Portfolio Optimizer Presets for Batch Model Weights (erk.weight_ew, erk.weight_gmv, erk.msr, erk.weight_erc)
+            st.markdown("#### ⚙️ Model Portfolio Optimizer Presets (Auto-Fill Model Target Weights)")
+            b_opt1, b_opt2, b_opt3, b_opt4 = st.columns(4)
+            b_clicked_opt = None
+            with b_opt1:
+                if st.button("⚖️ Equally Weighted (EW)", use_container_width=True, key="batch_opt_ew"):
+                    b_clicked_opt = "EW"
+            with b_opt2:
+                if st.button("🛡️ Global Min Volatility (GMV)", use_container_width=True, key="batch_opt_gmv"):
+                    b_clicked_opt = "GMV"
+            with b_opt3:
+                if st.button("🚀 Max Sharpe Ratio (MSR)", use_container_width=True, key="batch_opt_msr"):
+                    b_clicked_opt = "MSR"
+            with b_opt4:
+                if st.button("🎯 Equal Risk Contribution (ERC)", use_container_width=True, key="batch_opt_erc"):
+                    b_clicked_opt = "ERC"
+
+            model_universe_pairs = [(bt, yt) for bt, yt in valid_b_pairs if bt in raw_model_map]
+            if b_clicked_opt is not None and model_universe_pairs:
+                m_bt = [bt for bt, _ in model_universe_pairs]
+                m_yt = [yt for _, yt in model_universe_pairs]
+                opt_m_map = compute_optimizer_target_weights(ret_b_df, m_bt, m_yt, b_clicked_opt, rfr_annual=rfr_annual)
+                st.session_state["batch_model_df_state"] = pd.DataFrame([
+                    {"Ticker": k, "Target_Weight_Pct": v} for k, v in opt_m_map.items()
+                ])
+                st.rerun()
+
+            tot_m_pct = sum(raw_model_map.values())
+            model_wt_map = {
+                t: (wt / tot_m_pct if tot_m_pct > 0 else 1.0 / len(raw_model_map))
+                for t, wt in raw_model_map.items()
+            }
+
+            if b_combined_added:
+                st.info(f"Normalized Model Weights (including added stocks): " + ", ".join([f"**{k}**: {v*100:.1f}%" for k, v in model_wt_map.items()]))
+
             latest_px_map = {bt: float(p_b_df[yt].iloc[-1]) for bt, yt in valid_b_pairs}
 
             # Fetch benchmark series once for batch comparison
@@ -2023,16 +2253,27 @@ elif st.session_state["page"] == "analytics":
             except Exception:
                 pass
 
-            # Compute per-client full quant metrics, risk contributions & gate status
+            # Batch-level What-If Tax Toggle (default LTCG 12.5%, toggleable to STCG 20%; auto-overridden per position if holding days exist in CSV)
+            batch_tax_regime = st.radio(
+                "Batch What-If Tax Regime for Sell Actions (Auto-detected if Holding_Days present in CSV)",
+                options=["LTCG (12.5%)", "STCG (20%)"],
+                index=0,
+                horizontal=True,
+                key="batch_whatif_tax_regime",
+            )
+
+            # Compute per-client full quant metrics, risk contributions, tax & gate status
             client_rows_detail = {}
             summary_records = []
-            for idx, (crow, h_dict) in enumerate(zip(edited_batch_df.iterrows(), parsed_client_holdings)):
+            batch_fric_rate = batch_friction_bps / 10000.0
+            for idx, (crow, h_dict, c_dict, d_dict) in enumerate(zip(edited_batch_df.iterrows(), parsed_client_holdings, parsed_client_costs, parsed_client_days)):
                 _, crow_ser = crow
                 cid = str(crow_ser.get("Client_ID", f"CLT-{idx+1:03d}")).strip()
                 pmask = str(crow_ser.get("PAN_Mask", "XXXX0000X")).strip()
                 rtier = str(crow_ser.get("Risk_Tier", "Moderate")).strip()
                 cash_val = float(crow_ser.get("Cash", 0.0) or 0.0)
                 rat_str = str(crow_ser.get("Rationale", "") or "")
+                row_holding_days = int(float(crow_ser["Holding_Days"])) if ("Holding_Days" in crow_ser and pd.notna(crow_ser["Holding_Days"])) else None
 
                 c_vol_cap = float(crow_ser.get("Mandate_Vol_Cap", vol_cap_pct)) if override_limits_per_client else vol_cap_pct
                 c_stk_cap = float(crow_ser.get("Max_Stock_Cap", stock_cap_pct)) if override_limits_per_client else stock_cap_pct
@@ -2044,6 +2285,43 @@ elif st.session_state["page"] == "analytics":
 
                 target_equity_base = tot_val if deploy_cash else eq_val
                 prop_wts = np.array([(model_wt_map.get(t, 0.0) * target_equity_base / tot_val) if tot_val > 0 else 0.0 for t in valid_b_bt], dtype=float)
+                prop_pos_vals = prop_wts * tot_val
+
+                # Per-asset actions & What-If Tax for this client
+                c_actions = []
+                c_tax_amts = []
+                c_tax_strs = []
+                for i_t, t_sym in enumerate(valid_b_bt):
+                    lp_t = latest_px_map.get(t_sym, 0.0)
+                    cq_t = h_dict.get(t_sym, 0.0)
+                    pq_t = (prop_pos_vals[i_t] / lp_t) if lp_t > 0 else 0.0
+                    notional_diff_t = prop_pos_vals[i_t] - curr_pos_vals[i_t]
+                    if prop_wts[i_t] <= 1e-6 and c_wts[i_t] > 1e-6:
+                        act_t = "EXIT / SELL"
+                    elif c_wts[i_t] <= 1e-6 and prop_wts[i_t] > 1e-6:
+                        act_t = "NEW / BUY"
+                    elif notional_diff_t > 1.0:
+                        act_t = "BUY"
+                    elif notional_diff_t < -1.0:
+                        act_t = "SELL"
+                    else:
+                        act_t = "HOLD"
+                    c_actions.append(act_t)
+
+                    # Determine regime: auto-fill from holding days if present, else use toggle
+                    eff_regime = batch_tax_regime
+                    if t_sym in d_dict:
+                        eff_regime = "STCG (20%)" if d_dict[t_sym] < 365 else "LTCG (12.5%)"
+                    elif row_holding_days is not None:
+                        eff_regime = "STCG (20%)" if row_holding_days < 365 else "LTCG (12.5%)"
+
+                    cost_t = c_dict.get(t_sym, np.nan)
+                    t_a, t_s = calculate_sell_tax_for_row(act_t, lp_t, cost_t, cq_t, pq_t, eff_regime)
+                    c_tax_amts.append(t_a)
+                    c_tax_strs.append(f"{currency} {t_s}" if pd.notna(t_a) and t_a > 0 else t_s)
+
+                c_has_sell = any("SELL" in a for a in c_actions)
+                c_tot_tax = float(np.nansum(c_tax_amts)) if c_has_sell else np.nan
 
                 r_pre = ret_b_df.dot(c_wts) if c_wts.sum() > 0 else ret_b_df.iloc[:, 0] * 0.0
                 r_post = ret_b_df.dot(prop_wts) if prop_wts.sum() > 0 else ret_b_df.iloc[:, 0] * 0.0
@@ -2068,7 +2346,7 @@ elif st.session_state["page"] == "analytics":
                 post_max_sec = float(sec_map_p.groupby(level=0).sum().max() * 100.0) if not sec_map_p.empty else 0.0
 
                 turn_pct = float(np.abs(prop_wts - c_wts).sum() * 0.5 * 100.0)
-                fric_amt = float(np.abs(prop_wts - c_wts).sum() * 0.5 * tot_val * (batch_friction_bps / 10000.0))
+                fric_amt = float(np.abs(prop_wts - c_wts).sum() * 0.5 * tot_val * batch_fric_rate)
 
                 g_res = evaluate_mandate_gate(
                     post_vol_pct=c_post_metrics["ann_vol"],
@@ -2082,6 +2360,7 @@ elif st.session_state["page"] == "analytics":
                     rationale_text=rat_str,
                 )
 
+                tax_roll_disp = f"{currency} {c_tot_tax:,.2f}" if (pd.notna(c_tot_tax) and c_tot_tax > 0) else "N/A"
                 summary_records.append({
                     "Client_ID": cid,
                     "PAN_Mask": pmask,
@@ -2097,10 +2376,23 @@ elif st.session_state["page"] == "analytics":
                     "Wt_ENC (%)": c_post_div["weight_enc"],
                     "Risk_ENC (%)": c_post_div["risk_enc"],
                     "Max_Stock (%)": post_max_s,
+                    "Est_Tax": tax_roll_disp,
                     "Gate_Status": g_res["status"],
                     "Rationale_Status": "Logged" if not g_res["missing_rationale"] else "Missing",
                     "Flags": "; ".join(g_res["breaches"] + g_res["warnings"]) if (g_res["breaches"] or g_res["warnings"]) else "OK",
                 })
+
+                c_exec_df = build_broker_execution_csv_df(
+                    client_id=cid,
+                    exchange=exchange,
+                    tickers=valid_b_bt,
+                    live_prices=[latest_px_map.get(t, 0.0) for t in valid_b_bt],
+                    curr_qtys=[h_dict.get(t, 0.0) for t in valid_b_bt],
+                    prop_vals=prop_pos_vals,
+                    friction_rate=batch_fric_rate,
+                    starting_cash=cash_val,
+                    cash_flow_delta=0.0,
+                )
 
                 client_rows_detail[cid] = {
                     "cid": cid, "pmask": pmask, "rtier": rtier, "tot_val": tot_val, "cash_val": cash_val,
@@ -2110,6 +2402,8 @@ elif st.session_state["page"] == "analytics":
                     "pre_max_s": pre_max_s, "post_max_s": post_max_s,
                     "pre_max_sec": pre_max_sec, "post_max_sec": post_max_sec,
                     "turn_pct": turn_pct, "fric_amt": fric_amt,
+                    "tax_amt": c_tot_tax, "has_sell": c_has_sell,
+                    "exec_df": c_exec_df,
                     "rationale": rat_str, "gate": g_res,
                     "diff_df": pd.DataFrame({
                         "Ticker": valid_b_bt,
@@ -2118,7 +2412,9 @@ elif st.session_state["page"] == "analytics":
                         "Current Wt (%)": c_wts * 100.0,
                         "Proposed Wt (%)": prop_wts * 100.0,
                         "Delta Wt (%)": (prop_wts - c_wts) * 100.0,
+                        "Action": c_actions,
                         "Trade Amt": np.abs(prop_wts - c_wts) * tot_val,
+                        "What-If Tax": c_tax_strs,
                     }),
                 }
 
@@ -2162,7 +2458,7 @@ elif st.session_state["page"] == "analytics":
             d_item = client_rows_detail[selected_cid]
             st.markdown(f"**Client Drill-Down: {d_item['cid']} ({d_item['pmask']} | {d_item['rtier']}) — Gate: {d_item['gate']['status']}**")
 
-            # Order Diff Table for Selected Client
+            # Order Diff & What-If Tax Table for Selected Client
             st.dataframe(
                 d_item["diff_df"].style.format({
                     "Live Price": f"{currency} {{:,.2f}}",
@@ -2174,6 +2470,29 @@ elif st.session_state["page"] == "analytics":
                 use_container_width=True,
                 hide_index=True,
             )
+
+            # Broker Trade Execution CSV Exports (Selected Client & Full Batch)
+            all_batch_exec_frames = [v["exec_df"] for v in client_rows_detail.values() if not v["exec_df"].empty]
+            full_batch_exec_df = pd.concat(all_batch_exec_frames, ignore_index=True) if all_batch_exec_frames else pd.DataFrame(columns=[
+                "Client_ID", "Exchange", "Ticker", "Series", "Action", "Order_Qty", "Limit_Price", "Est_Notional", "Est_Friction", "Residual_Cash"
+            ])
+            b_ex1, b_ex2 = st.columns(2)
+            with b_ex1:
+                st.download_button(
+                    label=f"📥 Export Broker Execution CSV ({selected_cid})",
+                    data=d_item["exec_df"].to_csv(index=False).encode("utf-8"),
+                    file_name=f"WIRATOR_Trade_Execution_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    key=f"batch_dl_exec_{selected_cid}",
+                )
+            with b_ex2:
+                st.download_button(
+                    label="📥 Export All Clients Broker Execution CSV",
+                    data=full_batch_exec_df.to_csv(index=False).encode("utf-8"),
+                    file_name=f"WIRATOR_Batch_Trade_Execution_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    key="batch_dl_exec_all",
+                )
 
             # Benchmark alignment for Selected Batch Client
             b_beta_val = 1.0
@@ -2193,7 +2512,7 @@ elif st.session_state["page"] == "analytics":
                 b_pre_cum = ((1.0 + d_item["r_pre"]).cumprod() - 1.0) * 100.0
                 b_post_cum = ((1.0 + d_item["r_post"]).cumprod() - 1.0) * 100.0
 
-            # Full Parity Analytics: Metrics (Sharpe, Sortino, Return, Vol, VaR, CVaR, Drawdown), ENC, Risk Contribution, Benchmark Graph & Cholesky Monte Carlo
+            # Full Parity Analytics: Metrics, ENC, Risk Contribution, Benchmark Graph, Tax Card & Cholesky Monte Carlo
             render_risk_diversification_and_mc_section(
                 prefix_key=f"batch_{selected_cid}",
                 currency=currency,
@@ -2217,6 +2536,8 @@ elif st.session_state["page"] == "analytics":
                 post_max_stock=d_item["post_max_s"],
                 pre_max_sec=d_item["pre_max_sec"],
                 post_max_sec=d_item["post_max_sec"],
+                tax_impact_amt=d_item["tax_amt"] if d_item["has_sell"] else np.nan,
+                tax_regime_label=batch_tax_regime,
             )
 
             # ------------------------------------------------------------------
@@ -2258,6 +2579,7 @@ elif st.session_state["page"] == "analytics":
                 diff_summary={
                     "turnover_pct": d_item["turn_pct"],
                     "friction_cost": d_item["fric_amt"],
+                    "tax_impact": float(d_item["tax_amt"]) if pd.notna(d_item["tax_amt"]) else 0.0,
                     "pre_vol": d_item["pre_metrics"]["ann_vol"],
                     "post_vol": d_item["post_metrics"]["ann_vol"],
                     "pre_cvar": d_item["pre_metrics"]["hist_cvar"],
