@@ -875,7 +875,7 @@ if st.session_state["page"] == "landing":
     st.markdown(
         """
         <div class="hero-container">
-            <div style="font-size: 4rem; margin-bottom: 0.5rem;">🛡️</div>
+            <div style="font-size: 4rem; margin-bottom: 0.25rem;">🛡️</div>
             <h1 class="hero-title">WIRATOR</h1>
             <div class="hero-subtitle">Quant PRE-Trade Optimization, Risk & Compliance Engine</div>
             <div class="slogan-badge">Test the Shift. Keep The Proof..</div>
