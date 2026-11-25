@@ -877,12 +877,13 @@ if st.session_state["page"] == "landing":
         <div class="hero-container">
             <div style="font-size: 4rem; margin-bottom: 0.5rem;">🛡️</div>
             <h1 class="hero-title">WIRATOR</h1>
-            <div class="hero-subtitle">Institutional Portfolio Risk Audit & Compliance Engine</div>
-            <div class="slogan-badge">Sharper Risk. Stronger Proof.</div>
+            <div class="hero-subtitle">Quant PRE-Trade Optimization, Risk & Compliance Engine</div>
+            <div class="slogan-badge">Test the Shift. Keep The Proof..</div>
             <p class="hero-description">
-                Turn every rebalance into a clearer and more defensible decision.
-                See where real risk sits, test <b>forward</b> outcomes before committing capital.
+                Turn portfolio changes into clear, measurable decisions—tracking volatility, tail risk, 
+                diversification, friction, and capital gains impact before execution, backed by a clean audit trail.
                 Leave with timestamped suitability records that back up your judgment across single clients and batches.
+                Includes four built-in portfolio optimizers.
             </p>
         </div>
         """,
@@ -1725,7 +1726,7 @@ elif st.session_state["page"] == "analytics":
                 if st.button("⚖️ Equally Weighted (EW)", use_container_width=True, key="sc_opt_ew"):
                     clicked_opt = "EW"
             with opt_c2:
-                if st.button("🛡️ Global Min Volatility (GMV)", use_container_width=True, key="sc_opt_gmv"):
+                if st.button("🛡️ Global Min Variance (GMV)", use_container_width=True, key="sc_opt_gmv"):
                     clicked_opt = "GMV"
             with opt_c3:
                 if st.button("🚀 Max Sharpe Ratio (MSR)", use_container_width=True, key="sc_opt_msr"):
