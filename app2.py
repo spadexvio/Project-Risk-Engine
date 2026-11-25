@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 import datetime
 import io
+import re
 import plotly.io as pio
 import plotly.express as px
 import plotly.graph_objects as go
@@ -55,6 +56,22 @@ if "batch_audit_log" not in st.session_state:
 def navigate_to(page_name, exchange=None):
     st.session_state["page"] = page_name
     st.session_state["exchange"] = exchange
+
+
+OPTIMIZER_LABELS = {
+    "EW": "Equally Weighted (EW)",
+    "GMV": "Global Min Volatility (GMV)",
+    "MSR": "Max Sharpe Ratio (MSR)",
+    "ERC": "Equal Risk Contribution (ERC)",
+}
+
+
+def format_short_sector(sector_name):
+    """Strips leading 'Nifty ' or 'BSE ' prefixes to save table column width."""
+    if not sector_name or pd.isna(sector_name):
+        return "Other"
+    cleaned = re.sub(r"^(Nifty|BSE)\s+", "", str(sector_name).strip(), flags=re.IGNORECASE)
+    return cleaned if cleaned else str(sector_name).strip()
 
 
 CHART_CONFIG = {
@@ -252,7 +269,6 @@ def compute_optimizer_target_weights(ret_df, ordered_tickers, ordered_yf_syms, m
         w_arr = np.repeat(1.0 / n_assets, n_assets)
 
     pcts = np.round(w_arr * 100.0, 2)
-    # Adjust rounding residual on largest weight so sum is cleanly 100.00
     diff_100 = round(100.0 - float(pcts.sum()), 2)
     if abs(diff_100) <= 0.10 and len(pcts) > 0:
         max_i = int(np.argmax(pcts))
@@ -572,10 +588,9 @@ def render_risk_diversification_and_mc_section(
     pre_max_sec,
     post_max_sec,
     tax_impact_amt=None,
-    tax_regime_label="LTCG (12.5%)",
+    tax_regime_label="Per-Row LTCG/STCG",
 ):
     """Renders identical comprehensive Pre vs Post metrics, Benchmark Graph, Weight/Risk Diversification & Monte Carlo for both Single Client & Batch."""
-    # Row 1: Mandate & Tail Risk KPIs
     pm1, pm2, pm3, pm4, pm5 = st.columns(5)
     pm1.metric("Annualized Vol", f"{post_metrics['ann_vol']:.2f}%", delta=f"{post_metrics['ann_vol'] - pre_metrics['ann_vol']:+.2f}% vs pre", delta_color="inverse")
     pm2.metric(f"{time_horizon_days}D Hist CVaR ({int(confidence_level*100)}%)", f"{post_metrics['hist_cvar']:.2f}%", delta=f"{post_metrics['hist_cvar'] - pre_metrics['hist_cvar']:+.2f}% vs pre", delta_color="inverse")
@@ -583,7 +598,6 @@ def render_risk_diversification_and_mc_section(
     pm4.metric(f"{time_horizon_days}D Mod. CF VaR", f"{post_metrics['cf_var']:.2f}%", delta=f"{post_metrics['cf_var'] - pre_metrics['cf_var']:+.2f}% vs pre", delta_color="inverse")
     pm5.metric("Turnover / Friction", f"{turnover_pct:.2f}%", delta=f"{currency} {total_friction_amt:,.0f} (Beta {beta_val:.2f})", delta_color="off")
 
-    # Row 2: Return, Risk-Adjusted Ratios, Drawdown & Concentration
     qm1, qm2, qm3, qm4, qm5 = st.columns(5)
     qm1.metric("Ann. Return (Post)", f"{post_metrics['ann_ret']:+.2f}%", delta=f"{post_metrics['ann_ret'] - pre_metrics['ann_ret']:+.2f}% vs pre")
     qm2.metric("Sharpe Ratio (erk)", f"{post_metrics['sharpe']:.2f}", delta=f"{post_metrics['sharpe'] - pre_metrics['sharpe']:+.2f} vs pre")
@@ -591,7 +605,6 @@ def render_risk_diversification_and_mc_section(
     qm4.metric("Max Drawdown", f"{post_metrics['max_dd']:.2f}%", delta=f"{post_metrics['max_dd'] - pre_metrics['max_dd']:+.2f}% vs pre", delta_color="inverse")
     qm5.metric("Max Stock / Sector", f"{post_max_stock:.1f}% / {post_max_sec:.1f}%", delta=f"Stk {post_max_stock - pre_max_stock:+.1f}% | Sec {post_max_sec - pre_max_sec:+.1f}%", delta_color="off")
 
-    # Row 3: Diversification (ENC on Weights & Risk Contributions via erk.enc) & What-If Rebalance Tax Impact
     dv1, dv2, dv3, dv4, dv5 = st.columns(5)
     dv1.metric("Weight Diversification (ENC)", f"{post_div['weight_enc']:.1f}%", delta=f"{post_div['weight_enc'] - pre_div['weight_enc']:+.1f}% vs pre")
     dv2.metric("Risk Diversification (ENC)", f"{post_div['risk_enc']:.1f}%", delta=f"{post_div['risk_enc'] - pre_div['risk_enc']:+.1f}% vs pre")
@@ -600,9 +613,8 @@ def render_risk_diversification_and_mc_section(
     if tax_impact_amt is None or np.isnan(tax_impact_amt) or tax_impact_amt <= 0:
         dv5.metric("Est. Rebalance Tax", "N/A", delta="No taxable sell", delta_color="off")
     else:
-        dv5.metric("Est. Rebalance Tax", f"{currency} {tax_impact_amt:,.2f}", delta=f"{tax_regime_label} on sells", delta_color="inverse")
+        dv5.metric("Est. Rebalance Tax", f"{currency} {tax_impact_amt:,.2f}", delta=f"{tax_regime_label}", delta_color="inverse")
 
-    # Summary Stats Table from erk.summary_stats (Pre vs Post)
     if not pre_metrics["summary_df"].empty and not post_metrics["summary_df"].empty:
         with st.expander("📋 View Full Summary Table (Pre-Trade vs. Post-Trade)", expanded=False):
             comb_stats = pd.concat([
@@ -611,7 +623,6 @@ def render_risk_diversification_and_mc_section(
             ])
             st.dataframe(comb_stats, use_container_width=True)
 
-    # Weight Distribution vs Risk Contribution Graph & Table (erk.risk_contribution)
     st.markdown("### ⚖️ Weight Distribution vs. Risk Contribution")
     rc_col1, rc_col2 = st.columns([1.8, 1.2])
     with rc_col1:
@@ -649,7 +660,6 @@ def render_risk_diversification_and_mc_section(
             hide_index=True,
         )
 
-    # Pre-Trade vs Post-Trade vs Market Benchmark Graph
     st.markdown("### 📈 Portfolio vs. Market Benchmark (Pre-Trade vs. Post-Trade)")
     fig_bm = go.Figure()
     fig_bm.add_trace(go.Scatter(
@@ -679,7 +689,6 @@ def render_risk_diversification_and_mc_section(
     )
     st.plotly_chart(fig_bm, use_container_width=True, config=CHART_CONFIG)
 
-    # Cholesky Monte Carlo Simulation (via erk.cholesky_returns(..., return_prices=False))
     st.markdown(f"### 🎲 Cholesky Monte Carlo Simulation ({time_horizon_days}D Horizon)")
     mc_c1, mc_c2 = st.columns([1.2, 2.8])
     with mc_c1:
@@ -989,6 +998,15 @@ elif st.session_state["page"] == "analytics":
         .gate-pass { border-left-color: #22C55E !important; }
         .gate-warn { border-left-color: #F59E0B !important; }
         .gate-breach { border-left-color: #EF4444 !important; }
+        .opt-badge {
+            background-color: #1A2B4C;
+            color: #FAFAED !important;
+            border-radius: 8px;
+            padding: 8px 14px;
+            margin: 8px 0 14px 0;
+            font-weight: 600;
+            border-left: 5px solid #22C55E;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1024,10 +1042,11 @@ elif st.session_state["page"] == "analytics":
     sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["NSE"])
     ticker_to_sector = {}
     for sec_name, sec_data in sector_config.items():
+        short_sec = format_short_sector(sec_name)
         for stk in sec_data["stocks"]:
             base_s = stk.split(".")[0].upper()
-            ticker_to_sector[base_s] = sec_name
-            ticker_to_sector[stk.upper()] = sec_name
+            ticker_to_sector[base_s] = short_sec
+            ticker_to_sector[stk.upper()] = short_sec
 
     # --- LIVE INDEX CHART SECTION ---
     st.subheader(f"Live Market Context: {current_cfg['name']}")
@@ -1194,7 +1213,6 @@ elif st.session_state["page"] == "analytics":
         key="workspace_mode_selector",
     )
 
-    # Sidebar Configuration (Currency, Capital, CSV/Demo Upload, Feedback)
     st.sidebar.header(f"1. Configuration ({exchange})")
     currency = st.sidebar.selectbox(
         "Denominated Currency",
@@ -1247,10 +1265,11 @@ elif st.session_state["page"] == "analytics":
         stock_to_sector_map = {}
 
         for sector_name, data in sector_config.items():
+            short_sec_name = format_short_sector(sector_name)
             all_tickers_to_fetch.extend(data["indices"])
             all_tickers_to_fetch.extend(data["stocks"])
             for stock in data["stocks"]:
-                stock_to_sector_map[stock] = sector_name
+                stock_to_sector_map[stock] = short_sec_name
 
         all_tickers_to_fetch = list(set(all_tickers_to_fetch))
 
@@ -1283,13 +1302,14 @@ elif st.session_state["page"] == "analytics":
                         stock_returns_dict[col] = ret
 
             for sector_name, data in sector_config.items():
+                short_sec_name = format_short_sector(sector_name)
                 sec_stock_rets = [
                     stock_returns_dict[stk]
                     for stk in data["stocks"]
                     if stk in stock_returns_dict
                 ]
                 if sec_stock_rets:
-                    sector_returns[sector_name] = np.mean(sec_stock_rets)
+                    sector_returns[short_sec_name] = np.mean(sec_stock_rets)
 
         perf_df = pd.DataFrame(
             list(sector_returns.items()), columns=["Sector", "Growth (%)"]
@@ -1401,9 +1421,14 @@ elif st.session_state["page"] == "analytics":
         st.markdown("---")
         st.subheader("🔎 Detailed Sector Drill-Down")
         available_sectors = list(sector_config.keys())
-        selected_sector = st.selectbox("Choose a Sector to Analyze:", options=available_sectors)
+        selected_sector = st.selectbox(
+            "Choose a Sector to Analyze:",
+            options=available_sectors,
+            format_func=format_short_sector,
+        )
 
         if selected_sector:
+            short_selected_sec = format_short_sector(selected_sector)
             sector_stocks = sector_config[selected_sector]["stocks"]
             sector_stocks_perf = [
                 {"Ticker": stk, "Return (%)": stock_returns_dict.get(stk, np.nan)}
@@ -1415,7 +1440,7 @@ elif st.session_state["page"] == "analytics":
                 sector_drill_df["Ticker"] = sector_drill_df["Ticker"].str.replace(r"\.(NS|BO|L|JO|DE|PA|AS|MI|MC)$", "", regex=True)
                 sd_col1, sd_col2 = st.columns([1, 1.5], gap="large")
                 with sd_col1:
-                    st.markdown(f"### Performance Breakdown: **{selected_sector}** ({timeframe})")
+                    st.markdown(f"### Performance Breakdown: **{short_selected_sec}** ({timeframe})")
                     st.dataframe(
                         sector_drill_df.style.format({"Return (%)": "{:+.2f}%"}),
                         use_container_width=True,
@@ -1427,14 +1452,14 @@ elif st.session_state["page"] == "analytics":
                         x="Return (%)",
                         y="Ticker",
                         orientation="h",
-                        title=f"{selected_sector} Stock Returns — {timeframe}",
+                        title=f"{short_selected_sec} Stock Returns — {timeframe}",
                         color="Return (%)",
                         color_continuous_scale="Viridis",
                     )
                     fig_sector_drill.update_layout(yaxis={"categoryorder": "total ascending"}, dragmode=False)
                     st.plotly_chart(fig_sector_drill, use_container_width=True)
             else:
-                st.info(f"No price data available for stocks in {selected_sector}.")
+                st.info(f"No price data available for stocks in {short_selected_sec}.")
 
     with sec_tab3:
         st.subheader("📉 Strategy Fee, Cash & Execution Drag Calculator")
@@ -1556,7 +1581,6 @@ elif st.session_state["page"] == "analytics":
                     "Cost Price": [160.0, 80.0, 210.0, 520.0, 155.0],
                 })
 
-            # Fetch live prices for Stage 1 holdings table
             s1_raw_tickers = [str(t).strip().upper() for t in init_holdings["Ticker"] if str(t).strip()]
             s1_yf_syms = resolve_yf_tickers(s1_raw_tickers, current_cfg)
             s1_live_map = {}
@@ -1690,6 +1714,11 @@ elif st.session_state["page"] == "analytics":
 
             # Portfolio Optimizer Presets (using erk.weight_ew, erk.weight_gmv, erk.msr, erk.weight_erc)
             st.markdown("#### ⚙️ Portfolio Optimizer Presets (Auto-Fill Target Weights)")
+            if "sc_active_optimizer" not in st.session_state:
+                st.session_state["sc_active_optimizer"] = None
+            if "sc_last_opt_weights" not in st.session_state:
+                st.session_state["sc_last_opt_weights"] = {}
+
             opt_c1, opt_c2, opt_c3, opt_c4 = st.columns(4)
             clicked_opt = None
             with opt_c1:
@@ -1711,6 +1740,8 @@ elif st.session_state["page"] == "analytics":
                 )
                 for bt_opt, w_opt in opt_wts_map.items():
                     st.session_state[f"sc_tw_{bt_opt}"] = float(w_opt)
+                st.session_state["sc_active_optimizer"] = clicked_opt
+                st.session_state["sc_last_opt_weights"] = dict(opt_wts_map)
                 st.rerun()
 
             qty_map = {}
@@ -1754,6 +1785,37 @@ elif st.session_state["page"] == "analytics":
                     val_pct = st.number_input(lbl, min_value=0.0, max_value=100.0, value=init_val, step=1.0, key=f"sc_tw_{bt}")
                     raw_target_pcts.append(val_pct)
 
+            # Display which Portfolio Optimizer Preset is currently active
+            active_opt_code = st.session_state.get("sc_active_optimizer")
+            if active_opt_code:
+                last_opt_w = st.session_state.get("sc_last_opt_weights", {})
+                is_exact_match = (
+                    set(last_opt_w.keys()) == set(valid_bt_ordered)
+                    and all(abs(last_opt_w[bt] - raw_target_pcts[i]) < 0.02 for i, bt in enumerate(valid_bt_ordered))
+                )
+                opt_full_name = OPTIMIZER_LABELS.get(active_opt_code, active_opt_code)
+                if is_exact_match:
+                    st.markdown(
+                        f"""<div class="opt-badge">
+                            📌 Active Optimizer Results: <b>{opt_full_name}</b> — Target weights and rebalance figures below reflect the <b>{active_opt_code}</b> optimization.
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f"""<div class="opt-badge" style="border-left-color: #F59E0B;">
+                            ✏️ Active Allocation: <b>Custom / Manual</b> (started from <b>{opt_full_name}</b> preset)
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.markdown(
+                    """<div class="opt-badge" style="border-left-color: #38BDF8;">
+                        🧭 Active Allocation: <b>Manual / Custom Target Weights</b> (click an optimizer preset above to auto-fill)
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+
             post_nav = max(total_curr_nav + float(cash_flow_sim), 1.0)
             sum_tw = sum(raw_target_pcts)
             if sum_tw > 0:
@@ -1775,78 +1837,128 @@ elif st.session_state["page"] == "analytics":
             ]
 
             has_any_sell_sc = any("SELL" in act for act in actions_list)
-            sc_tax_regime_default = "LTCG (12.5%)"
-            if has_any_sell_sc and days_map:
-                sell_days = [days_map[bt] for i, (bt, _) in enumerate(valid_pairs) if "SELL" in actions_list[i] and bt in days_map]
-                if sell_days and all(d < 365 for d in sell_days):
-                    sc_tax_regime_default = "STCG (20%)"
+            if "sc_per_stock_tax_map" not in st.session_state:
+                st.session_state["sc_per_stock_tax_map"] = {}
+            if "sc_last_bulk_tax_regime" not in st.session_state:
+                st.session_state["sc_last_bulk_tax_regime"] = "LTCG (12.5%)"
 
             if has_any_sell_sc:
-                tx_tog_c1, tx_tog_c2 = st.columns([1.8, 2.2])
+                tx_tog_c1, tx_tog_c2 = st.columns([2.0, 2.0])
                 with tx_tog_c1:
-                    sc_tax_regime = st.radio(
-                        "What-If Capital Gains Tax Regime (Triggered on Sell Actions)",
+                    sc_bulk_tax_regime = st.radio(
+                        "Set All Sellable Stocks at Once (Bulk Tax Regime)",
                         options=["LTCG (12.5%)", "STCG (20%)"],
-                        index=0 if sc_tax_regime_default == "LTCG (12.5%)" else 1,
+                        index=0 if st.session_state["sc_last_bulk_tax_regime"] == "LTCG (12.5%)" else 1,
                         horizontal=True,
                         key="sc_whatif_tax_regime",
                     )
                 with tx_tog_c2:
-                    if days_map:
-                        st.info("ℹ️ Holding days detected in CSV (<365d = STCG 20%, ≥365d = LTCG 12.5%); overridden if toggled manually.")
-                    else:
-                        st.caption("Applies 12.5% (LTCG) or 20% (STCG) on realized P&L of sold shares only.")
+                    st.caption("Use the radio button to switch all sellable stocks at once, or change the **Tax Regime** dropdown on individual SELL rows in the table below.")
+
+                # If user toggled the bulk radio button, apply that choice to all sellable stocks at once
+                if sc_bulk_tax_regime != st.session_state["sc_last_bulk_tax_regime"]:
+                    st.session_state["sc_last_bulk_tax_regime"] = sc_bulk_tax_regime
+                    for i_s, (bt_s, _) in enumerate(valid_pairs):
+                        if "SELL" in actions_list[i_s]:
+                            st.session_state["sc_per_stock_tax_map"][bt_s] = sc_bulk_tax_regime
             else:
-                sc_tax_regime = "LTCG (12.5%)"
+                sc_bulk_tax_regime = st.session_state["sc_last_bulk_tax_regime"]
 
-            row_tax_amts = []
-            row_tax_strs = []
-            for i, (bt, yt) in enumerate(valid_pairs):
-                lp_i = float(p_df[yt].iloc[-1])
-                cq_i = qty_map.get(bt, 0.0)
-                pq_i = (prop_val_per_asset[i] / lp_i) if lp_i > 0 else 0.0
-                # Auto-use per-row detected holding days unless user explicitly toggled a different regime
-                row_regime = sc_tax_regime
-                if bt in days_map and "sc_whatif_tax_regime" not in st.session_state:
-                    row_regime = "STCG (20%)" if days_map[bt] < 365 else "LTCG (12.5%)"
-                t_amt, t_disp = calculate_sell_tax_for_row(
-                    actions_list[i], lp_i, avg_cost_map.get(bt, np.nan), cq_i, pq_i, row_regime
-                )
-                row_tax_amts.append(t_amt)
-                row_tax_strs.append(f"{currency} {t_disp}" if pd.notna(t_amt) and t_amt > 0 else t_disp)
+            # Initialize default regime for each sellable stock if not yet set
+            for i, (bt, _) in enumerate(valid_pairs):
+                if "SELL" in actions_list[i]:
+                    if bt not in st.session_state["sc_per_stock_tax_map"] or st.session_state["sc_per_stock_tax_map"][bt] not in ["LTCG (12.5%)", "STCG (20%)"]:
+                        if bt in days_map:
+                            st.session_state["sc_per_stock_tax_map"][bt] = "STCG (20%)" if days_map[bt] < 365 else "LTCG (12.5%)"
+                        else:
+                            st.session_state["sc_per_stock_tax_map"][bt] = sc_bulk_tax_regime
+                else:
+                    st.session_state["sc_per_stock_tax_map"][bt] = "N/A"
 
-            total_sc_tax_impact = float(np.nansum(row_tax_amts)) if has_any_sell_sc else 0.0
+            row_regimes_initial = [st.session_state["sc_per_stock_tax_map"][bt] for bt in valid_bt_ordered]
+
+            def compute_sc_tax_columns(regimes_seq):
+                amts = []
+                strs = []
+                for idx_r, (bt_r, yt_r) in enumerate(valid_pairs):
+                    lp_r = float(p_df[yt_r].iloc[-1])
+                    cq_r = qty_map.get(bt_r, 0.0)
+                    pq_r = (prop_val_per_asset[idx_r] / lp_r) if lp_r > 0 else 0.0
+                    reg_r = regimes_seq[idx_r]
+                    if "SELL" not in actions_list[idx_r] or reg_r not in ["LTCG (12.5%)", "STCG (20%)"]:
+                        amts.append(np.nan)
+                        strs.append("N/A")
+                    else:
+                        t_amt, t_disp = calculate_sell_tax_for_row(
+                            actions_list[idx_r], lp_r, avg_cost_map.get(bt_r, np.nan), cq_r, pq_r, reg_r
+                        )
+                        amts.append(t_amt)
+                        strs.append(f"{currency} {t_disp}" if pd.notna(t_amt) and t_amt > 0 else t_disp)
+                return amts, strs
+
+            row_tax_amts, row_tax_strs = compute_sc_tax_columns(row_regimes_initial)
 
             unified_blotter_df = pd.DataFrame({
                 "Ticker": valid_bt_ordered,
                 "Sector": [ticker_to_sector.get(bt, "Other") for bt in valid_bt_ordered],
-                "Live Price": [float(p_df[yt].iloc[-1]) for _, yt in valid_pairs],
-                "Current Wt (%)": curr_wts * 100.0,
-                "Proposed Wt (%)": prop_wts * 100.0,
-                "Delta Wt (%)": diff_wts * 100.0,
-                "Current Val": curr_val_per_asset,
-                "Proposed Val": prop_val_per_asset,
+                "Live Price": [f"{currency} {float(p_df[yt].iloc[-1]):,.2f}" for _, yt in valid_pairs],
+                "Current Wt": [f"{w * 100.0:.2f}%" for w in curr_wts],
+                "Proposed Wt": [f"{w * 100.0:.2f}%" for w in prop_wts],
+                "Delta Wt": [f"{w * 100.0:+.2f}%" for w in diff_wts],
+                "Current Val": [f"{currency} {v:,.2f}" for v in curr_val_per_asset],
+                "Proposed Val": [f"{currency} {v:,.2f}" for v in prop_val_per_asset],
                 "Action": actions_list,
-                "Trade Notional": np.abs(trade_notional_per_asset),
-                "Est. Friction": np.abs(trade_notional_per_asset) * friction_rate,
+                "Trade Notional": [f"{currency} {abs(v):,.2f}" for v in trade_notional_per_asset],
+                "Est. Friction": [f"{currency} {abs(v) * friction_rate:,.2f}" for v in trade_notional_per_asset],
+                "Tax Regime": row_regimes_initial,
                 "What-If Tax": row_tax_strs,
             })
 
-            st.write("**Pre-Trade vs. Post-Trade Allocation, Order Diff & What-If Tax Table**")
-            st.dataframe(
-                unified_blotter_df.style.format({
-                    "Live Price": f"{currency} {{:,.2f}}",
-                    "Current Wt (%)": "{:.2f}%",
-                    "Proposed Wt (%)": "{:.2f}%",
-                    "Delta Wt (%)": "{:+.2f}%",
-                    "Current Val": f"{currency} {{:,.2f}}",
-                    "Proposed Val": f"{currency} {{:,.2f}}",
-                    "Trade Notional": f"{currency} {{:,.2f}}",
-                    "Est. Friction": f"{currency} {{:,.2f}}",
-                }),
+            st.write("**Pre-Trade vs. Post-Trade Allocation, Order Diff & What-If Tax Table** *(use Tax Regime dropdown on SELL rows)*")
+            read_only_cols = [c for c in unified_blotter_df.columns if c != "Tax Regime"]
+            edited_blotter_df = st.data_editor(
+                unified_blotter_df,
                 use_container_width=True,
                 hide_index=True,
+                disabled=read_only_cols,
+                column_config={
+                    "Tax Regime": st.column_config.SelectboxColumn(
+                        "Tax Regime",
+                        help="Select LTCG (12.5%) or STCG (20%) for each sellable stock",
+                        options=["LTCG (12.5%)", "STCG (20%)", "N/A"],
+                        required=True,
+                    ),
+                },
+                key="sc_unified_blotter_editor",
             )
+
+            # Sync any per-row dropdown overrides and recompute What-If Tax immediately
+            updated_regimes = []
+            regime_changed = False
+            for idx_e, bt_e in enumerate(valid_bt_ordered):
+                chosen_r = str(edited_blotter_df["Tax Regime"].iloc[idx_e])
+                if "SELL" not in actions_list[idx_e]:
+                    chosen_r = "N/A"
+                elif chosen_r not in ["LTCG (12.5%)", "STCG (20%)"]:
+                    chosen_r = sc_bulk_tax_regime
+                if st.session_state["sc_per_stock_tax_map"].get(bt_e) != chosen_r:
+                    st.session_state["sc_per_stock_tax_map"][bt_e] = chosen_r
+                    regime_changed = True
+                updated_regimes.append(chosen_r)
+
+            if regime_changed:
+                st.rerun()
+
+            row_tax_amts, row_tax_strs = compute_sc_tax_columns(updated_regimes)
+            total_sc_tax_impact = float(np.nansum(row_tax_amts)) if has_any_sell_sc else 0.0
+
+            active_sell_regimes = {updated_regimes[i] for i in range(len(valid_pairs)) if "SELL" in actions_list[i]}
+            if len(active_sell_regimes) > 1:
+                sc_tax_summary_label = "Mixed LTCG / STCG"
+            elif len(active_sell_regimes) == 1:
+                sc_tax_summary_label = next(iter(active_sell_regimes))
+            else:
+                sc_tax_summary_label = sc_bulk_tax_regime
 
             # Broker Trade Execution CSV Export (Single Client)
             clean_cid_sc = client_id_tag.split("(")[0].strip() or "CLIENT-001"
@@ -1890,7 +2002,6 @@ elif st.session_state["page"] == "analytics":
             pre_div = compute_risk_and_diversification(ret_matrix, curr_wts, valid_bt_ordered)
             post_div = compute_risk_and_diversification(ret_matrix, prop_wts, valid_bt_ordered)
 
-            # Benchmark alignment
             beta_val = 1.0
             b_cum_pct = None
             try:
@@ -1919,9 +2030,9 @@ elif st.session_state["page"] == "analytics":
             pre_max_sec = float(sec_series_curr.groupby(level=0).sum().max() * 100.0) if not sec_series_curr.empty else 0.0
             post_max_sec = float(sec_series_prop.groupby(level=0).sum().max() * 100.0) if not sec_series_prop.empty else 0.0
 
-            total_turnover_amt = float(unified_blotter_df["Trade Notional"].sum())
+            total_turnover_amt = float(np.abs(trade_notional_per_asset).sum())
             turnover_pct = (total_turnover_amt / post_nav * 100.0) if post_nav > 0 else 0.0
-            total_friction_amt = float(unified_blotter_df["Est. Friction"].sum())
+            total_friction_amt = float((np.abs(trade_notional_per_asset) * friction_rate).sum())
 
             render_risk_diversification_and_mc_section(
                 prefix_key="sc",
@@ -1947,7 +2058,7 @@ elif st.session_state["page"] == "analytics":
                 pre_max_sec=pre_max_sec,
                 post_max_sec=post_max_sec,
                 tax_impact_amt=total_sc_tax_impact if has_any_sell_sc else np.nan,
-                tax_regime_label=sc_tax_regime,
+                tax_regime_label=sc_tax_summary_label,
             )
 
             # ------------------------------------------------------------------
@@ -2064,7 +2175,6 @@ elif st.session_state["page"] == "analytics":
                     batch_df = get_default_batch_df(current_cfg)
                 edited_batch_df = st.data_editor(batch_df, num_rows="dynamic", use_container_width=True, hide_index=True, key="batch_clients_editor")
 
-            # Stage 2 (Batch): Apply Model Target Weights + Option to Add Stocks to Rebalance
             st.markdown("---")
             st.markdown("## Stage 2: Proposed Rebalance (Batch Model Application)")
             b2_c1, b2_c2, b2_c3 = st.columns(3)
@@ -2117,7 +2227,6 @@ elif st.session_state["page"] == "analytics":
                     b_combined_added.append(item)
             st.session_state["batch_added_tickers_list"] = b_combined_added
 
-            # Normalize Model Target Weights + Newly Added Stocks
             m_clean = model_target_df[model_target_df["Ticker"].astype(str).str.strip() != ""].copy()
             if m_clean.empty and not b_combined_added:
                 st.warning("Specify at least one ticker in Model Target Weights or Add Stock(s) above.")
@@ -2134,7 +2243,6 @@ elif st.session_state["page"] == "analytics":
                 if added_stk not in raw_model_map:
                     raw_model_map[added_stk] = float(b_added_wt_pct)
 
-            # Gather all tickers across model + batch clients (also parse optional Cost_JSON / Holding_Days_JSON)
             all_batch_tickers = set(raw_model_map.keys())
             parsed_client_holdings = []
             parsed_client_costs = []
@@ -2161,7 +2269,6 @@ elif st.session_state["page"] == "analytics":
                 except Exception:
                     pass
 
-                # Optional separate Cost_JSON / Holding_Days_JSON columns in batch CSV
                 for col_c in ["Cost_JSON", "Avg_Cost_JSON"]:
                     if col_c in crow and pd.notna(crow[col_c]):
                         try:
@@ -2208,6 +2315,9 @@ elif st.session_state["page"] == "analytics":
 
             # Portfolio Optimizer Presets for Batch Model Weights (erk.weight_ew, erk.weight_gmv, erk.msr, erk.weight_erc)
             st.markdown("#### ⚙️ Model Portfolio Optimizer Presets (Auto-Fill Model Target Weights)")
+            if "batch_active_optimizer" not in st.session_state:
+                st.session_state["batch_active_optimizer"] = None
+
             b_opt1, b_opt2, b_opt3, b_opt4 = st.columns(4)
             b_clicked_opt = None
             with b_opt1:
@@ -2231,7 +2341,18 @@ elif st.session_state["page"] == "analytics":
                 st.session_state["batch_model_df_state"] = pd.DataFrame([
                     {"Ticker": k, "Target_Weight_Pct": v} for k, v in opt_m_map.items()
                 ])
+                st.session_state["batch_active_optimizer"] = b_clicked_opt
                 st.rerun()
+
+            if st.session_state.get("batch_active_optimizer"):
+                b_opt_code = st.session_state["batch_active_optimizer"]
+                b_opt_label = OPTIMIZER_LABELS.get(b_opt_code, b_opt_code)
+                st.markdown(
+                    f"""<div class="opt-badge">
+                        📌 Active Model Optimizer: <b>{b_opt_label}</b> — Batch rebalance figures reflect <b>{b_opt_code}</b> weights.
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
 
             tot_m_pct = sum(raw_model_map.values())
             model_wt_map = {
@@ -2244,7 +2365,6 @@ elif st.session_state["page"] == "analytics":
 
             latest_px_map = {bt: float(p_b_df[yt].iloc[-1]) for bt, yt in valid_b_pairs}
 
-            # Fetch benchmark series once for batch comparison
             b_ret_bench = pd.Series(dtype=float)
             try:
                 bm_b_raw = yf.download(current_cfg["symbol"], start=ret_b_df.index[0], end=ret_b_df.index[-1], progress=False)
@@ -2253,16 +2373,24 @@ elif st.session_state["page"] == "analytics":
             except Exception:
                 pass
 
-            # Batch-level What-If Tax Toggle (default LTCG 12.5%, toggleable to STCG 20%; auto-overridden per position if holding days exist in CSV)
+            if "batch_last_bulk_tax" not in st.session_state:
+                st.session_state["batch_last_bulk_tax"] = "LTCG (12.5%)"
+            if "batch_per_stock_tax" not in st.session_state:
+                st.session_state["batch_per_stock_tax"] = {}
+
             batch_tax_regime = st.radio(
-                "Batch What-If Tax Regime for Sell Actions (Auto-detected if Holding_Days present in CSV)",
+                "Set All Sellable Stocks at Once — Batch Tax Regime (or override per stock in Drill-Down below)",
                 options=["LTCG (12.5%)", "STCG (20%)"],
-                index=0,
+                index=0 if st.session_state["batch_last_bulk_tax"] == "LTCG (12.5%)" else 1,
                 horizontal=True,
                 key="batch_whatif_tax_regime",
             )
+            if batch_tax_regime != st.session_state["batch_last_bulk_tax"]:
+                st.session_state["batch_last_bulk_tax"] = batch_tax_regime
+                for k_b in list(st.session_state["batch_per_stock_tax"].keys()):
+                    if st.session_state["batch_per_stock_tax"][k_b] in ["LTCG (12.5%)", "STCG (20%)"]:
+                        st.session_state["batch_per_stock_tax"][k_b] = batch_tax_regime
 
-            # Compute per-client full quant metrics, risk contributions, tax & gate status
             client_rows_detail = {}
             summary_records = []
             batch_fric_rate = batch_friction_bps / 10000.0
@@ -2287,8 +2415,8 @@ elif st.session_state["page"] == "analytics":
                 prop_wts = np.array([(model_wt_map.get(t, 0.0) * target_equity_base / tot_val) if tot_val > 0 else 0.0 for t in valid_b_bt], dtype=float)
                 prop_pos_vals = prop_wts * tot_val
 
-                # Per-asset actions & What-If Tax for this client
                 c_actions = []
+                c_regimes = []
                 c_tax_amts = []
                 c_tax_strs = []
                 for i_t, t_sym in enumerate(valid_b_bt):
@@ -2308,13 +2436,21 @@ elif st.session_state["page"] == "analytics":
                         act_t = "HOLD"
                     c_actions.append(act_t)
 
-                    # Determine regime: auto-fill from holding days if present, else use toggle
-                    eff_regime = batch_tax_regime
-                    if t_sym in d_dict:
-                        eff_regime = "STCG (20%)" if d_dict[t_sym] < 365 else "LTCG (12.5%)"
-                    elif row_holding_days is not None:
-                        eff_regime = "STCG (20%)" if row_holding_days < 365 else "LTCG (12.5%)"
+                    state_key_b = f"{cid}::{t_sym}"
+                    if "SELL" in act_t:
+                        if state_key_b not in st.session_state["batch_per_stock_tax"] or st.session_state["batch_per_stock_tax"][state_key_b] not in ["LTCG (12.5%)", "STCG (20%)"]:
+                            if t_sym in d_dict:
+                                st.session_state["batch_per_stock_tax"][state_key_b] = "STCG (20%)" if d_dict[t_sym] < 365 else "LTCG (12.5%)"
+                            elif row_holding_days is not None:
+                                st.session_state["batch_per_stock_tax"][state_key_b] = "STCG (20%)" if row_holding_days < 365 else "LTCG (12.5%)"
+                            else:
+                                st.session_state["batch_per_stock_tax"][state_key_b] = batch_tax_regime
+                        eff_regime = st.session_state["batch_per_stock_tax"][state_key_b]
+                    else:
+                        st.session_state["batch_per_stock_tax"][state_key_b] = "N/A"
+                        eff_regime = "N/A"
 
+                    c_regimes.append(eff_regime)
                     cost_t = c_dict.get(t_sym, np.nan)
                     t_a, t_s = calculate_sell_tax_for_row(act_t, lp_t, cost_t, cq_t, pq_t, eff_regime)
                     c_tax_amts.append(t_a)
@@ -2408,12 +2544,13 @@ elif st.session_state["page"] == "analytics":
                     "diff_df": pd.DataFrame({
                         "Ticker": valid_b_bt,
                         "Sector": [ticker_to_sector.get(t, "Other") for t in valid_b_bt],
-                        "Live Price": [latest_px_map.get(t, 0.0) for t in valid_b_bt],
-                        "Current Wt (%)": c_wts * 100.0,
-                        "Proposed Wt (%)": prop_wts * 100.0,
-                        "Delta Wt (%)": (prop_wts - c_wts) * 100.0,
+                        "Live Price": [f"{currency} {latest_px_map.get(t, 0.0):,.2f}" for t in valid_b_bt],
+                        "Current Wt": [f"{w * 100.0:.2f}%" for w in c_wts],
+                        "Proposed Wt": [f"{w * 100.0:.2f}%" for w in prop_wts],
+                        "Delta Wt": [f"{w * 100.0:+.2f}%" for w in (prop_wts - c_wts)],
                         "Action": c_actions,
-                        "Trade Amt": np.abs(prop_wts - c_wts) * tot_val,
+                        "Trade Amt": [f"{currency} {abs(v):,.2f}" for v in (np.abs(prop_wts - c_wts) * tot_val)],
+                        "Tax Regime": c_regimes,
                         "What-If Tax": c_tax_strs,
                     }),
                 }
@@ -2458,20 +2595,38 @@ elif st.session_state["page"] == "analytics":
             d_item = client_rows_detail[selected_cid]
             st.markdown(f"**Client Drill-Down: {d_item['cid']} ({d_item['pmask']} | {d_item['rtier']}) — Gate: {d_item['gate']['status']}**")
 
-            # Order Diff & What-If Tax Table for Selected Client
-            st.dataframe(
-                d_item["diff_df"].style.format({
-                    "Live Price": f"{currency} {{:,.2f}}",
-                    "Current Wt (%)": "{:.2f}%",
-                    "Proposed Wt (%)": "{:.2f}%",
-                    "Delta Wt (%)": "{:+.2f}%",
-                    "Trade Amt": f"{currency} {{:,.2f}}",
-                }),
+            b_read_only_cols = [c for c in d_item["diff_df"].columns if c != "Tax Regime"]
+            edited_b_diff_df = st.data_editor(
+                d_item["diff_df"],
                 use_container_width=True,
                 hide_index=True,
+                disabled=b_read_only_cols,
+                column_config={
+                    "Tax Regime": st.column_config.SelectboxColumn(
+                        "Tax Regime",
+                        help="Override LTCG (12.5%) or STCG (20%) for individual SELL rows",
+                        options=["LTCG (12.5%)", "STCG (20%)", "N/A"],
+                        required=True,
+                    ),
+                },
+                key=f"batch_diff_editor_{selected_cid}",
             )
 
-            # Broker Trade Execution CSV Exports (Selected Client & Full Batch)
+            b_reg_changed = False
+            for idx_bd, bt_bd in enumerate(valid_b_bt):
+                chosen_bd = str(edited_b_diff_df["Tax Regime"].iloc[idx_bd])
+                act_bd = str(d_item["diff_df"]["Action"].iloc[idx_bd])
+                s_key_bd = f"{selected_cid}::{bt_bd}"
+                if "SELL" not in act_bd:
+                    chosen_bd = "N/A"
+                elif chosen_bd not in ["LTCG (12.5%)", "STCG (20%)"]:
+                    chosen_bd = batch_tax_regime
+                if st.session_state["batch_per_stock_tax"].get(s_key_bd) != chosen_bd:
+                    st.session_state["batch_per_stock_tax"][s_key_bd] = chosen_bd
+                    b_reg_changed = True
+            if b_reg_changed:
+                st.rerun()
+
             all_batch_exec_frames = [v["exec_df"] for v in client_rows_detail.values() if not v["exec_df"].empty]
             full_batch_exec_df = pd.concat(all_batch_exec_frames, ignore_index=True) if all_batch_exec_frames else pd.DataFrame(columns=[
                 "Client_ID", "Exchange", "Ticker", "Series", "Action", "Order_Qty", "Limit_Price", "Est_Notional", "Est_Friction", "Residual_Cash"
@@ -2494,7 +2649,6 @@ elif st.session_state["page"] == "analytics":
                     key="batch_dl_exec_all",
                 )
 
-            # Benchmark alignment for Selected Batch Client
             b_beta_val = 1.0
             b_cum_curve = None
             if not b_ret_bench.empty:
@@ -2512,7 +2666,6 @@ elif st.session_state["page"] == "analytics":
                 b_pre_cum = ((1.0 + d_item["r_pre"]).cumprod() - 1.0) * 100.0
                 b_post_cum = ((1.0 + d_item["r_post"]).cumprod() - 1.0) * 100.0
 
-            # Full Parity Analytics: Metrics, ENC, Risk Contribution, Benchmark Graph, Tax Card & Cholesky Monte Carlo
             render_risk_diversification_and_mc_section(
                 prefix_key=f"batch_{selected_cid}",
                 currency=currency,
@@ -2537,7 +2690,7 @@ elif st.session_state["page"] == "analytics":
                 pre_max_sec=d_item["pre_max_sec"],
                 post_max_sec=d_item["post_max_sec"],
                 tax_impact_amt=d_item["tax_amt"] if d_item["has_sell"] else np.nan,
-                tax_regime_label=batch_tax_regime,
+                tax_regime_label="Per-Row LTCG/STCG",
             )
 
             # ------------------------------------------------------------------
@@ -2610,7 +2763,7 @@ elif st.session_state["page"] == "analytics":
                     type="primary",
                 )
 
-    # Sidebar Feedback Form (Preserved)
+    # Sidebar Feedback Form
     with st.sidebar:
         st.markdown("---")
         st.subheader("💬 Feedback & Feature Request")
