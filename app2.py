@@ -173,8 +173,8 @@ def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
             raw_id = str(row[id_col]).strip().upper() if id_col and pd.notna(row[id_col]) else ""
             raw_ticker = str(row[ticker_col]).strip().upper().replace("#", "") if pd.notna(row[ticker_col]) else ""
 
-            if raw_id.startswith("INF") or raw_ticker.startswith("INF"):
-                continue
+            # if raw_id.startswith("INF") or raw_ticker.startswith("INF"):
+            #     continue
 
             try:
                 qty = float(row[qty_col])
