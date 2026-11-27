@@ -35,7 +35,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.set_page_config(
-    page_title="WIRATOR",
+    page_title="FolioLyn.",
     page_icon="🛡️",
     layout="wide",
 )
@@ -82,7 +82,7 @@ CHART_CONFIG = {
     ],
     "toImageButtonOptions": {
         "format": "png",
-        "filename": "wirator_risk_audit",
+        "filename": "foliolyn_risk_audit",
         "height": 600,
         "width": 1000,
         "scale": 2,
@@ -754,7 +754,7 @@ def build_audit_packet_pdf(entity_type, workspace_mode, exchange, currency, clie
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, _fpdf_clean("WIRATOR - AUDIT & SUITABILITY REPORT"), ln=True, align="C")
+    pdf.cell(0, 10, _fpdf_clean("FolioLyn - AUDIT & SUITABILITY REPORT"), ln=True, align="C")
     pdf.set_font("Arial", "I", 8.5)
     pdf.cell(0, 6, _fpdf_clean(f"Entity: {entity_type} | Workspace: {workspace_mode} | Exchange: {exchange} | {timestamp}"), ln=True, align="C")
     pdf.ln(6)
@@ -792,7 +792,7 @@ def build_audit_packet_pdf(entity_type, workspace_mode, exchange, currency, clie
     pdf.cell(0, 7, _fpdf_clean("4. Regulatory & Fiduciary Attestation"), ln=True)
     pdf.set_font("Arial", "", 8.5)
     pdf.multi_cell(0, 5, _fpdf_clean(
-        "Generated via WIRATOR Risk & Compliance Engine for SEBI RIA / Boutique PMS governance and pre-trade suitability review. "
+        "Generated via FolioLyn Risk & Compliance Engine for SEBI RIA / Boutique PMS governance and pre-trade suitability review. "
         "Escalation channels via SEBI SCORES and SMART ODR apply where applicable."
     ))
     raw_out = pdf.output(dest="S")
@@ -876,7 +876,7 @@ if st.session_state["page"] == "landing":
         """
         <div class="hero-container">
             <div style="font-size: 4rem; margin-bottom: 0.25rem;">🛡️</div>
-            <h1 class="hero-title">WIRATOR</h1>
+            <h1 class="hero-title">FolioLyn</h1>
             <div class="hero-subtitle">Quant PRE-Trade Optimization, Risk & Compliance Engine</div>
             <div class="slogan-badge">Test the Shift. Keep The Proof..</div>
             <p class="hero-description">
@@ -1977,7 +1977,7 @@ elif st.session_state["page"] == "analytics":
             st.download_button(
                 label="📥 Export Broker Trade Execution CSV",
                 data=sc_exec_csv_df.to_csv(index=False).encode("utf-8"),
-                file_name=f"WIRATOR_Trade_Execution_{clean_cid_sc}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"FolioLyn_Trade_Execution_{clean_cid_sc}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
                 key="sc_download_exec_csv",
             )
@@ -2131,7 +2131,7 @@ elif st.session_state["page"] == "analytics":
             st.download_button(
                 label="📥 Export Timestamped Audit & Suitability Report (PDF)",
                 data=pdf_packet,
-                file_name=f"WIRATOR_Audit_{client_id_tag.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                file_name=f"FolioLyn_Audit_{client_id_tag.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                 mime="application/pdf",
                 type="primary",
             )
@@ -2637,7 +2637,7 @@ elif st.session_state["page"] == "analytics":
                 st.download_button(
                     label=f"📥 Export Broker Execution CSV ({selected_cid})",
                     data=d_item["exec_df"].to_csv(index=False).encode("utf-8"),
-                    file_name=f"WIRATOR_Trade_Execution_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"FolioLyn_Trade_Execution_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
                     key=f"batch_dl_exec_{selected_cid}",
                 )
@@ -2645,7 +2645,7 @@ elif st.session_state["page"] == "analytics":
                 st.download_button(
                     label="📥 Export All Clients Broker Execution CSV",
                     data=full_batch_exec_df.to_csv(index=False).encode("utf-8"),
-                    file_name=f"WIRATOR_Batch_Trade_Execution_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"FolioLyn_Batch_Trade_Execution_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
                     key="batch_dl_exec_all",
                 )
@@ -2752,14 +2752,14 @@ elif st.session_state["page"] == "analytics":
                 st.download_button(
                     label="📥 Export Batch Summary Roll-Up (CSV)",
                     data=sum_df.to_csv(index=False).encode("utf-8"),
-                    file_name=f"WIRATOR_Batch_Summary_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"FolioLyn_Batch_Summary_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
                 )
             with dl_c2:
                 st.download_button(
                     label="📄 Export Timestamped Audit Report (PDF)",
                     data=b_pdf,
-                    file_name=f"WIRATOR_Batch_Audit_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    file_name=f"FolioLyn_Batch_Audit_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                     mime="application/pdf",
                     type="primary",
                 )
@@ -2780,7 +2780,7 @@ elif st.session_state["page"] == "analytics":
                     creds_dict = dict(st.secrets["gcp_service_account"])
                     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
                     client = gspread.authorize(creds)
-                    sheet = client.open("Wirator User Feedback").sheet1
+                    sheet = client.open("FolioLyn User Feedback").sheet1
                     sheet.append_row([
                         pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
                         user_email if user_email else "Anonymous",
