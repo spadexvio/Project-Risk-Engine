@@ -35,7 +35,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.set_page_config(
-    page_title="FolioLyn.",
+    page_title="FolioLyn",
     page_icon="🛡️",
     layout="wide",
 )
@@ -876,7 +876,7 @@ if st.session_state["page"] == "landing":
         """
         <div class="hero-container">
             <div style="font-size: 4rem; margin-bottom: 0.25rem;">🛡️</div>
-            <h1 class="hero-title">FolioLyn</h1>
+            <h1 class="hero-title">FolioLyn.</h1>
             <div class="hero-subtitle">Quant PRE-Trade Optimization, Risk & Compliance Engine</div>
             <div class="slogan-badge">Test the Shift. Keep The Proof..</div>
             <p class="hero-description">
