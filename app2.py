@@ -2047,7 +2047,8 @@ elif st.session_state["page"] == "analytics":
             current_vals = np.array([qty_map.get(bt, 0.0) * float(p_df[yt].iloc[-1]) for bt, yt in valid_pairs], dtype=float)
             total_curr_equity = float(current_vals.sum())
             total_curr_nav = total_curr_equity + float(client_cash)
-            curr_wts = (current_vals / total_curr_equity) if total_curr_nav > 0 else np.zeros(len(valid_pairs))
+            curr_wts = (current_vals / total_curr_nav) if total_curr_equity > 0 else np.zeros(len(valid_pairs))
+            st.write(f"Capital Invested: INR {total_curr_equity}")
 
             st.write("**Adjust Target Weights (%) for Existing Holdings & Any Newly Added Stocks:**")
             tw_cols = st.columns(min(len(valid_pairs), 5))
