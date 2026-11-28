@@ -65,47 +65,47 @@ OPTIMIZER_LABELS = {
     "ERC": "Equal Risk Contribution (ERC)",
 }
 
-# Comprehensive NSE & BSE Indices Catalog (using .NS / Yahoo index tickers with safe fallbacks)
+# Comprehensive NSE & BSE Indices Catalog (using verified Yahoo / .NS symbols)
 INDEX_CATALOG = {
     # NSE Broad Indices
-    "Nifty 50": {"candidates": ["^NSEI", "NIFTYBEES.NS"], "group": "NSE Broad", "market": "NSE"},
-    "Nifty Next 50": {"candidates": ["NIFTYNEXT50.NS", "JUNIORBEES.NS", "^NSEI"], "group": "NSE Broad", "market": "NSE"},
-    "Nifty 100": {"candidates": ["^CNX100", "NIFTY100.NS", "^NSEI"], "group": "NSE Broad", "market": "NSE"},
-    "Nifty 500": {"candidates": ["^CRSLDX", "NIFTY500.NS", "^NSEI"], "group": "NSE Broad", "market": "NSE"},
-    "Nifty Midcap 150": {"candidates": ["^NSEMDCP150", "MID150BEES.NS", "^NSEI"], "group": "NSE Broad", "market": "NSE"},
-    "Nifty Smallcap 250": {"candidates": ["^NSMALLCAP250", "SMALLCAP250.NS", "^NSEI"], "group": "NSE Broad", "market": "NSE"},
+    "Nifty 50": {"candidates": ["^NSEI", "NIFTYBEES.NS"], "group": "NSE Broad"},
+    "Nifty Next 50": {"candidates": ["^NSMIDCP", "JUNIORBEES.NS", "NIFTYNEXT50.NS"], "group": "NSE Broad"},
+    "Nifty 100": {"candidates": ["^CNX100", "NIFTY100.NS", "NIFTYBEES.NS"], "group": "NSE Broad"},
+    "Nifty 500": {"candidates": ["^CRSLDX", "NIFTY500.NS", "NIFTYBEES.NS"], "group": "NSE Broad"},
+    "Nifty Midcap 150": {"candidates": ["MID150BEES.NS", "^NSEMDCP50", "^NSMIDCP"], "group": "NSE Broad"},
+    "Nifty Smallcap 250": {"candidates": ["HDFCSML250.NS", "^CNXSC", "SMALLCAP.NS"], "group": "NSE Broad"},
     # NSE Sectoral Indices
-    "Nifty Bank": {"candidates": ["^NSEBANK", "BANKBEES.NS"], "group": "NSE Sectoral", "market": "NSE"},
-    "Nifty IT": {"candidates": ["^CNXIT", "ITBEES.NS"], "group": "NSE Sectoral", "market": "NSE"},
-    "Nifty Auto": {"candidates": ["^CNXAUTO", "AUTOBEES.NS"], "group": "NSE Sectoral", "market": "NSE"},
-    "Nifty Pharma": {"candidates": ["^CNXPHARMA", "PHARMABEES.NS"], "group": "NSE Sectoral", "market": "NSE"},
-    "Nifty FMCG": {"candidates": ["^CNXFMCG", "FMCGIETF.NS"], "group": "NSE Sectoral", "market": "NSE"},
-    "Nifty Realty": {"candidates": ["^CNXREALTY", "REALTY.NS"], "group": "NSE Sectoral", "market": "NSE"},
+    "Nifty Bank": {"candidates": ["^NSEBANK", "BANKBEES.NS"], "group": "NSE Sectoral"},
+    "Nifty IT": {"candidates": ["^CNXIT", "ITBEES.NS"], "group": "NSE Sectoral"},
+    "Nifty Auto": {"candidates": ["^CNXAUTO", "AUTOBEES.NS"], "group": "NSE Sectoral"},
+    "Nifty Pharma": {"candidates": ["^CNXPHARMA", "PHARMABEES.NS"], "group": "NSE Sectoral"},
+    "Nifty FMCG": {"candidates": ["^CNXFMCG", "FMCGIETF.NS"], "group": "NSE Sectoral"},
+    "Nifty Realty": {"candidates": ["^CNXREALTY", "REALTY.NS"], "group": "NSE Sectoral"},
     # BSE Broad Indices
-    "BSE SENSEX": {"candidates": ["^BSESN", "SENSEX.NS"], "group": "BSE Broad", "market": "BSE"},
-    "BSE 100": {"candidates": ["BSE-100.NS", "^BSESN"], "group": "BSE Broad", "market": "BSE"},
-    "BSE 200": {"candidates": ["BSE-200.NS", "^BSESN"], "group": "BSE Broad", "market": "BSE"},
-    "BSE 500": {"candidates": ["BSE-500.NS", "^BSESN"], "group": "BSE Broad", "market": "BSE"},
-    "BSE MidCap": {"candidates": ["BSE-MIDCAP.NS", "^NSEMDCP150", "^BSESN"], "group": "BSE Broad", "market": "BSE"},
-    "BSE SmallCap": {"candidates": ["BSE-SMLCAP.NS", "^NSMALLCAP250", "^BSESN"], "group": "BSE Broad", "market": "BSE"},
+    "BSE SENSEX": {"candidates": ["^BSESN", "SENSEXIETF.NS"], "group": "BSE Broad"},
+    "BSE 100": {"candidates": ["BSE-100.BO", "^CNX100", "^BSESN"], "group": "BSE Broad"},
+    "BSE 200": {"candidates": ["BSE-200.BO", "^CNX200", "^BSESN"], "group": "BSE Broad"},
+    "BSE 500": {"candidates": ["BSE-500.BO", "^CRSLDX", "^BSESN"], "group": "BSE Broad"},
+    "BSE MidCap": {"candidates": ["BSE-MIDCAP.BO", "MID150BEES.NS", "^BSESN"], "group": "BSE Broad"},
+    "BSE SmallCap": {"candidates": ["BSE-SMLCAP.BO", "HDFCSML250.NS", "^BSESN"], "group": "BSE Broad"},
     # BSE Sectoral Indices
-    "BSE BANKEX": {"candidates": ["BSE-BANK.NS", "^NSEBANK"], "group": "BSE Sectoral", "market": "BSE"},
-    "BSE Auto": {"candidates": ["BSE-AUTO.NS", "^CNXAUTO"], "group": "BSE Sectoral", "market": "BSE"},
-    "BSE Healthcare": {"candidates": ["BSE-HC.NS", "^CNXPHARMA"], "group": "BSE Sectoral", "market": "BSE"},
-    "BSE FMCG": {"candidates": ["BSE-FMCG.NS", "^CNXFMCG"], "group": "BSE Sectoral", "market": "BSE"},
-    "BSE Capital Goods": {"candidates": ["BSE-CG.NS", "^BSESN"], "group": "BSE Sectoral", "market": "BSE"},
-    "BSE Energy": {"candidates": ["BSE-ENERGY.NS", "^BSESN"], "group": "BSE Sectoral", "market": "BSE"},
+    "BSE BANKEX": {"candidates": ["BSE-BANK.BO", "^NSEBANK", "BANKBEES.NS"], "group": "BSE Sectoral"},
+    "BSE Auto": {"candidates": ["BSE-AUTO.BO", "^CNXAUTO", "AUTOBEES.NS"], "group": "BSE Sectoral"},
+    "BSE Healthcare": {"candidates": ["BSE-HC.BO", "^CNXPHARMA", "PHARMABEES.NS"], "group": "BSE Sectoral"},
+    "BSE FMCG": {"candidates": ["BSE-FMCG.BO", "^CNXFMCG", "FMCGIETF.NS"], "group": "BSE Sectoral"},
+    "BSE Capital Goods": {"candidates": ["BSE-CG.BO", "INFRABEES.NS", "^BSESN"], "group": "BSE Sectoral"},
+    "BSE Energy": {"candidates": ["BSE-ENERGY.BO", "^CNXENERGY", "^BSESN"], "group": "BSE Sectoral"},
     # BSE Thematic Indices
-    "BSE PSU": {"candidates": ["BSE-PSU.NS", "PSUBNKBEES.NS", "^BSESN"], "group": "BSE Thematic", "market": "BSE"},
-    "BSE CPSE": {"candidates": ["BSE-CPSE.NS", "CPSEETF.NS", "^BSESN"], "group": "BSE Thematic", "market": "BSE"},
-    "BSE India Infrastructure": {"candidates": ["BSE-INFRA.NS", "INFRA.NS", "^BSESN"], "group": "BSE Thematic", "market": "BSE"},
-    "BSE India Defence": {"candidates": ["BSE-DEFENCE.NS", "DEFENCE.NS", "^BSESN"], "group": "BSE Thematic", "market": "BSE"},
-    "BSE Internet Economy": {"candidates": ["BSE-INET.NS", "NETWEB.NS", "^BSESN"], "group": "BSE Thematic", "market": "BSE"},
+    "BSE PSU": {"candidates": ["BSE-PSU.BO", "PSUBNKBEES.NS", "^CNXPSE"], "group": "BSE Thematic"},
+    "BSE CPSE": {"candidates": ["CPSEETF.NS", "^CNXPSE", "^BSESN"], "group": "BSE Thematic"},
+    "BSE India Infrastructure": {"candidates": ["INFRABEES.NS", "^CNXINFRA", "^BSESN"], "group": "BSE Thematic"},
+    "BSE India Defence": {"candidates": ["MODEFENCE.NS", "BEL.NS", "HAL.NS"], "group": "BSE Thematic"},
+    "BSE Internet Economy": {"candidates": ["ZOMATO.NS", "NAUKRI.NS", "PAYTM.NS"], "group": "BSE Thematic"},
 }
 
 
 def ensure_ns_suffix(symbol, exchange_code="NSE"):
-    """Ensures NSE/BSE tickers/indices use .NS unless already carrying a Yahoo prefix (^) or suffix (.)."""
+    """Ensures NSE/BSE tickers use .NS unless already carrying a Yahoo prefix (^) or exchange suffix."""
     s = str(symbol).strip().upper()
     if not s:
         return s
@@ -141,28 +141,101 @@ CHART_CONFIG = {
 }
 
 
+def _extract_yf_close_robust(raw_df, requested_tickers):
+    """Reliably extracts a Close DataFrame from yfinance output regardless of single/multi-ticker shape."""
+    if raw_df is None or not isinstance(raw_df, pd.DataFrame) or raw_df.empty:
+        return pd.DataFrame()
+
+    req_list = [t for t in requested_tickers if t]
+    if isinstance(raw_df.columns, pd.MultiIndex):
+        lvl0 = raw_df.columns.get_level_values(0)
+        lvl1 = raw_df.columns.get_level_values(1)
+        if "Close" in lvl0:
+            close_df = raw_df["Close"].copy()
+        elif "Adj Close" in lvl0:
+            close_df = raw_df["Adj Close"].copy()
+        elif "Close" in lvl1:
+            close_df = raw_df.xs("Close", axis=1, level=1).copy()
+        else:
+            close_df = raw_df.xs(lvl0[0], axis=1, level=0).copy()
+    else:
+        if "Close" in raw_df.columns:
+            col_nm = req_list[0] if len(req_list) == 1 else "Close"
+            close_df = raw_df[["Close"]].rename(columns={"Close": col_nm}).copy()
+        elif "Adj Close" in raw_df.columns:
+            col_nm = req_list[0] if len(req_list) == 1 else "Adj Close"
+            close_df = raw_df[["Adj Close"]].rename(columns={"Adj Close": col_nm}).copy()
+        else:
+            close_df = raw_df.copy()
+
+    if isinstance(close_df, pd.Series):
+        col_nm = req_list[0] if len(req_list) == 1 else (close_df.name or "Asset")
+        close_df = close_df.to_frame(name=col_nm)
+
+    close_df.columns = [str(c).strip() for c in close_df.columns]
+    close_df = close_df.dropna(how="all", axis=1).ffill().bfill()
+    return close_df
+
+
 @st.cache_data(ttl=600, show_spinner=False)
-def cached_yf_download(tickers_tuple, start_str, end_str, period=None, interval="1d"):
-    """Cached wrapper around yf.download to reduce lag across tabs and reruns."""
-    tickers_list = [t for t in tickers_tuple if t]
+def fetch_close_prices_cached(tickers_tuple, start_str=None, end_str=None, period=None, interval="1d"):
+    """Fetches & caches clean Close price DataFrames with single-ticker fallback if batch download fails."""
+    tickers_list = [str(t).strip() for t in tickers_tuple if str(t).strip()]
     if not tickers_list:
         return pd.DataFrame()
+
+    close_df = pd.DataFrame()
     try:
         if period:
-            df = yf.download(tickers_list, period=period, interval=interval, progress=False, auto_adjust=True)
+            raw = yf.download(tickers_list, period=period, interval=interval, progress=False, auto_adjust=True, threads=True)
         else:
-            df = yf.download(tickers_list, start=start_str, end=end_str, interval=interval, progress=False, auto_adjust=True)
-        return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+            raw = yf.download(tickers_list, start=start_str, end=end_str, interval=interval, progress=False, auto_adjust=True, threads=True)
+        close_df = _extract_yf_close_robust(raw, tickers_list)
     except Exception:
-        return pd.DataFrame()
+        close_df = pd.DataFrame()
+
+    # Fallback: fetch any missing tickers individually via Ticker().history()
+    missing = [t for t in tickers_list if t not in close_df.columns]
+    if missing:
+        recovered = {}
+        for t_sym in missing:
+            try:
+                t_obj = yf.Ticker(t_sym)
+                if period:
+                    hist = t_obj.history(period=period, interval=interval, auto_adjust=True)
+                else:
+                    hist = t_obj.history(start=start_str, end=end_str, interval=interval, auto_adjust=True)
+                if isinstance(hist, pd.DataFrame) and not hist.empty and "Close" in hist.columns:
+                    s = hist["Close"].dropna()
+                    if not s.empty:
+                        if getattr(s.index, "tz", None) is not None:
+                            s.index = s.index.tz_localize(None)
+                        recovered[t_sym] = s
+            except Exception:
+                continue
+        if recovered:
+            rec_df = pd.DataFrame(recovered)
+            if close_df.empty:
+                close_df = rec_df
+            else:
+                if getattr(close_df.index, "tz", None) is not None:
+                    close_df.index = close_df.index.tz_localize(None)
+                close_df = close_df.join(rec_df, how="outer")
+
+    if not close_df.empty:
+        if getattr(close_df.index, "tz", None) is not None:
+            close_df.index = close_df.index.tz_localize(None)
+        close_df = close_df.dropna(how="all", axis=1).ffill().bfill()
+    return close_df
 
 
-@st.cache_data(ttl=900, show_spinner=False)
-def resolve_yf_tickers_cached(raw_tickers_tuple, exchange_name, suffix):
-    """Resolves exchange suffixes (including EU multi-exchange fallbacks and .NS for NSE/BSE) with caching."""
+def resolve_yf_tickers(raw_tickers, current_cfg):
+    """Resolves exchange suffixes (always using .NS for NSE and BSE stocks)."""
     all_eu_suffixes = [".AS", ".DE", ".PA", ".MI", ".MC", ".SW", ".ST", ".BR"]
+    ex_name = current_cfg.get("name", "")
+    sfx_default = ".NS" if current_cfg.get("default_curr") == "INR" else current_cfg.get("suffix", "")
     resolved = []
-    for raw_ticker in raw_tickers_tuple:
+    for raw_ticker in raw_tickers:
         rt = str(raw_ticker).strip().upper()
         if not rt or rt == "NAN":
             resolved.append("")
@@ -170,75 +243,36 @@ def resolve_yf_tickers_cached(raw_tickers_tuple, exchange_name, suffix):
         if rt.startswith("^"):
             resolved.append(rt)
             continue
-        if exchange_name == "STOXX Europe 600" and not any(rt.endswith(sfx) for sfx in all_eu_suffixes):
+        if ex_name == "STOXX Europe 600" and not any(rt.endswith(sfx) for sfx in all_eu_suffixes):
             found_valid = False
             for sfx in all_eu_suffixes:
                 test_symbol = f"{rt}{sfx}"
-                test_data = cached_yf_download((test_symbol,), "", "", period="5d", interval="1d")
-                if not test_data.empty:
+                test_df = fetch_close_prices_cached((test_symbol,), period="5d", interval="1d")
+                if not test_df.empty:
                     resolved.append(test_symbol)
                     found_valid = True
                     break
             if not found_valid:
-                resolved.append(f"{rt}{suffix}")
+                resolved.append(f"{rt}{sfx_default}")
         else:
-            if any(rt.endswith(sfx) for sfx in all_eu_suffixes) or exchange_name != "STOXX Europe 600":
-                eff_sfx = ".NS" if exchange_name in ["NSE", "BSE"] and not suffix else suffix
-                sfx_to_add = "" if ("." in rt or any(rt.endswith(sfx) for sfx in all_eu_suffixes)) else eff_sfx
-                resolved.append(f"{rt}{sfx_to_add}")
-            else:
+            if "." in rt:
                 resolved.append(rt)
+            else:
+                resolved.append(f"{rt}{sfx_default}")
     return resolved
-
-
-def resolve_yf_tickers(raw_tickers, current_cfg):
-    return resolve_yf_tickers_cached(
-        tuple(str(t).strip().upper() for t in raw_tickers),
-        current_cfg.get("name", ""),
-        current_cfg.get("suffix", ".NS"),
-    )
-
-
-def extract_close_df(raw_df, expected_cols=None):
-    """Extracts a clean Close price DataFrame from yf.download output."""
-    if raw_df is None or raw_df.empty:
-        return pd.DataFrame()
-    if isinstance(raw_df.columns, pd.MultiIndex):
-        if "Close" in raw_df.columns.get_level_values(0):
-            close_df = raw_df["Close"].copy()
-        else:
-            close_df = raw_df.xs(raw_df.columns.levels[0][0], axis=1, level=0).copy()
-    else:
-        if "Close" in raw_df.columns:
-            col_name = expected_cols[0] if expected_cols and len(expected_cols) == 1 else "Close"
-            close_df = raw_df[["Close"]].rename(columns={"Close": col_name}).copy()
-        else:
-            close_df = raw_df.copy()
-
-    if isinstance(close_df, pd.Series):
-        col_name = expected_cols[0] if expected_cols and len(expected_cols) == 1 else (close_df.name or "Asset")
-        close_df = close_df.to_frame(name=col_name)
-
-    close_df = close_df.dropna(how="all", axis=1).ffill().bfill()
-    return close_df
 
 
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_benchmark_return_series(benchmark_label, start_str, end_str):
-    """Fetches a benchmark series from INDEX_CATALOG using candidate tickers (.NS / Yahoo symbols)."""
+    """Fetches a benchmark return series from INDEX_CATALOG using candidate tickers."""
     meta = INDEX_CATALOG.get(benchmark_label)
     candidates = meta["candidates"] if meta else [ensure_ns_suffix(benchmark_label, "NSE")]
     for sym in candidates:
-        raw = cached_yf_download((sym,), start_str, end_str, interval="1d")
-        cdf = extract_close_df(raw, expected_cols=[sym])
-        if not cdf.empty and sym in cdf.columns:
-            s = cdf[sym].dropna()
-            if len(s) >= 15:
+        cdf = fetch_close_prices_cached((sym,), start_str=start_str, end_str=end_str, interval="1d")
+        if not cdf.empty:
+            s = cdf[sym].dropna() if sym in cdf.columns else cdf.iloc[:, 0].dropna()
+            if len(s) >= 10:
                 return s.pct_change().dropna(), sym
-        elif not cdf.empty and cdf.shape[1] >= 1:
-            s = cdf.iloc[:, 0].dropna()
-            if len(s) >= 15:
-                return s.pct_change().dropna(), cdf.columns[0]
     return pd.Series(dtype=float), candidates[0]
 
 
@@ -256,7 +290,7 @@ def compute_annualized_alpha(port_ret_series, bench_ret_series, rfr_annual=0.065
 
 
 def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
-    """Parses portfolio CSVs, filters out 'INF' non-equities, matches masked ISINs, and returns holdings + cost flag."""
+    """Parses portfolio CSVs, matches masked ISINs, and returns holdings + cost flag."""
     try:
         if not is_demo:
             uploaded_file.seek(0)
@@ -406,7 +440,7 @@ def compute_optimizer_target_weights(ret_df, ordered_tickers, ordered_yf_syms, m
 
 
 def calculate_sell_tax_for_row(action_str, live_price, cost_price, current_qty, proposed_qty, tax_regime):
-    """Calculates What-If Capital Gains Tax on realized P&L of the sold shares only; returns (tax_amount_or_nan, display_str)."""
+    """Calculates What-If Capital Gains Tax on realized P&L of the sold shares only."""
     is_sell = "SELL" in str(action_str).upper()
     sold_qty = max(0.0, float(current_qty) - float(proposed_qty))
     if not is_sell or sold_qty <= 1e-6:
@@ -432,7 +466,7 @@ def build_broker_execution_csv_df(
     starting_cash,
     cash_flow_delta=0.0,
 ):
-    """Builds broker execution CSV with columns: Client_ID, Exchange, Ticker, Series, Action, Order_Qty, Limit_Price, Est_Notional, Est_Friction, Residual_Cash."""
+    """Builds broker execution CSV."""
     series_code = "EQ" if exchange in ["NSE", "BSE"] else "COMMON"
     rows = []
     running_cash = float(starting_cash) + float(cash_flow_delta)
@@ -509,36 +543,35 @@ def evaluate_mandate_gate(
     turnover_pct=0.0,
     max_turnover_cap_pct=60.0,
 ):
-    """Evaluates risk, concentration, turnover & suitability guardrails and returns detailed rule architecture."""
+    """Evaluates risk, concentration, turnover & suitability guardrails and returns structured compliance table."""
     breaches = []
     warnings = []
     checks = []
 
-    def _add_check(rule_name, category, current_val, limit_val, unit, higher_is_breach=True):
-        if higher_is_breach:
-            if current_val > limit_val:
-                status_r = "BREACHED"
-                delta_r = f"+{current_val - limit_val:.2f}{unit} over cap"
-                breaches.append(f"{rule_name}: {current_val:.1f}{unit} > {limit_val:.1f}{unit}")
-                action_r = f"Trim overweight positions or hedge to bring {rule_name.lower()} <= {limit_val:.1f}{unit}."
-            elif current_val > limit_val * 0.90:
-                status_r = "WARNING"
-                delta_r = f"{limit_val - current_val:.2f}{unit} buffer left"
-                warnings.append(f"{rule_name}: {current_val:.1f}{unit} near {limit_val:.1f}{unit}")
-                action_r = f"Monitor headroom closely ({limit_val - current_val:.1f}{unit} below limit)."
-            else:
-                status_r = "PASS"
-                delta_r = f"{limit_val - current_val:.2f}{unit} within limit"
-                action_r = "Within mandate tolerance."
-            checks.append({
-                "Rule": rule_name,
-                "Category": category,
-                "Status": status_r,
-                "Post-Trade": f"{current_val:.2f}{unit}",
-                "Mandate Limit": f"<= {limit_val:.2f}{unit}",
-                "Variance": delta_r,
-                "Action Required": action_r,
-            })
+    def _add_check(rule_name, category, current_val, limit_val, unit):
+        if current_val > limit_val:
+            status_r = "BREACHED"
+            delta_r = f"+{current_val - limit_val:.2f}{unit} over cap"
+            breaches.append(f"{rule_name}: {current_val:.1f}{unit} > {limit_val:.1f}{unit}")
+            action_r = f"Trim overweight positions or hedge to bring {rule_name.lower()} <= {limit_val:.1f}{unit}."
+        elif current_val > limit_val * 0.90:
+            status_r = "WARNING"
+            delta_r = f"{limit_val - current_val:.2f}{unit} buffer left"
+            warnings.append(f"{rule_name}: {current_val:.1f}{unit} near {limit_val:.1f}{unit}")
+            action_r = f"Monitor headroom closely ({limit_val - current_val:.1f}{unit} below limit)."
+        else:
+            status_r = "PASS"
+            delta_r = f"{limit_val - current_val:.2f}{unit} within limit"
+            action_r = "Within mandate tolerance."
+        checks.append({
+            "Rule": rule_name,
+            "Category": category,
+            "Status": status_r,
+            "Post-Trade": f"{current_val:.2f}{unit}",
+            "Mandate Limit": f"<= {limit_val:.2f}{unit}",
+            "Variance": delta_r,
+            "Action Required": action_r,
+        })
 
     _add_check("Annualized Volatility", "Market Risk", post_vol_pct, vol_cap_pct, "%")
     _add_check("Tail CVaR (Horizon)", "Tail Risk", post_cvar_pct, cvar_cap_pct, "%")
@@ -576,7 +609,7 @@ def evaluate_mandate_gate(
 
 
 def sortino_ratio(returns_series, rfr=0.055, target_return=0.0, periods_per_year=252):
-    """Computes annualized Sortino Ratio directly in app.py."""
+    """Computes annualized Sortino Ratio."""
     rfr_period = rfr / periods_per_year
     target_daily = (target_return / 100.0) / periods_per_year
     mean_excess_return = returns_series.mean() - rfr_period
@@ -793,7 +826,6 @@ def render_risk_diversification_and_mc_section(
     qm4.metric("Max Drawdown", f"{post_metrics['max_dd']:.2f}%", delta=f"{post_metrics['max_dd'] - pre_metrics['max_dd']:+.2f}% vs pre", delta_color="inverse")
     qm5.metric("Max Stock / Sector", f"{post_max_stock:.1f}% / {post_max_sec:.1f}%", delta=f"Stk {post_max_stock - pre_max_stock:+.1f}% | Sec {post_max_sec - pre_max_sec:+.1f}%", delta_color="off")
 
-    # Replaced redundant Pre-Trade Risk ENC card with Alpha (Post-Trade vs. Selected Benchmark)
     dv1, dv2, dv3, dv4, dv5 = st.columns(5)
     dv1.metric("Weight Diversification (ENC)", f"{post_div['weight_enc']:.1f}%", delta=f"{post_div['weight_enc'] - pre_div['weight_enc']:+.1f}% vs pre")
     dv2.metric("Risk Diversification (ENC)", f"{post_div['risk_enc']:.1f}%", delta=f"{post_div['risk_enc'] - pre_div['risk_enc']:+.1f}% vs pre")
@@ -1266,14 +1298,13 @@ elif st.session_state["page"] == "analytics":
     # --- TOP HEADER TICKER STRIP (LIVE UP/DOWN INDEXES) ---
     header_idx_items = [
         ("NIFTY 50", ["^NSEI", "NIFTYBEES.NS"]),
-        ("BSE SENSEX", ["^BSESN", "SENSEX.NS"]),
+        ("BSE SENSEX", ["^BSESN", "SENSEXIETF.NS"]),
         ("NIFTY BANK", ["^NSEBANK", "BANKBEES.NS"]),
         ("NIFTY IT", ["^CNXIT", "ITBEES.NS"]),
-        ("NIFTY MIDCAP 150", ["^NSEMDCP150", "^NSEI"]),
+        ("NIFTY MIDCAP 150", ["MID150BEES.NS", "^NSMIDCP"]),
     ]
     header_syms = tuple(cands[0] for _, cands in header_idx_items)
-    hdr_raw = cached_yf_download(header_syms, "", "", period="5d", interval="1d")
-    hdr_close = extract_close_df(hdr_raw, expected_cols=list(header_syms))
+    hdr_close = fetch_close_prices_cached(header_syms, period="5d", interval="1d")
 
     pills_html = []
     for label_h, cands_h in header_idx_items:
@@ -1318,12 +1349,12 @@ elif st.session_state["page"] == "analytics":
                 "Nifty Realty": {"indices": ["^CNXREALTY"], "stocks": ["DLF.NS", "GODREJPROP.NS", "OBEROIRLTY.NS"]},
             },
             "BSE": {
-                "BSE BANKEX": {"indices": ["^BSESN"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "AXISBANK.NS", "KOTAKBANK.NS", "SBIN.NS"]},
+                "BSE BANKEX": {"indices": ["^BSESN"], "stocks": ["HDFCBANK.NS", "ICICIBANK.NS", "AXISBANK.NS", "KOTAKBANK.NS", "SBIN.NS", "FEDERALBNK.NS", "IDFCFIRSTB.NS"]},
                 "BSE Auto": {"indices": ["^BSESN"], "stocks": ["MARUTI.NS", "TATAMOTORS.NS", "M&M.NS", "BAJAJ-AUTO.NS"]},
                 "BSE Healthcare": {"indices": ["^BSESN"], "stocks": ["SUNPHARMA.NS", "CIPLA.NS", "DRREDDY.NS"]},
                 "BSE FMCG": {"indices": ["^BSESN"], "stocks": ["ITC.NS", "HINDUNILVR.NS", "NESTLEIND.NS"]},
-                "BSE Capital Goods": {"indices": ["^BSESN"], "stocks": ["LT.NS", "SIEMENS.NS", "ABB.NS", "BEL.NS"]},
-                "BSE Energy": {"indices": ["^BSESN"], "stocks": ["RELIANCE.NS", "ONGC.NS", "NTPC.NS", "POWERGRID.NS"]},
+                "BSE Capital Goods": {"indices": ["^BSESN"], "stocks": ["LT.NS", "SIEMENS.NS", "ABB.NS", "BEL.NS", "NCC.NS"]},
+                "BSE Energy": {"indices": ["^BSESN"], "stocks": ["RELIANCE.NS", "ONGC.NS", "NTPC.NS", "POWERGRID.NS", "JSWENERGY.NS"]},
             },
         }
 
@@ -1364,13 +1395,12 @@ elif st.session_state["page"] == "analytics":
     start_d = datetime.datetime(end_d.year, 1, 1) if tf_info["days"] == "YTD" else end_d - datetime.timedelta(days=tf_info["days"])
     interval = "15m" if selected_tf == "1D" else "1d"
 
-    bench_raw = cached_yf_download(
+    bench_close_df = fetch_close_prices_cached(
         (current_cfg["symbol"],),
-        start_d.strftime("%Y-%m-%d"),
-        end_d.strftime("%Y-%m-%d"),
+        start_str=start_d.strftime("%Y-%m-%d"),
+        end_str=end_d.strftime("%Y-%m-%d"),
         interval=interval,
     )
-    bench_close_df = extract_close_df(bench_raw, expected_cols=[current_cfg["symbol"]])
 
     if not bench_close_df.empty:
         chart_series = bench_close_df.iloc[:, 0].dropna()
@@ -1532,31 +1562,25 @@ elif st.session_state["page"] == "analytics":
         }
         lookback_days = timeframe_days_map[timeframe]
 
-        # --- INDEX COMPARISON SECTION (NSE & BSE BROAD, SECTORAL, THEMATIC) ---
+        # --- INDEX COMPARISON SECTION (NO FILTER DROPDOWN — DIRECT MULTISELECT) ---
         st.markdown("### 🌐 Index Comparison (NSE & BSE Broad, Sectoral & Thematic)")
-        idx_group_filter = st.multiselect(
-            "Filter Index Groups",
-            options=["NSE Broad", "NSE Sectoral", "BSE Broad", "BSE Sectoral", "BSE Thematic"],
-            default=["NSE Broad", "NSE Sectoral", "BSE Broad", "BSE Sectoral", "BSE Thematic"],
-            key="idx_group_filter",
-        )
-        filtered_idx_names = [k for k, v in INDEX_CATALOG.items() if v["group"] in idx_group_filter]
         selected_compare_indices = st.multiselect(
             "Select Indices to Compare",
             options=list(INDEX_CATALOG.keys()),
-            default=filtered_idx_names[:8] if filtered_idx_names else ["Nifty 50", "BSE SENSEX", "Nifty Bank", "Nifty IT"],
+            default=["Nifty 50", "BSE SENSEX", "Nifty Bank", "Nifty IT", "Nifty Auto", "Nifty Pharma", "BSE BANKEX", "BSE India Defence"],
             key="idx_compare_multiselect",
         )
 
         end_date = datetime.datetime.now()
         start_date = end_date - datetime.timedelta(days=400)
 
-        idx_primary_syms = tuple(
-            ensure_ns_suffix(INDEX_CATALOG[nm]["candidates"][0], "NSE")
-            for nm in selected_compare_indices
+        idx_primary_syms = tuple(INDEX_CATALOG[nm]["candidates"][0] for nm in selected_compare_indices)
+        idx_close_df = fetch_close_prices_cached(
+            idx_primary_syms,
+            start_str=start_date.strftime("%Y-%m-%d"),
+            end_str=end_date.strftime("%Y-%m-%d"),
+            interval="1d",
         )
-        idx_raw_df = cached_yf_download(idx_primary_syms, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), interval="1d")
-        idx_close_df = extract_close_df(idx_raw_df, expected_cols=list(idx_primary_syms))
 
         idx_comp_rows = []
         norm_curves = {}
@@ -1572,11 +1596,19 @@ elif st.session_state["page"] == "analytics":
                         used_sym = c_sym
                         break
             if picked_s.empty:
-                fb_raw = cached_yf_download((cands[-1],), start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), interval="1d")
-                fb_cdf = extract_close_df(fb_raw, expected_cols=[cands[-1]])
-                if not fb_cdf.empty:
-                    picked_s = fb_cdf.iloc[:, 0].dropna()
-                    used_sym = f"{cands[-1]} (Proxy)"
+                for fb_sym in cands[1:]:
+                    fb_cdf = fetch_close_prices_cached(
+                        (fb_sym,),
+                        start_str=start_date.strftime("%Y-%m-%d"),
+                        end_str=end_date.strftime("%Y-%m-%d"),
+                        interval="1d",
+                    )
+                    if not fb_cdf.empty and fb_sym in fb_cdf.columns:
+                        s_tmp = fb_cdf[fb_sym].dropna()
+                        if len(s_tmp) >= 10:
+                            picked_s = s_tmp
+                            used_sym = fb_sym
+                            break
 
             if len(picked_s) >= 2:
                 lb = min(lookback_days, len(picked_s) - 1)
@@ -1587,8 +1619,8 @@ elif st.session_state["page"] == "analytics":
                 vol_pct = float(erk.annualized_volatility(d_rets, 252) * 100.0) if len(d_rets) > 5 else 0.0
                 idx_comp_rows.append({
                     "Index": nm,
-                    "Group": INDEX_CATALOG[nm]["group"],
-                    "Ticker": used_sym,
+                    "Category": INDEX_CATALOG[nm]["group"],
+                    "Symbol": used_sym,
                     "Latest": round(end_v, 2),
                     f"Return ({timeframe})": ret_pct,
                     "Ann. Vol": vol_pct,
@@ -1637,8 +1669,12 @@ elif st.session_state["page"] == "analytics":
                 stock_to_sector_map[ns_stk] = short_sec_name
 
         all_tickers_to_fetch = tuple(sorted(set(all_tickers_to_fetch)))
-        sec_raw = cached_yf_download(all_tickers_to_fetch, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"), interval="1d")
-        price_df = extract_close_df(sec_raw, expected_cols=list(all_tickers_to_fetch))
+        price_df = fetch_close_prices_cached(
+            all_tickers_to_fetch,
+            start_str=start_date.strftime("%Y-%m-%d"),
+            end_str=end_date.strftime("%Y-%m-%d"),
+            interval="1d",
+        )
 
         sector_returns = {}
         stock_returns_dict = {}
@@ -1774,8 +1810,7 @@ elif st.session_state["page"] == "analytics":
                     else:
                         tax_yf = tuple(ensure_ns_suffix(t, "NSE") for t in edited_tax_df["Instrument"] if str(t).strip())
                         if tax_yf:
-                            lp_raw = cached_yf_download(tax_yf, "", "", period="5d", interval="1d")
-                            lp_cdf = extract_close_df(lp_raw, expected_cols=list(tax_yf))
+                            lp_cdf = fetch_close_prices_cached(tax_yf, period="5d", interval="1d")
                             lp_series = lp_cdf.iloc[-1] if not lp_cdf.empty else pd.Series(dtype=float)
                             edited_tax_df["Live Price"] = [float(lp_series.get(ensure_ns_suffix(t, "NSE"), np.nan)) for t in edited_tax_df["Instrument"]]
                             edited_tax_df["P&L"] = (edited_tax_df["Live Price"] - valid_cost_series) * edited_tax_df["Qty"]
@@ -1837,8 +1872,7 @@ elif st.session_state["page"] == "analytics":
             s1_yf_syms = resolve_yf_tickers(s1_raw_tickers, current_cfg)
             s1_live_map = {}
             if s1_yf_syms:
-                lp_s1 = cached_yf_download(tuple(s1_yf_syms), "", "", period="5d", interval="1d")
-                lp_s1_close = extract_close_df(lp_s1, expected_cols=s1_yf_syms)
+                lp_s1_close = fetch_close_prices_cached(tuple(s1_yf_syms), period="5d", interval="1d")
                 if not lp_s1_close.empty:
                     last_s1 = lp_s1_close.iloc[-1]
                     for bt, yt in zip(s1_raw_tickers, s1_yf_syms):
@@ -1914,7 +1948,7 @@ elif st.session_state["page"] == "analytics":
                     st.session_state["sc_added_tickers_list"] = []
                     st.rerun()
 
-            custom_list = [p.strip().upper() for p in custom_tickers_raw.split(",") if p.strip()]
+            custom_list = [p.strip().upper().replace(".NS", "").replace(".BO", "") for p in custom_tickers_raw.split(",") if p.strip()]
             combined_added = []
             for item in picked_from_list + custom_list:
                 if item and item != "NAN" and item not in combined_added:
@@ -1922,11 +1956,10 @@ elif st.session_state["page"] == "analytics":
 
             existing_tickers = []
             for t in client_holdings_df["Ticker"]:
-                tu = str(t).strip().upper()
+                tu = str(t).strip().upper().replace(".NS", "").replace(".BO", "")
                 if tu and tu != "NAN" and tu not in existing_tickers:
                     existing_tickers.append(tu)
 
-            # Keep only added tickers that aren't already in existing holdings
             filtered_added = [pu for pu in combined_added if pu not in existing_tickers]
             st.session_state["sc_added_tickers_list"] = filtered_added
 
@@ -1939,12 +1972,19 @@ elif st.session_state["page"] == "analytics":
             yf_syms = resolve_yf_tickers(clean_tickers, current_cfg)
             end_dt = datetime.datetime.now()
             start_dt = end_dt - datetime.timedelta(days=365 * 3)
-            p_raw = cached_yf_download(tuple(yf_syms), start_dt.strftime("%Y-%m-%d"), end_dt.strftime("%Y-%m-%d"), interval="1d")
-            p_df = extract_close_df(p_raw, expected_cols=yf_syms)
+            p_df = fetch_close_prices_cached(
+                tuple(yf_syms),
+                start_str=start_dt.strftime("%Y-%m-%d"),
+                end_str=end_dt.strftime("%Y-%m-%d"),
+                interval="1d",
+            )
 
             valid_pairs = [(base_t, yf_t) for base_t, yf_t in zip(clean_tickers, yf_syms) if yf_t in p_df.columns]
+            missing_tickers = [base_t for base_t, yf_t in zip(clean_tickers, yf_syms) if yf_t not in p_df.columns]
+            if missing_tickers:
+                st.warning(f"Could not fetch market data for: {', '.join(missing_tickers)}. Showing available holdings.")
             if not valid_pairs:
-                st.error("Unable to fetch market prices for the specified tickers.")
+                st.error("Unable to fetch market prices for the specified tickers. Please check ticker symbols or retry.")
                 st.stop()
 
             valid_yf_ordered = [yt for _, yt in valid_pairs]
@@ -1989,7 +2029,7 @@ elif st.session_state["page"] == "analytics":
             days_map = {}
             has_holding_days_col = "Holding_Days" in client_holdings_df.columns
             for _, r in client_holdings_df.iterrows():
-                bt = str(r.get("Ticker", "")).strip().upper()
+                bt = str(r.get("Ticker", "")).strip().upper().replace(".NS", "").replace(".BO", "")
                 if bt:
                     q_row = float(r.get("Quantity", 0.0) or 0.0)
                     c_row = pd.to_numeric(r.get("Cost Price", np.nan), errors="coerce")
@@ -2324,7 +2364,6 @@ elif st.session_state["page"] == "analytics":
                 unsafe_allow_html=True,
             )
 
-            # Prominent Compliance Rule Information Architecture (Breached first)
             checks_sorted = gate_res["checks_df"].copy()
             status_rank = {"BREACHED": 0, "WARNING": 1, "PASS": 2}
             checks_sorted["_rank"] = checks_sorted["Status"].map(status_rank).fillna(3)
@@ -2464,7 +2503,7 @@ elif st.session_state["page"] == "analytics":
                     st.session_state["batch_added_tickers_list"] = []
                     st.rerun()
 
-            b_custom_list = [p.strip().upper() for p in b_custom_raw.split(",") if p.strip()]
+            b_custom_list = [p.strip().upper().replace(".NS", "").replace(".BO", "") for p in b_custom_raw.split(",") if p.strip()]
             b_combined_added = []
             for item in b_picked_universe + b_custom_list:
                 if item and item != "NAN" and item not in b_combined_added:
@@ -2478,7 +2517,7 @@ elif st.session_state["page"] == "analytics":
 
             raw_model_map = {}
             if not m_clean.empty:
-                m_clean["Ticker"] = m_clean["Ticker"].astype(str).str.strip().str.upper()
+                m_clean["Ticker"] = m_clean["Ticker"].astype(str).str.strip().str.upper().str.replace(".NS", "", regex=False).str.replace(".BO", "", regex=False)
                 m_clean["Target_Weight_Pct"] = pd.to_numeric(m_clean["Target_Weight_Pct"], errors="coerce").fillna(0.0)
                 for _, r in m_clean.iterrows():
                     raw_model_map[r["Ticker"]] = float(r["Target_Weight_Pct"])
@@ -2488,16 +2527,14 @@ elif st.session_state["page"] == "analytics":
                     raw_model_map[added_stk] = float(b_added_wt_pct)
 
             all_batch_tickers = set(raw_model_map.keys())
-            parsed_client_holdings = []
-            parsed_client_costs = []
-            parsed_client_days = []
+            parsed_client_holdings, parsed_client_costs, parsed_client_days = [], [], []
             for _, crow in edited_batch_df.iterrows():
                 h_dict, c_dict, d_dict = {}, {}, {}
                 raw_h = crow.get("Holdings_JSON", "{}")
                 try:
                     parsed_obj = json.loads(raw_h) if isinstance(raw_h, str) else (raw_h if isinstance(raw_h, dict) else {})
                     for k, v in parsed_obj.items():
-                        ku = str(k).strip().upper()
+                        ku = str(k).strip().upper().replace(".NS", "").replace(".BO", "")
                         if ku:
                             if isinstance(v, dict):
                                 h_dict[ku] = float(v.get("qty", v.get("Qty", 0.0)))
@@ -2518,8 +2555,12 @@ elif st.session_state["page"] == "analytics":
             yf_b_syms = resolve_yf_tickers(all_t_list, current_cfg)
             end_dt_b = datetime.datetime.now()
             start_dt_b = end_dt_b - datetime.timedelta(days=365 * 3)
-            p_b_raw = cached_yf_download(tuple(yf_b_syms), start_dt_b.strftime("%Y-%m-%d"), end_dt_b.strftime("%Y-%m-%d"), interval="1d")
-            p_b_df = extract_close_df(p_b_raw, expected_cols=yf_b_syms)
+            p_b_df = fetch_close_prices_cached(
+                tuple(yf_b_syms),
+                start_str=start_dt_b.strftime("%Y-%m-%d"),
+                end_str=end_dt_b.strftime("%Y-%m-%d"),
+                interval="1d",
+            )
 
             valid_b_pairs = [(bt, yt) for bt, yt in zip(all_t_list, yf_b_syms) if yt in p_b_df.columns]
             if not valid_b_pairs:
@@ -2574,15 +2615,10 @@ elif st.session_state["page"] == "analytics":
                 ret_b_df.index[-1].strftime("%Y-%m-%d"),
             )
 
-            if "batch_last_bulk_tax" not in st.session_state:
-                st.session_state["batch_last_bulk_tax"] = "LTCG (12.5%)"
-            if "batch_per_stock_tax" not in st.session_state:
-                st.session_state["batch_per_stock_tax"] = {}
-
             batch_tax_regime = st.radio(
                 "Set All Sellable Stocks at Once — Batch Tax Regime",
                 options=["LTCG (12.5%)", "STCG (20%)"],
-                index=0 if st.session_state["batch_last_bulk_tax"] == "LTCG (12.5%)" else 1,
+                index=0,
                 horizontal=True,
                 key="batch_whatif_tax_regime",
             )
