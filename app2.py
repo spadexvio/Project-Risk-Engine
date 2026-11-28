@@ -14,30 +14,19 @@ import os
 import json
 import importlib
 from fpdf import FPDF
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-    Image as RLImage,
-)
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 import quant_risk_kit as erk
 importlib.reload(erk)
 
 # --- PAGE CONFIGURATION ---
+st.set_page_config(
+    page_title="FolioLink",
+    page_icon="🛡️",
+    layout="wide",
+)
 st.markdown(
     '<meta name="color-scheme" content="light dark">',
     unsafe_allow_html=True,
-)
-st.set_page_config(
-    page_title="FolioLyn",
-    page_icon="🛡️",
-    layout="wide",
 )
 
 # --- SESSION STATE NAVIGATION & WORKSPACE MANAGEMENT ---
@@ -65,6 +54,27 @@ OPTIMIZER_LABELS = {
     "ERC": "Equal Risk Contribution (ERC)",
 }
 
+BENCHMARK_UNIVERSE = {
+    "NIFTY 50 (^NSEI)": "^NSEI",
+    "BSE SENSEX (^BSESN)": "^BSESN",
+    "NIFTY 500 (^CRSLDX)": "^CRSLDX",
+    "BSE 500 (BSE-500.BO)": "BSE-500.BO",
+    "NIFTY Midcap 100 (^CNXMID)": "^CNXMID",
+    "NIFTY Smallcap 250 (NIFTYSMLCAP250.NS)": "NIFTYSMLCAP250.NS",
+    "NIFTY Bank (^NSEBANK)": "^NSEBANK",
+    "NIFTY IT (^CNXIT)": "^CNXIT",
+    "S&P 500 (^GSPC)": "^GSPC",
+    "FTSE 100 (^FTSE)": "^FTSE",
+}
+
+HEADER_TICKER_INDEXES = [
+    ("NIFTY 50", "^NSEI"),
+    ("BSE SENSEX", "^BSESN"),
+    ("NIFTY BANK", "^NSEBANK"),
+    ("NIFTY MIDCAP 100", "^CNXMID"),
+    ("INDIA VIX", "^INDIAVIX"),
+]
+
 
 def format_short_sector(sector_name):
     """Strips leading 'Nifty ' or 'BSE ' prefixes to save table column width."""
@@ -82,13 +92,109 @@ CHART_CONFIG = {
     ],
     "toImageButtonOptions": {
         "format": "png",
-        "filename": "foliolyn_risk_audit",
+        "filename": "foliolink_risk_audit",
         "height": 600,
         "width": 1000,
         "scale": 2,
     },
     "displaylogo": False,
 }
+
+
+# ==============================================================================
+# CACHED MARKET DATA LOADERS (ELIMINATES STAGE 1-4 RERUN LAG)
+# ==============================================================================
+@st.cache_data(ttl=600, show_spinner=False)
+def cached_yf_download_period(tickers_tuple, period="3y", interval="1d"):
+    tickers = list(tickers_tuple)
+    if not tickers:
+        return pd.DataFrame()
+    try:
+        raw = yf.download(tickers, period=period, interval=interval, progress=False, auto_adjust=True)
+        if raw is None or raw.empty:
+            return pd.DataFrame()
+        if isinstance(raw, pd.DataFrame) and "Close" in raw.columns:
+            close_df = raw["Close"]
+        else:
+            close_df = raw
+        if isinstance(close_df, pd.Series):
+            close_df = close_df.to_frame(name=tickers[0])
+        return close_df.dropna(how="all", axis=1).ffill().bfill()
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def cached_yf_download_range(tickers_tuple, start_str, end_str, interval="1d"):
+    tickers = list(tickers_tuple)
+    if not tickers:
+        return pd.DataFrame()
+    try:
+        raw = yf.download(tickers, start=start_str, end=end_str, interval=interval, progress=False, auto_adjust=True)
+        if raw is None or raw.empty:
+            return pd.DataFrame()
+        if isinstance(raw, pd.DataFrame) and "Close" in raw.columns:
+            close_df = raw["Close"]
+        else:
+            close_df = raw
+        if isinstance(close_df, pd.Series):
+            close_df = close_df.to_frame(name=tickers[0])
+        return close_df.dropna(how="all", axis=1).ffill().bfill()
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_header_ticker_quotes():
+    """Fetches latest price and % change for top-of-page market ticker ribbon."""
+    syms = tuple(sym for _, sym in HEADER_TICKER_INDEXES)
+    df = cached_yf_download_period(syms, period="5d", interval="1d")
+    results = []
+    for label, sym in HEADER_TICKER_INDEXES:
+        if not df.empty and sym in df.columns:
+            s = df[sym].dropna()
+            if len(s) >= 2:
+                last_p = float(s.iloc[-1])
+                prev_p = float(s.iloc[-2])
+                diff = last_p - prev_p
+                pct = (diff / prev_p * 100.0) if prev_p != 0 else 0.0
+                results.append({"label": label, "price": last_p, "diff": diff, "pct": pct, "ok": True})
+                continue
+            elif len(s) == 1:
+                results.append({"label": label, "price": float(s.iloc[-1]), "diff": 0.0, "pct": 0.0, "ok": True})
+                continue
+        results.append({"label": label, "price": 0.0, "diff": 0.0, "pct": 0.0, "ok": False})
+    return results
+
+
+def render_top_market_ticker_strip():
+    """Renders live market index ribbon (BSE Sensex, Nifty 50, Nifty Bank, Midcap, India VIX) at top of engine."""
+    quotes = fetch_header_ticker_quotes()
+    cards_html = []
+    for q in quotes:
+        if not q["ok"]:
+            cards_html.append(
+                f"""<div class="ticker-pill">
+                    <span class="tp-name">{q['label']}</span>
+                    <span class="tp-price">N/A</span>
+                </div>"""
+            )
+            continue
+        is_up = q["diff"] >= 0
+        arrow = "▲" if is_up else "▼"
+        badge_cls = "tp-up" if is_up else "tp-down"
+        sign = "+" if is_up else ""
+        cards_html.append(
+            f"""<div class="ticker-pill">
+                <span class="tp-name">{q['label']}</span>
+                <span class="tp-price">{q['price']:,.2f}</span>
+                <span class="{badge_cls}">{arrow} {sign}{q['diff']:,.2f} ({sign}{q['pct']:.2f}%)</span>
+            </div>"""
+        )
+    st.markdown(
+        f"""<div class="ticker-ribbon">{''.join(cards_html)}</div>""",
+        unsafe_allow_html=True,
+    )
 
 
 def resolve_yf_tickers(raw_tickers, current_cfg):
@@ -100,18 +206,18 @@ def resolve_yf_tickers(raw_tickers, current_cfg):
         if not rt or rt == "NAN":
             resolved.append("")
             continue
+        if rt.startswith("^") or rt.endswith(".NS") or rt.endswith(".BO") or rt.endswith(".L") or rt.endswith(".JO"):
+            resolved.append(rt)
+            continue
         if current_cfg.get("name") == "STOXX Europe 600" and not any(rt.endswith(sfx) for sfx in all_eu_suffixes):
             found_valid = False
             for sfx in all_eu_suffixes:
                 test_symbol = f"{rt}{sfx}"
-                try:
-                    test_data = yf.download(test_symbol, period="5d", progress=False)
-                    if not test_data.empty:
-                        resolved.append(test_symbol)
-                        found_valid = True
-                        break
-                except Exception:
-                    continue
+                test_data = cached_yf_download_period((test_symbol,), period="5d")
+                if not test_data.empty:
+                    resolved.append(test_symbol)
+                    found_valid = True
+                    break
             if not found_valid:
                 resolved.append(f"{rt}{current_cfg.get('suffix', '')}")
         else:
@@ -124,7 +230,7 @@ def resolve_yf_tickers(raw_tickers, current_cfg):
 
 
 def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
-    """Parses portfolio CSVs, filters out 'INF' non-equities, matches masked ISINs, and returns holdings + cost flag."""
+    """Parses portfolio CSVs, matches masked ISINs, and returns holdings + cost flag."""
     try:
         if not is_demo:
             uploaded_file.seek(0)
@@ -172,9 +278,6 @@ def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
         for _, row in raw_df.iterrows():
             raw_id = str(row[id_col]).strip().upper() if id_col and pd.notna(row[id_col]) else ""
             raw_ticker = str(row[ticker_col]).strip().upper().replace("#", "") if pd.notna(row[ticker_col]) else ""
-
-            # if raw_id.startswith("INF") or raw_ticker.startswith("INF"):
-            #     continue
 
             try:
                 qty = float(row[qty_col])
@@ -225,7 +328,6 @@ def parse_uploaded_portfolio(uploaded_file, selected_workspace, is_demo=False):
         holdings_df = pd.DataFrame(parsed_rows)
         has_cost = bool(has_valid_cost_col and valid_cost_entries > 0)
         if not holdings_df.empty:
-            st.success("Portfolio successfully loaded!")
             return holdings_df, has_cost
     except Exception as e:
         st.warning(f"Could not parse custom CSV format: {e}. Using fallback portfolio.")
@@ -368,36 +470,107 @@ def get_default_batch_df(current_cfg):
     ])
 
 
-def evaluate_mandate_gate(post_vol_pct, post_cvar_pct, max_stock_wt_pct, max_sector_wt_pct, vol_cap_pct, cvar_cap_pct, stock_cap_pct, sector_cap_pct, rationale_text):
-    """Evaluates risk/concentration guardrails and returns status ('Pass', 'Warning', 'Breach') + reasons."""
+def evaluate_mandate_gate(
+    post_vol_pct,
+    post_cvar_pct,
+    max_stock_wt_pct,
+    max_sector_wt_pct,
+    vol_cap_pct,
+    cvar_cap_pct,
+    stock_cap_pct,
+    sector_cap_pct,
+    rationale_text,
+    cash_wt_pct=0.0,
+    min_cash_pct=2.0,
+    turnover_pct=0.0,
+    max_turnover_pct=50.0,
+    max_stock_name="N/A",
+    max_sector_name="N/A",
+):
+    """Evaluates institutional/RIA pre-trade compliance rules and returns structured rule-by-rule status."""
     breaches = []
     warnings = []
+    rules = []
 
-    if post_vol_pct > vol_cap_pct:
-        breaches.append(f"Vol {post_vol_pct:.1f}% > Cap {vol_cap_pct:.1f}%")
-    elif post_vol_pct > vol_cap_pct * 0.90:
-        warnings.append(f"Vol {post_vol_pct:.1f}% near Cap {vol_cap_pct:.1f}%")
+    def _eval_max_rule(code, name, actual, limit, unit="%", subject="", fix_hint=""):
+        if actual > limit + 1e-6:
+            state = "BREACH"
+            breaches.append(f"{name}: {actual:.1f}{unit} > {limit:.1f}{unit}")
+        elif actual > limit * 0.90:
+            state = "WARNING"
+            warnings.append(f"{name}: {actual:.1f}{unit} near {limit:.1f}{unit}")
+        else:
+            state = "PASS"
+        rules.append({
+            "Code": code,
+            "Rule": name,
+            "Status": state,
+            "Actual": f"{actual:.2f}{unit}" + (f" ({subject})" if subject else ""),
+            "Threshold": f"<= {limit:.2f}{unit}",
+            "Headroom": f"{limit - actual:+.2f}{unit}",
+            "Action / Remediation": "Compliant" if state == "PASS" else fix_hint,
+        })
 
-    if post_cvar_pct > cvar_cap_pct:
-        breaches.append(f"CVaR {post_cvar_pct:.1f}% > Cap {cvar_cap_pct:.1f}%")
-    elif post_cvar_pct > cvar_cap_pct * 0.90:
-        warnings.append(f"CVaR {post_cvar_pct:.1f}% near Cap {cvar_cap_pct:.1f}%")
+    def _eval_min_rule(code, name, actual, floor_val, unit="%", fix_hint=""):
+        if actual < floor_val - 1e-6:
+            state = "BREACH"
+            breaches.append(f"{name}: {actual:.1f}{unit} < {floor_val:.1f}{unit}")
+        elif actual < floor_val * 1.15 and floor_val > 0:
+            state = "WARNING"
+            warnings.append(f"{name}: {actual:.1f}{unit} near floor {floor_val:.1f}{unit}")
+        else:
+            state = "PASS"
+        rules.append({
+            "Code": code,
+            "Rule": name,
+            "Status": state,
+            "Actual": f"{actual:.2f}{unit}",
+            "Threshold": f">= {floor_val:.2f}{unit}",
+            "Headroom": f"{actual - floor_val:+.2f}{unit}",
+            "Action / Remediation": "Compliant" if state == "PASS" else fix_hint,
+        })
 
-    if max_stock_wt_pct > stock_cap_pct:
-        breaches.append(f"Max Stock {max_stock_wt_pct:.1f}% > Cap {stock_cap_pct:.1f}%")
-    elif max_stock_wt_pct > stock_cap_pct * 0.90:
-        warnings.append(f"Max Stock {max_stock_wt_pct:.1f}% near Cap {stock_cap_pct:.1f}%")
-
-    if max_sector_wt_pct > sector_cap_pct:
-        breaches.append(f"Max Sector {max_sector_wt_pct:.1f}% > Cap {sector_cap_pct:.1f}%")
-    elif max_sector_wt_pct > sector_cap_pct * 0.90:
-        warnings.append(f"Max Sector {max_sector_wt_pct:.1f}% near Cap {sector_cap_pct:.1f}%")
+    _eval_max_rule(
+        "R-01", "Portfolio Volatility Ceiling", post_vol_pct, vol_cap_pct, "%",
+        fix_hint="Shift weight toward GMV/ERC or defensive low-beta holdings."
+    )
+    _eval_max_rule(
+        "R-02", "Tail Risk (Horizon CVaR) Limit", post_cvar_pct, cvar_cap_pct, "%",
+        fix_hint="Reduce high-drawdown cyclicals or increase cash buffer."
+    )
+    _eval_max_rule(
+        "R-03", "Single-Issuer Concentration Cap", max_stock_wt_pct, stock_cap_pct, "%",
+        subject=max_stock_name,
+        fix_hint=f"Trim {max_stock_name} below {stock_cap_pct:.1f}% mandate cap."
+    )
+    _eval_max_rule(
+        "R-04", "Sector Exposure Ceiling", max_sector_wt_pct, sector_cap_pct, "%",
+        subject=max_sector_name,
+        fix_hint=f"Diversify out of {max_sector_name} below {sector_cap_pct:.1f}%."
+    )
+    _eval_min_rule(
+        "R-05", "Liquidity / Cash Reserve Floor", cash_wt_pct, min_cash_pct, "%",
+        fix_hint=f"Leave at least {min_cash_pct:.1f}% unallocated cash for fees/redemptions."
+    )
+    _eval_max_rule(
+        "R-06", "Rebalance Turnover Guardrail", turnover_pct, max_turnover_pct, "%",
+        fix_hint="Stage rebalance in tranches to lower slippage & tax drag."
+    )
 
     missing_rationale = not (rationale_text and str(rationale_text).strip())
+    rules.append({
+        "Code": "R-07",
+        "Rule": "SEBI Suitability & Rationale Log",
+        "Status": "WARNING" if missing_rationale else "PASS",
+        "Actual": "Missing" if missing_rationale else f"Logged ({len(str(rationale_text).strip())} chars)",
+        "Threshold": "Mandatory",
+        "Headroom": "0" if missing_rationale else "OK",
+        "Action / Remediation": "Document client suitability rationale before sign-off." if missing_rationale else "Audit-ready",
+    })
 
     if breaches:
         status = "Breach"
-    elif warnings:
+    elif warnings or missing_rationale:
         status = "Warning"
     else:
         status = "Pass"
@@ -407,11 +580,73 @@ def evaluate_mandate_gate(post_vol_pct, post_cvar_pct, max_stock_wt_pct, max_sec
         "breaches": breaches,
         "warnings": warnings,
         "missing_rationale": missing_rationale,
+        "rules": rules,
     }
 
 
+def render_compliance_gate_scorecard(gate_res):
+    """Renders prominent visual cards + rule-by-rule compliance scorecard highlighting Breached vs Passed rules."""
+    status = gate_res["status"]
+    strip_cls = "gate-pass" if status == "Pass" else ("gate-warn" if status == "Warning" else "gate-breach")
+    badge_icon = "🟢 COMPLIANT / PASS" if status == "Pass" else ("🟡 REVIEW REQUIRED / WARNING" if status == "Warning" else "🔴 MANDATE BREACH DETECTED")
+
+    rules_df = pd.DataFrame(gate_res.get("rules", []))
+    breach_count = int((rules_df["Status"] == "BREACH").sum()) if not rules_df.empty else 0
+    warn_count = int((rules_df["Status"] == "WARNING").sum()) if not rules_df.empty else 0
+    pass_count = int((rules_df["Status"] == "PASS").sum()) if not rules_df.empty else 0
+
+    issues_txt = (
+        " | ".join(gate_res["breaches"] + gate_res["warnings"])
+        if (gate_res["breaches"] or gate_res["warnings"])
+        else "All volatility, CVaR, single-stock, sector, liquidity & turnover rules are within mandate."
+    )
+    rat_flag = "Logged" if not gate_res["missing_rationale"] else "Missing Rationale"
+
+    st.markdown(
+        f"""<div class="gate-strip {strip_cls}">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                <span style="font-size:1.15rem; font-weight:800;">Pre-Trade Compliance Gate: {badge_icon}</span>
+                <span style="font-size:0.9rem; font-weight:700; background:rgba(255,255,255,0.12); padding:4px 12px; border-radius:999px;">
+                    🔴 {breach_count} Breached &nbsp;|&nbsp; 🟡 {warn_count} Warning &nbsp;|&nbsp; 🟢 {pass_count} Passed &nbsp;|&nbsp; Suitability: {rat_flag}
+                </span>
+            </div>
+            <div style="margin-top:6px; font-size:0.95rem;">{issues_txt}</div>
+        </div>""",
+        unsafe_allow_html=True,
+    )
+
+    if not rules_df.empty:
+        # Sort so BREACH appears first, WARNING second, PASS third
+        order_map = {"BREACH": 0, "WARNING": 1, "PASS": 2}
+        rules_df["_ord"] = rules_df["Status"].map(order_map).fillna(3)
+        rules_df = rules_df.sort_values("_ord").drop(columns=["_ord"]).reset_index(drop=True)
+
+        def _badge_status(val):
+            if val == "BREACH":
+                return "🔴 BREACH"
+            if val == "WARNING":
+                return "🟡 WARNING"
+            return "🟢 PASS"
+
+        rules_df["Status"] = rules_df["Status"].apply(_badge_status)
+
+        def _style_compliance_row(row):
+            st_val = str(row["Status"])
+            if "BREACH" in st_val:
+                return ["background-color: #7F1D1D; color: #FEF2F2; font-weight: 700;"] * len(row)
+            if "WARNING" in st_val:
+                return ["background-color: #78350F; color: #FFFBEB; font-weight: 600;"] * len(row)
+            return ["background-color: #14532D; color: #F0FDF4;"] * len(row)
+
+        st.dataframe(
+            rules_df.style.apply(_style_compliance_row, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
 def sortino_ratio(returns_series, rfr=0.055, target_return=0.0, periods_per_year=252):
-    """Computes annualized Sortino Ratio directly in app.py."""
+    """Computes annualized Sortino Ratio."""
     rfr_period = rfr / periods_per_year
     target_daily = (target_return / 100.0) / periods_per_year
     mean_excess_return = returns_series.mean() - rfr_period
@@ -423,6 +658,45 @@ def sortino_ratio(returns_series, rfr=0.055, target_return=0.0, periods_per_year
     elif downside_std == 0 or np.isnan(downside_std):
         return np.nan
     return annualized_excess_return / downside_std
+
+
+def compute_benchmark_alpha_beta_te(port_ret, bench_ret, rfr_annual=0.065, periods_per_year=252):
+    """Computes annualized Jensen's Alpha (via erk.regress), Beta, and Tracking Error (via erk.tracking_error)."""
+    if bench_ret is None or bench_ret.empty:
+        return {"alpha_pct": 0.0, "beta": 1.0, "te_pct": 0.0, "ir": 0.0}
+
+    aligned = pd.DataFrame({"p": port_ret, "b": bench_ret}).dropna()
+    if len(aligned) < 15 or np.var(aligned["b"]) <= 1e-12:
+        return {"alpha_pct": 0.0, "beta": 1.0, "te_pct": 0.0, "ir": 0.0}
+
+    rf_daily = rfr_annual / periods_per_year
+    excess_p = aligned["p"] - rf_daily
+    excess_b = pd.DataFrame({"MKT": aligned["b"] - rf_daily})
+
+    try:
+        lm = erk.regress(excess_p, excess_b, alpha=True)
+        daily_alpha = float(lm.params.get("Alpha", 0.0))
+        beta_val = float(lm.params.get("MKT", 1.0))
+        ann_alpha_pct = ((1.0 + daily_alpha) ** periods_per_year - 1.0) * 100.0
+    except Exception:
+        beta_val = float(np.cov(aligned["p"], aligned["b"])[0, 1] / np.var(aligned["b"]))
+        ann_alpha_pct = float((aligned["p"].mean() - rf_daily - beta_val * (aligned["b"].mean() - rf_daily)) * periods_per_year * 100.0)
+
+    try:
+        raw_te = float(erk.tracking_error(aligned["p"], aligned["b"]))
+        ann_te_pct = (raw_te / np.sqrt(len(aligned))) * np.sqrt(periods_per_year) * 100.0
+    except Exception:
+        ann_te_pct = float((aligned["p"] - aligned["b"]).std() * np.sqrt(periods_per_year) * 100.0)
+
+    active_ann_ret_pct = float((aligned["p"].mean() - aligned["b"].mean()) * periods_per_year * 100.0)
+    ir_val = (active_ann_ret_pct / ann_te_pct) if ann_te_pct > 1e-6 else 0.0
+
+    return {
+        "alpha_pct": ann_alpha_pct,
+        "beta": beta_val,
+        "te_pct": ann_te_pct,
+        "ir": ir_val,
+    }
 
 
 def compute_quant_metrics(ret_series, rfr_annual=0.065, target_return_pct=6.5, confidence_level=0.95, horizon_days=30, periods_per_year=252):
@@ -508,9 +782,10 @@ def compute_risk_and_diversification(ret_matrix, weights, asset_labels):
     }
 
 
-def run_cholesky_monte_carlo(price_matrix, weights, initial_val, horizon_days=30, n_sims=500):
-    """Runs Cholesky Monte Carlo using erk.cholesky_returns(prices, num_steps=..., return_prices=False)."""
-    w = np.asarray(weights, dtype=float)
+@st.cache_data(ttl=600, show_spinner=False)
+def run_cholesky_monte_carlo(price_matrix, weights_tuple, initial_val, horizon_days=30, n_sims=500, confidence_level=0.95):
+    """Runs cached Cholesky Monte Carlo using erk.cholesky_returns(prices, num_steps=..., return_prices=False)."""
+    w = np.asarray(weights_tuple, dtype=float)
     n_cols = price_matrix.shape[1]
     if n_cols == 0 or initial_val <= 0:
         arr = np.full((max(int(horizon_days), 1) + 1, 10), float(initial_val))
@@ -569,20 +844,20 @@ def render_risk_diversification_and_mc_section(
     currency,
     time_horizon_days,
     confidence_level,
+    rfr_annual,
+    pre_port_ret,
+    post_port_ret,
     pre_metrics,
     post_metrics,
     pre_div,
     post_div,
-    pre_cum_pct,
-    post_cum_pct,
-    b_cum_pct,
-    benchmark_name,
+    default_benchmark_label,
+    default_benchmark_symbol,
     price_matrix_valid,
     prop_wts,
     post_nav,
     turnover_pct,
     total_friction_amt,
-    beta_val,
     pre_max_stock,
     post_max_stock,
     pre_max_sec,
@@ -590,14 +865,59 @@ def render_risk_diversification_and_mc_section(
     tax_impact_amt=None,
     tax_regime_label="Per-Row LTCG/STCG",
 ):
-    """Renders identical comprehensive Pre vs Post metrics, Benchmark Graph, Weight/Risk Diversification & Monte Carlo for both Single Client & Batch."""
+    """Renders Pre vs Post metrics (including Benchmark-relative Alpha), Benchmark Comparison Selector & Graph, Weight/Risk Diversification & Monte Carlo."""
+    # Benchmark Selector right at the top of Stage 3 so Alpha, Beta, Tracking Error & Chart react together
+    bm_options = {f"Workspace Default ({default_benchmark_label})": default_benchmark_symbol}
+    for k_bm, v_bm in BENCHMARK_UNIVERSE.items():
+        if v_bm != default_benchmark_symbol:
+            bm_options[k_bm] = v_bm
+
+    bm_sel_c1, bm_sel_c2 = st.columns([2.2, 1.8])
+    with bm_sel_c1:
+        selected_bm_label = st.selectbox(
+            "🎯 Benchmark Index for Alpha, Beta & Comparison Chart",
+            options=list(bm_options.keys()),
+            index=0,
+            key=f"{prefix_key}_bm_selector",
+        )
+    with bm_sel_c2:
+        secondary_options = ["None"] + [k for k in bm_options.keys() if k != selected_bm_label]
+        secondary_bm_label = st.selectbox(
+            "➕ Optional Secondary Index Overlay (Chart)",
+            options=secondary_options,
+            index=0,
+            key=f"{prefix_key}_bm_overlay_selector",
+        )
+
+    selected_bm_sym = bm_options[selected_bm_label]
+    secondary_bm_sym = bm_options.get(secondary_bm_label) if secondary_bm_label != "None" else None
+
+    syms_to_fetch = (selected_bm_sym, secondary_bm_sym) if secondary_bm_sym else (selected_bm_sym,)
+    bm_prices = cached_yf_download_range(
+        syms_to_fetch,
+        start_str=str(pre_port_ret.index[0].date()),
+        end_str=str((pre_port_ret.index[-1] + pd.Timedelta(days=1)).date()),
+    )
+
+    b_ret = pd.Series(dtype=float)
+    b2_ret = pd.Series(dtype=float)
+    if not bm_prices.empty and selected_bm_sym in bm_prices.columns:
+        b_ret = bm_prices[selected_bm_sym].pct_change().dropna()
+    if secondary_bm_sym and not bm_prices.empty and secondary_bm_sym in bm_prices.columns:
+        b2_ret = bm_prices[secondary_bm_sym].pct_change().dropna()
+
+    pre_ab = compute_benchmark_alpha_beta_te(pre_port_ret, b_ret, rfr_annual=rfr_annual)
+    post_ab = compute_benchmark_alpha_beta_te(post_port_ret, b_ret, rfr_annual=rfr_annual)
+
+    # Row 1: Risk, Tail & Execution
     pm1, pm2, pm3, pm4, pm5 = st.columns(5)
     pm1.metric("Annualized Vol", f"{post_metrics['ann_vol']:.2f}%", delta=f"{post_metrics['ann_vol'] - pre_metrics['ann_vol']:+.2f}% vs pre", delta_color="inverse")
     pm2.metric(f"{time_horizon_days}D Hist CVaR ({int(confidence_level*100)}%)", f"{post_metrics['hist_cvar']:.2f}%", delta=f"{post_metrics['hist_cvar'] - pre_metrics['hist_cvar']:+.2f}% vs pre", delta_color="inverse")
     pm3.metric(f"{time_horizon_days}D Hist VaR ({int(confidence_level*100)}%)", f"{post_metrics['hist_var']:.2f}%", delta=f"{post_metrics['hist_var'] - pre_metrics['hist_var']:+.2f}% vs pre", delta_color="inverse")
     pm4.metric(f"{time_horizon_days}D Mod. CF VaR", f"{post_metrics['cf_var']:.2f}%", delta=f"{post_metrics['cf_var'] - pre_metrics['cf_var']:+.2f}% vs pre", delta_color="inverse")
-    pm5.metric("Turnover / Friction", f"{turnover_pct:.2f}%", delta=f"{currency} {total_friction_amt:,.0f} (Beta {beta_val:.2f})", delta_color="off")
+    pm5.metric("Turnover / Friction", f"{turnover_pct:.2f}%", delta=f"{currency} {total_friction_amt:,.0f} (Beta {post_ab['beta']:.2f})", delta_color="off")
 
+    # Row 2: Return, Risk-Adjusted Ratios & Drawdown
     qm1, qm2, qm3, qm4, qm5 = st.columns(5)
     qm1.metric("Ann. Return (Post)", f"{post_metrics['ann_ret']:+.2f}%", delta=f"{post_metrics['ann_ret'] - pre_metrics['ann_ret']:+.2f}% vs pre")
     qm2.metric("Sharpe Ratio (erk)", f"{post_metrics['sharpe']:.2f}", delta=f"{post_metrics['sharpe'] - pre_metrics['sharpe']:+.2f} vs pre")
@@ -605,11 +925,22 @@ def render_risk_diversification_and_mc_section(
     qm4.metric("Max Drawdown", f"{post_metrics['max_dd']:.2f}%", delta=f"{post_metrics['max_dd'] - pre_metrics['max_dd']:+.2f}% vs pre", delta_color="inverse")
     qm5.metric("Max Stock / Sector", f"{post_max_stock:.1f}% / {post_max_sec:.1f}%", delta=f"Stk {post_max_stock - pre_max_stock:+.1f}% | Sec {post_max_sec - pre_max_sec:+.1f}%", delta_color="off")
 
+    # Row 3: Jensen's Alpha (replaces redundant ENC cards), Tracking Error, Diversification & Tax
+    short_bm_tag = selected_bm_label.split("(")[0].strip()
     dv1, dv2, dv3, dv4, dv5 = st.columns(5)
-    dv1.metric("Weight Diversification (ENC)", f"{post_div['weight_enc']:.1f}%", delta=f"{post_div['weight_enc'] - pre_div['weight_enc']:+.1f}% vs pre")
-    dv2.metric("Risk Diversification (ENC)", f"{post_div['risk_enc']:.1f}%", delta=f"{post_div['risk_enc'] - pre_div['risk_enc']:+.1f}% vs pre")
-    dv3.metric("Pre-Trade Weight ENC", f"{pre_div['weight_enc']:.1f}%")
-    dv4.metric("Pre-Trade Risk ENC", f"{pre_div['risk_enc']:.1f}%")
+    dv1.metric(
+        f"Jensen's Alpha vs {short_bm_tag}",
+        f"{post_ab['alpha_pct']:+.2f}%",
+        delta=f"{post_ab['alpha_pct'] - pre_ab['alpha_pct']:+.2f}% vs pre",
+    )
+    dv2.metric(
+        "Tracking Error / IR",
+        f"{post_ab['te_pct']:.2f}%",
+        delta=f"IR {post_ab['ir']:+.2f} | Pre α {pre_ab['alpha_pct']:+.2f}%",
+        delta_color="off",
+    )
+    dv3.metric("Weight Diversification (ENC)", f"{post_div['weight_enc']:.1f}%", delta=f"{post_div['weight_enc'] - pre_div['weight_enc']:+.1f}% vs pre")
+    dv4.metric("Risk Diversification (ENC)", f"{post_div['risk_enc']:.1f}%", delta=f"{post_div['risk_enc'] - pre_div['risk_enc']:+.1f}% vs pre")
     if tax_impact_amt is None or np.isnan(tax_impact_amt) or tax_impact_amt <= 0:
         dv5.metric("Est. Rebalance Tax", "N/A", delta="No taxable sell", delta_color="off")
     else:
@@ -622,6 +953,65 @@ def render_risk_diversification_and_mc_section(
                 post_metrics["summary_df"].rename(index={"Portfolio": "Post-Trade Portfolio"}),
             ])
             st.dataframe(comb_stats, use_container_width=True)
+
+    # Benchmark Comparison Chart + Post-Chart Alpha Summary Strip
+    st.markdown(f"### 📈 Portfolio vs. Benchmark Comparison ({selected_bm_label})")
+    align_dict = {"pre": pre_port_ret, "post": post_port_ret}
+    if not b_ret.empty:
+        align_dict["b1"] = b_ret
+    if not b2_ret.empty:
+        align_dict["b2"] = b2_ret
+    aligned_df = pd.DataFrame(align_dict).dropna()
+
+    fig_bm = go.Figure()
+    if not aligned_df.empty:
+        pre_cum_pct = ((1.0 + aligned_df["pre"]).cumprod() - 1.0) * 100.0
+        post_cum_pct = ((1.0 + aligned_df["post"]).cumprod() - 1.0) * 100.0
+        fig_bm.add_trace(go.Scatter(
+            x=pre_cum_pct.index, y=pre_cum_pct.values,
+            mode="lines", name="Current Portfolio (Pre-Trade)",
+            line=dict(color="#2563EB", width=2)
+        ))
+        fig_bm.add_trace(go.Scatter(
+            x=post_cum_pct.index, y=post_cum_pct.values,
+            mode="lines", name="Proposed Portfolio (Post-Trade)",
+            line=dict(color="#16A34A", width=2.5)
+        ))
+        if "b1" in aligned_df.columns:
+            b1_cum_pct = ((1.0 + aligned_df["b1"]).cumprod() - 1.0) * 100.0
+            fig_bm.add_trace(go.Scatter(
+                x=b1_cum_pct.index, y=b1_cum_pct.values,
+                mode="lines", name=f"Benchmark: {selected_bm_label}",
+                line=dict(color="#DC2626", width=2, dash="dash")
+            ))
+        if "b2" in aligned_df.columns:
+            b2_cum_pct = ((1.0 + aligned_df["b2"]).cumprod() - 1.0) * 100.0
+            fig_bm.add_trace(go.Scatter(
+                x=b2_cum_pct.index, y=b2_cum_pct.values,
+                mode="lines", name=f"Overlay: {secondary_bm_label}",
+                line=dict(color="#9333EA", width=1.8, dash="dot")
+            ))
+    fig_bm.update_layout(
+        height=320,
+        margin=dict(l=10, r=10, t=20, b=10),
+        yaxis_title="Cumulative Return (%)",
+        xaxis_title="Date",
+        hovermode="x unified",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)"
+    )
+    st.plotly_chart(fig_bm, use_container_width=True, config=CHART_CONFIG)
+
+    st.markdown(
+        f"""<div class="opt-badge" style="border-left-color: #38BDF8;">
+            📐 <b>Benchmark Attribution ({selected_bm_label}):</b>
+            Pre-Trade Alpha: <b>{pre_ab['alpha_pct']:+.2f}%</b> (Beta {pre_ab['beta']:.2f}) &nbsp;→&nbsp;
+            Post-Trade Alpha: <b>{post_ab['alpha_pct']:+.2f}%</b> (Beta {post_ab['beta']:.2f}) &nbsp;|&nbsp;
+            Annualized Tracking Error: <b>{post_ab['te_pct']:.2f}%</b> &nbsp;|&nbsp;
+            Information Ratio: <b>{post_ab['ir']:+.2f}</b>
+        </div>""",
+        unsafe_allow_html=True,
+    )
 
     st.markdown("### ⚖️ Weight Distribution vs. Risk Contribution")
     rc_col1, rc_col2 = st.columns([1.8, 1.2])
@@ -660,45 +1050,17 @@ def render_risk_diversification_and_mc_section(
             hide_index=True,
         )
 
-    st.markdown("### 📈 Portfolio vs. Market Benchmark (Pre-Trade vs. Post-Trade)")
-    fig_bm = go.Figure()
-    fig_bm.add_trace(go.Scatter(
-        x=pre_cum_pct.index, y=pre_cum_pct.values,
-        mode="lines", name="Current Portfolio (Pre-Trade)",
-        line=dict(color="#2563EB", width=2)
-    ))
-    fig_bm.add_trace(go.Scatter(
-        x=post_cum_pct.index, y=post_cum_pct.values,
-        mode="lines", name="Proposed Portfolio (Post-Trade)",
-        line=dict(color="#16A34A", width=2.5)
-    ))
-    if b_cum_pct is not None and not b_cum_pct.empty:
-        fig_bm.add_trace(go.Scatter(
-            x=b_cum_pct.index, y=b_cum_pct.values,
-            mode="lines", name=f"Benchmark ({benchmark_name})",
-            line=dict(color="#DC2626", width=2, dash="dash")
-        ))
-    fig_bm.update_layout(
-        height=310,
-        margin=dict(l=10, r=10, t=20, b=10),
-        yaxis_title="Cumulative Return (%)",
-        xaxis_title="Date",
-        hovermode="x unified",
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)"
-    )
-    st.plotly_chart(fig_bm, use_container_width=True, config=CHART_CONFIG)
-
     st.markdown(f"### 🎲 Cholesky Monte Carlo Simulation ({time_horizon_days}D Horizon)")
     mc_c1, mc_c2 = st.columns([1.2, 2.8])
     with mc_c1:
         mc_sims = st.select_slider("Monte Carlo Paths", options=[200, 500, 1000, 2000], value=500, key=f"{prefix_key}_mc_sims")
         mc_res = run_cholesky_monte_carlo(
             price_matrix=price_matrix_valid,
-            weights=prop_wts,
-            initial_val=post_nav,
+            weights_tuple=tuple(float(x) for x in prop_wts),
+            initial_val=float(post_nav),
             horizon_days=int(time_horizon_days),
             n_sims=int(mc_sims),
+            confidence_level=float(confidence_level),
         )
         st.metric("Median Projected Value", f"{currency} {mc_res['median_end']:,.0f}")
         st.metric("Tail Value", f"{currency} {mc_res['p5_end']:,.0f}", delta=f"Prob. Loss: {mc_res['prob_loss']:.1f}%", delta_color="inverse")
@@ -754,7 +1116,7 @@ def build_audit_packet_pdf(entity_type, workspace_mode, exchange, currency, clie
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, _fpdf_clean("FolioLyn - AUDIT & SUITABILITY REPORT"), ln=True, align="C")
+    pdf.cell(0, 10, _fpdf_clean("FolioLink - AUDIT & SUITABILITY REPORT"), ln=True, align="C")
     pdf.set_font("Arial", "I", 8.5)
     pdf.cell(0, 6, _fpdf_clean(f"Entity: {entity_type} | Workspace: {workspace_mode} | Exchange: {exchange} | {timestamp}"), ln=True, align="C")
     pdf.ln(6)
@@ -792,7 +1154,7 @@ def build_audit_packet_pdf(entity_type, workspace_mode, exchange, currency, clie
     pdf.cell(0, 7, _fpdf_clean("4. Regulatory & Fiduciary Attestation"), ln=True)
     pdf.set_font("Arial", "", 8.5)
     pdf.multi_cell(0, 5, _fpdf_clean(
-        "Generated via FolioLyn Risk & Compliance Engine for SEBI RIA / Boutique PMS governance and pre-trade suitability review. "
+        "Generated via FolioLink Risk & Compliance Engine for SEBI RIA / Boutique PMS governance and pre-trade suitability review. "
         "Escalation channels via SEBI SCORES and SMART ODR apply where applicable."
     ))
     raw_out = pdf.output(dest="S")
@@ -833,7 +1195,6 @@ if st.session_state["page"] == "landing":
         .hero-container { text-align: center; padding: 2rem 1rem 1.5rem 1rem; }
         .hero-title { color: #FDFBD4; font-size: 3.8rem !important; font-weight: 600; letter-spacing: -1px; margin-bottom: 0.2rem; }
         .hero-subtitle { color: #FDFBD4; font-size: 2.4rem; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 1.2rem; opacity: 0.9; white-space: nowrap; display: flex; justify-content: center; align-items: center; text-align: center; width: 100%; }
-        .slogan-badge { color: #FDFBD4; font-size: 4.25rem; font-weight: 800; letter-spacing: 3px; margin-bottom: 2rem; text-transform: uppercase; white-space: nowrap; }
         .hero-description { color: #E2E8F0; font-size: 2.2rem; line-height: 1.8; max-width: 800px; margin: 0 auto 2.5rem auto; text-align: center; }
         .workspace-header { text-align: center; color: #FFFFFF; font-size: 2rem; font-weight: 700; margin-top: 3rem; margin-bottom: 1.8rem; }
         div.stButton > button {
@@ -850,7 +1211,7 @@ if st.session_state["page"] == "landing":
         }
         .slogan-badge {
             color: #FDFBD4;
-            font-size: 3.0 rem;
+            font-size: 3.0rem;
             font-weight: 800;
             letter-spacing: 2px;
             margin: 0 auto 1.5rem auto;
@@ -876,7 +1237,7 @@ if st.session_state["page"] == "landing":
         """
         <div class="hero-container">
             <div style="font-size: 4rem; margin-bottom: 0.25rem;">🛡️</div>
-            <h1 class="hero-title">FolioLyn.</h1>
+            <h1 class="hero-title">FolioLink.</h1>
             <div class="hero-subtitle">Quant PRE-Trade Optimization, Risk & Compliance Engine</div>
             <div class="slogan-badge">Test the Shift. Keep The Proof..</div>
             <p class="hero-description">
@@ -916,6 +1277,32 @@ elif st.session_state["page"] == "analytics":
         .stApp { background-color: #FAF8ED !important; color: #1A2B4C !important; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
         h1, h2, h3, h4, h5, h6 { color: #1A2B4C !important; font-weight: 700 !important; }
         .stMarkdown p:not([data-testid="stMetricValue"] p), .stCaption { color: #1A2B4C !important; font-weight: 500; }
+
+        /* Top Market Ticker Strip */
+        .ticker-ribbon {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            background-color: #1A2B4C;
+            padding: 10px 14px;
+            border-radius: 12px;
+            margin-bottom: 14px;
+            border: 1px solid rgba(250, 248, 237, 0.18);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.16);
+        }
+        .ticker-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background-color: rgba(255, 255, 255, 0.08);
+            padding: 5px 11px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+        .tp-name { color: #E2E8F0 !important; font-weight: 700; letter-spacing: 0.3px; }
+        .tp-price { color: #FFFFFF !important; font-weight: 700; }
+        .tp-up { background-color: #14532D; color: #86EFAC !important; padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 0.8rem; }
+        .tp-down { background-color: #7F1D1D; color: #FCA5A5 !important; padding: 2px 7px; border-radius: 5px; font-weight: 700; font-size: 0.8rem; }
 
         section[data-testid="stSidebar"] { background-color: #1A2B4C !important; border-right: 1px solid rgba(250, 248, 237, 0.1) !important; }
         section[data-testid="stSidebar"] label, section[data-testid="stSidebar"] .stMarkdown p, section[data-testid="stSidebar"] span, section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] h2, section[data-testid="stSidebar"] h3 {
@@ -992,9 +1379,9 @@ elif st.session_state["page"] == "analytics":
             background-color: #1A2B4C;
             color: #FAFAED;
             border-radius: 10px;
-            padding: 12px 16px;
-            border-left: 6px solid #38BDF8;
-            margin: 10px 0 16px 0;
+            padding: 14px 16px;
+            border-left: 7px solid #38BDF8;
+            margin: 10px 0 14px 0;
         }
         .gate-pass { border-left-color: #22C55E !important; }
         .gate-warn { border-left-color: #F59E0B !important; }
@@ -1013,10 +1400,13 @@ elif st.session_state["page"] == "analytics":
         unsafe_allow_html=True,
     )
 
+    # Top Market Indexes Strip (BSE Sensex, Nifty 50, Nifty Bank, Midcap, India VIX)
+    render_top_market_ticker_strip()
+
     # Top Navigation Header
     top_col1, top_col2 = st.columns([6, 1])
     with top_col1:
-        st.title(f"📈 {exchange} Workspace — Portfolio Risk & Mandate Gate Engine")
+        st.title(f"🛡️ FolioLink ({exchange}) — Pre-Trade Optimization, Risk & Compliance Engine")
     with top_col2:
         if st.button("🏠 Home"):
             navigate_to("landing")
@@ -1038,7 +1428,7 @@ elif st.session_state["page"] == "analytics":
     except FileNotFoundError:
         raise FileNotFoundError(
             "Could not find 'stock-sectors-nse-bse.json' in the app's working directory. "
-            "Make sure it is committed to the root of your GitHub repo next to app2.py."
+            "Make sure it is committed to the root of your repo next to app2.py."
         )
     sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["NSE"])
     ticker_to_sector = {}
@@ -1072,99 +1462,89 @@ elif st.session_state["page"] == "analytics":
             label_visibility="collapsed",
         )
 
-    with st.spinner(f"Fetching live benchmark data for {current_cfg['name']}..."):
-        try:
-            end_d = datetime.datetime.now()
-            tf_info = tf_options.get(selected_tf, tf_options["6M"])
+    try:
+        end_d = datetime.datetime.now()
+        tf_info = tf_options.get(selected_tf, tf_options["6M"])
 
-            if tf_info["days"] == "YTD":
-                start_d = datetime.datetime(end_d.year, 1, 1)
-            else:
-                start_d = end_d - datetime.timedelta(days=tf_info["days"])
+        if tf_info["days"] == "YTD":
+            start_d = datetime.datetime(end_d.year, 1, 1)
+        else:
+            start_d = end_d - datetime.timedelta(days=tf_info["days"])
 
-            interval = "15m" if selected_tf == "1D" else "1d"
-            bench_raw = yf.download(
-                current_cfg["symbol"],
-                start=start_d,
-                end=end_d,
-                interval=interval,
-                progress=False,
-                auto_adjust=True,
+        interval = "15m" if selected_tf == "1D" else "1d"
+        bench_df_cached = cached_yf_download_range(
+            (current_cfg["symbol"],),
+            start_str=str(start_d.date()),
+            end_str=str((end_d + datetime.timedelta(days=1)).date()),
+            interval=interval,
+        )
+
+        if not bench_df_cached.empty:
+            chart_series = bench_df_cached.iloc[:, 0].dropna()
+            chart_df = chart_series.reset_index()
+            chart_df.columns = ["Date", "Close"]
+
+            start_price = chart_df["Close"].iloc[0]
+            latest_price = chart_df["Close"].iloc[-1]
+            abs_change = latest_price - start_price
+            pct_change = (abs_change / start_price) * 100
+            is_falling = abs_change < 0
+
+            theme_color = "#D93025" if is_falling else "#188038"
+            fill_color = "rgba(217, 48, 37, 0.10)" if is_falling else "rgba(24, 128, 56, 0.10)"
+            arrow = "↓" if is_falling else "↑"
+            sign = "" if is_falling else "+"
+
+            st.markdown(
+                f"""
+                <div style="margin-top: -10px; margin-bottom: 10px;">
+                    <span style="font-size: 2.2rem; font-weight: 700; color: #202124;">{latest_price:,.2f}</span>
+                    <span style="background-color: {'#FCE8E6' if is_falling else '#E6F4EA'}; color: {theme_color}; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.95rem; margin-left: 10px;">
+                        {arrow} {abs(pct_change):.2f}%
+                    </span>
+                    <span style="color: {theme_color}; font-weight: 600; font-size: 0.95rem; margin-left: 6px;">
+                        {sign}{abs_change:,.2f}
+                    </span>
+                    <span style="color: #5f6368; font-size: 0.9rem; margin-left: 6px;">
+                        {tf_info['label']}
+                    </span>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-            if not bench_raw.empty:
-                if "Close" in bench_raw.columns:
-                    chart_series = bench_raw["Close"]
-                else:
-                    chart_series = bench_raw.iloc[:, 0]
+            y_min = chart_df["Close"].min() * 0.998
+            y_max = chart_df["Close"].max() * 1.002
 
-                if isinstance(chart_series, pd.DataFrame):
-                    chart_series = chart_series.squeeze()
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=chart_df["Date"],
+                y=chart_df["Close"],
+                mode="lines",
+                line=dict(color=theme_color, width=2),
+                fill="tonexty",
+                fillcolor=fill_color,
+                hovertemplate="%{x}<br><b>Price:</b> %{y:,.2f}<extra></extra>",
+            ))
 
-                chart_df = chart_series.dropna().reset_index()
-                chart_df.columns = ["Date", "Close"]
+            fig.update_layout(
+                height=220,
+                margin=dict(l=10, r=10, t=10, b=10),
+                xaxis_title=None,
+                yaxis_title=None,
+                xaxis=dict(fixedrange=True),
+                yaxis=dict(range=[y_min, y_max], fixedrange=True),
+                dragmode=False,
+                hovermode="x unified",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+            )
 
-                start_price = chart_df["Close"].iloc[0]
-                latest_price = chart_df["Close"].iloc[-1]
-                abs_change = latest_price - start_price
-                pct_change = (abs_change / start_price) * 100
-                is_falling = abs_change < 0
-
-                theme_color = "#D93025" if is_falling else "#188038"
-                fill_color = "rgba(217, 48, 37, 0.10)" if is_falling else "rgba(24, 128, 56, 0.10)"
-                arrow = "↓" if is_falling else "↑"
-                sign = "" if is_falling else "+"
-
-                st.markdown(
-                    f"""
-                    <div style="margin-top: -10px; margin-bottom: 10px;">
-                        <span style="font-size: 2.2rem; font-weight: 700; color: #202124;">{latest_price:,.2f}</span>
-                        <span style="background-color: {'#FCE8E6' if is_falling else '#E6F4EA'}; color: {theme_color}; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.95rem; margin-left: 10px;">
-                            {arrow} {abs(pct_change):.2f}%
-                        </span>
-                        <span style="color: {theme_color}; font-weight: 600; font-size: 0.95rem; margin-left: 6px;">
-                            {sign}{abs_change:,.2f}
-                        </span>
-                        <span style="color: #5f6368; font-size: 0.9rem; margin-left: 6px;">
-                            {tf_info['label']}
-                        </span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                y_min = chart_df["Close"].min() * 0.998
-                y_max = chart_df["Close"].max() * 1.002
-
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=chart_df["Date"],
-                    y=chart_df["Close"],
-                    mode="lines",
-                    line=dict(color=theme_color, width=2),
-                    fill="tonexty",
-                    fillcolor=fill_color,
-                    hovertemplate="%{x}<br><b>Price:</b> %{y:,.2f}<extra></extra>",
-                ))
-
-                fig.update_layout(
-                    height=230,
-                    margin=dict(l=10, r=10, t=10, b=10),
-                    xaxis_title=None,
-                    yaxis_title=None,
-                    xaxis=dict(fixedrange=True),
-                    yaxis=dict(range=[y_min, y_max], fixedrange=True),
-                    dragmode=False,
-                    hovermode="x unified",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                )
-
-                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-            else:
-                st.warning("Market benchmark data temporarily unavailable.")
-        except Exception as e:
-            st.warning(f"Benchmark market index chart error: {str(e)}")
+            st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+        else:
+            st.warning("Market benchmark data temporarily unavailable.")
+    except Exception as e:
+        st.warning(f"Benchmark market index chart error: {str(e)}")
 
     # ==========================================================================
     # 0. TOP-LEVEL ENTITY, RISK PARAMETERS & WORKSPACE MODE SWITCH
@@ -1238,12 +1618,12 @@ elif st.session_state["page"] == "analytics":
     st.markdown("---")
     sec_tab1, sec_tab2, sec_tab3 = st.tabs([
         "🧭 Stage 1–4: Rebalance, Mandate Gate & Audit",
-        "📊 Market Context (Sectors & Leaders)",
+        "📊 Market Context (Indexes, Sectors & Leaders)",
         "📉 Fee & Tax Optimization",
     ])
 
     with sec_tab2:
-        st.subheader(f"{exchange} Sector Performance & Stock Leaders")
+        st.subheader(f"{exchange} Benchmark Indexes, Sector Performance & Stock Leaders")
         sector_config = ALL_EXCHANGE_CONFIGS.get(exchange, ALL_EXCHANGE_CONFIGS["BSE"])
 
         st.subheader("Select Time Horizon")
@@ -1262,6 +1642,88 @@ elif st.session_state["page"] == "analytics":
         }
         lookback_days = timeframe_days_map[timeframe]
 
+        # --- MULTI-INDEX BENCHMARK COMPARISON IN MARKET SCREENER ---
+        st.markdown("### 🏛️ Benchmark Index Comparison (Multi-Index Screener)")
+        screener_indexes = {
+            "NIFTY 50": "^NSEI",
+            "BSE SENSEX": "^BSESN",
+            "NIFTY 500": "^CRSLDX",
+            "NIFTY Midcap 100": "^CNXMID",
+            "NIFTY Smallcap 250": "NIFTYSMLCAP250.NS",
+            "NIFTY Bank": "^NSEBANK",
+            "NIFTY IT": "^CNXIT",
+        }
+        selected_compare_idxs = st.multiselect(
+            "Select Indexes to Compare Side-by-Side",
+            options=list(screener_indexes.keys()),
+            default=["NIFTY 50", "BSE SENSEX", "NIFTY Midcap 100", "NIFTY Bank", "NIFTY IT"],
+            key="screener_multi_index_select",
+        )
+
+        if selected_compare_idxs:
+            idx_syms_tuple = tuple(screener_indexes[k] for k in selected_compare_idxs)
+            idx_end = datetime.datetime.now()
+            idx_start = idx_end - datetime.timedelta(days=400)
+            idx_px_df = cached_yf_download_range(idx_syms_tuple, str(idx_start.date()), str((idx_end + datetime.timedelta(days=1)).date()))
+
+            if not idx_px_df.empty:
+                idx_rows = []
+                fig_idx_comp = go.Figure()
+                for idx_label in selected_compare_idxs:
+                    sym_i = screener_indexes[idx_label]
+                    if sym_i not in idx_px_df.columns:
+                        continue
+                    s_i = idx_px_df[sym_i].dropna()
+                    if len(s_i) < 10:
+                        continue
+                    lb = min(lookback_days, len(s_i) - 1)
+                    sub_s = s_i.iloc[-(lb + 1):]
+                    ret_period = ((sub_s.iloc[-1] / sub_s.iloc[0]) - 1.0) * 100.0
+                    daily_r = sub_s.pct_change().dropna()
+                    ann_v = float(erk.annualized_volatility(daily_r, 252) * 100.0) if len(daily_r) > 2 else 0.0
+                    max_d = float(abs(erk.drawdown(daily_r)["Drawdown"].min()) * 100.0) if len(daily_r) > 2 else 0.0
+                    idx_rows.append({
+                        "Index": idx_label,
+                        "Latest Level": float(sub_s.iloc[-1]),
+                        f"Return ({timeframe})": ret_period,
+                        "Ann. Volatility (%)": ann_v,
+                        "Max Drawdown (%)": max_d,
+                    })
+                    norm_curve = ((sub_s / sub_s.iloc[0]) - 1.0) * 100.0
+                    fig_idx_comp.add_trace(go.Scatter(
+                        x=norm_curve.index,
+                        y=norm_curve.values,
+                        mode="lines",
+                        name=idx_label,
+                    ))
+
+                if idx_rows:
+                    idx_comp_df = pd.DataFrame(idx_rows).sort_values(by=f"Return ({timeframe})", ascending=False)
+                    ic_c1, ic_c2 = st.columns([1.2, 1.8], gap="large")
+                    with ic_c1:
+                        st.dataframe(
+                            idx_comp_df.style.format({
+                                "Latest Level": "{:,.2f}",
+                                f"Return ({timeframe})": "{:+.2f}%",
+                                "Ann. Volatility (%)": "{:.2f}%",
+                                "Max Drawdown (%)": "{:.2f}%",
+                            }),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+                    with ic_c2:
+                        fig_idx_comp.update_layout(
+                            height=270,
+                            margin=dict(l=10, r=10, t=25, b=10),
+                            title=f"Normalized Index Performance ({timeframe})",
+                            yaxis_title="Cumulative Return (%)",
+                            hovermode="x unified",
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
+                        )
+                        st.plotly_chart(fig_idx_comp, use_container_width=True, config=CHART_CONFIG)
+
+        st.markdown("---")
         all_tickers_to_fetch = []
         stock_to_sector_map = {}
 
@@ -1272,22 +1734,11 @@ elif st.session_state["page"] == "analytics":
             for stock in data["stocks"]:
                 stock_to_sector_map[stock] = short_sec_name
 
-        all_tickers_to_fetch = list(set(all_tickers_to_fetch))
+        all_tickers_to_fetch = sorted(set(all_tickers_to_fetch))
 
         end_date = datetime.datetime.now()
         start_date = end_date - datetime.timedelta(days=400)
-
-        @st.cache_data(ttl=3600)
-        def fetch_sector_price_matrix(tickers, start, end):
-            try:
-                df = yf.download(tickers, start=start, end=end, progress=False)
-                if isinstance(df, pd.DataFrame) and "Close" in df:
-                    return df["Close"]
-                return df
-            except Exception:
-                return pd.DataFrame()
-
-        price_df = fetch_sector_price_matrix(all_tickers_to_fetch, start_date, end_date)
+        price_df = cached_yf_download_range(tuple(all_tickers_to_fetch), str(start_date.date()), str((end_date + datetime.timedelta(days=1)).date()))
 
         sector_returns = {}
         stock_returns_dict = {}
@@ -1520,12 +1971,10 @@ elif st.session_state["page"] == "analytics":
                     if valid_cost_series.isna().any() or (valid_cost_series <= 0).any():
                         st.error("❌ Cost cannot be read: One or more rows have missing or zero Average Cost. Tax liability cannot be calculated without valid cost basis.")
                     else:
-                        tax_yf = [f"{str(t).strip().upper()}{current_cfg['suffix']}" for t in edited_tax_df["Instrument"] if str(t).strip()]
+                        tax_yf = tuple(f"{str(t).strip().upper()}{current_cfg['suffix']}" for t in edited_tax_df["Instrument"] if str(t).strip())
                         if tax_yf:
-                            lp_raw = yf.download(tax_yf, period="5d", progress=False)
-                            lp_series = lp_raw["Close"].ffill().bfill().iloc[-1] if isinstance(lp_raw, pd.DataFrame) and "Close" in lp_raw else pd.Series(dtype=float)
-                            if isinstance(lp_series, (float, int)):
-                                lp_series = pd.Series({tax_yf[0]: float(lp_series)})
+                            lp_close = cached_yf_download_period(tax_yf, period="5d")
+                            lp_series = lp_close.iloc[-1] if not lp_close.empty else pd.Series(dtype=float)
                             edited_tax_df["Live Price"] = [float(lp_series.get(f"{str(t).strip().upper()}{current_cfg['suffix']}", np.nan)) for t in edited_tax_df["Instrument"]]
                             edited_tax_df["P&L"] = (edited_tax_df["Live Price"] - valid_cost_series) * edited_tax_df["Qty"]
                             edited_tax_df["Tax_Category"] = np.where(edited_tax_df["Holding_Days"] >= 365, "LTCG", "STCG")
@@ -1542,23 +1991,29 @@ elif st.session_state["page"] == "analytics":
     # MAIN WORKFLOW TAB: STAGE 1 -> STAGE 2 -> STAGE 3 -> STAGE 4
     # ==========================================================================
     with sec_tab1:
-        st.markdown("## Stage 1: Portfolio & Mandate")
+        st.markdown("## Stage 1: Portfolio & Mandate Guardrails")
 
-        lim_c1, lim_c2, lim_c3, lim_c4 = st.columns(4)
+        lim_c1, lim_c2, lim_c3, lim_c4, lim_c5, lim_c6 = st.columns(6)
         with lim_c1:
             vol_cap_pct = st.number_input("Max Volatility (% p.a.)", min_value=5.0, max_value=80.0, value=25.0, step=1.0, key="lim_vol_cap")
         with lim_c2:
             cvar_cap_pct = st.number_input("Max CVaR (% Horizon)", min_value=1.0, max_value=60.0, value=18.0, step=1.0, key="lim_cvar_cap")
         with lim_c3:
-            stock_cap_pct = st.number_input("Max Single-Stock Wt (%)", min_value=2.0, max_value=100.0, value=15.0, step=1.0, key="lim_stock_cap")
+            stock_cap_pct = st.number_input("Max Stock Wt (%)", min_value=2.0, max_value=100.0, value=15.0, step=1.0, key="lim_stock_cap")
         with lim_c4:
             sector_cap_pct = st.number_input("Max Sector Wt (%)", min_value=5.0, max_value=100.0, value=45.0, step=1.0, key="lim_sector_cap")
+        with lim_c5:
+            min_cash_pct = st.number_input("Min Cash Floor (%)", min_value=0.0, max_value=50.0, value=2.0, step=0.5, key="lim_min_cash")
+        with lim_c6:
+            max_turnover_pct = st.number_input("Max Turnover (%)", min_value=5.0, max_value=200.0, value=50.0, step=5.0, key="lim_max_turnover")
 
         mandate_limits = {
             "vol_cap": float(vol_cap_pct),
             "cvar_cap": float(cvar_cap_pct),
             "stock_cap": float(stock_cap_pct),
             "sector_cap": float(sector_cap_pct),
+            "min_cash": float(min_cash_pct),
+            "max_turnover": float(max_turnover_pct),
         }
 
         exchange_suggestions = sorted({
@@ -1571,50 +2026,69 @@ elif st.session_state["page"] == "analytics":
         # WORKSPACE MODE A: SINGLE CLIENT AUDIT
         # ======================================================================
         if workspace_mode == "Single Client Audit":
-            if uploaded_file is not None:
-                init_holdings, _ = parse_uploaded_portfolio(uploaded_file, exchange, is_demo=st.session_state["use_demo"])
-                if init_holdings.empty:
-                    init_holdings = pd.DataFrame({"Ticker": ["HDFCBANK", "INFY", "RELIANCE"], "Quantity": [100, 120, 80], "Cost Price": [1500.0, 1450.0, 2600.0]})
-            else:
-                init_holdings = pd.DataFrame({
+            upload_sig = f"{uploaded_file.name}_{uploaded_file.size}" if uploaded_file is not None else "default"
+            if st.session_state.get("sc_last_upload_sig") != upload_sig:
+                st.session_state["sc_last_upload_sig"] = upload_sig
+                if uploaded_file is not None:
+                    parsed_h, _ = parse_uploaded_portfolio(uploaded_file, exchange, is_demo=st.session_state["use_demo"])
+                    if parsed_h.empty:
+                        parsed_h = pd.DataFrame({"Ticker": ["HDFCBANK", "INFY", "RELIANCE"], "Quantity": [100, 120, 80], "Cost Price": [1500.0, 1450.0, 2600.0]})
+                else:
+                    parsed_h = pd.DataFrame({
+                        "Ticker": ["FEDERALBNK", "IDFCFIRSTB", "NCC", "JSWENERGY", "TATASTEEL"],
+                        "Quantity": [1000, 2000, 1500, 800, 1200],
+                        "Cost Price": [160.0, 80.0, 210.0, 520.0, 155.0],
+                    })
+                st.session_state["sc_holdings_df_state"] = parsed_h.copy()
+
+            if "sc_holdings_df_state" not in st.session_state:
+                st.session_state["sc_holdings_df_state"] = pd.DataFrame({
                     "Ticker": ["FEDERALBNK", "IDFCFIRSTB", "NCC", "JSWENERGY", "TATASTEEL"],
                     "Quantity": [1000, 2000, 1500, 800, 1200],
                     "Cost Price": [160.0, 80.0, 210.0, 520.0, 155.0],
                 })
 
-            s1_raw_tickers = [str(t).strip().upper() for t in init_holdings["Ticker"] if str(t).strip()]
+            base_s1_df = st.session_state["sc_holdings_df_state"].copy()
+            s1_raw_tickers = [str(t).strip().upper() for t in base_s1_df["Ticker"] if str(t).strip() and str(t).strip().upper() != "NAN"]
             s1_yf_syms = resolve_yf_tickers(s1_raw_tickers, current_cfg)
             s1_live_map = {}
             if s1_yf_syms:
-                try:
-                    lp_s1 = yf.download(s1_yf_syms, period="5d", progress=False)
-                    lp_s1_close = lp_s1["Close"] if isinstance(lp_s1, pd.DataFrame) and "Close" in lp_s1 else lp_s1
-                    if isinstance(lp_s1_close, pd.Series):
-                        lp_s1_close = lp_s1_close.to_frame(name=s1_yf_syms[0])
-                    if isinstance(lp_s1_close, pd.DataFrame) and not lp_s1_close.empty:
-                        last_s1 = lp_s1_close.ffill().bfill().iloc[-1]
-                        for bt, yt in zip(s1_raw_tickers, s1_yf_syms):
-                            if yt in last_s1.index and pd.notna(last_s1[yt]):
-                                s1_live_map[bt] = round(float(last_s1[yt]), 2)
-                except Exception:
-                    pass
+                lp_s1_close = cached_yf_download_period(tuple(s1_yf_syms), period="5d")
+                if not lp_s1_close.empty:
+                    last_s1 = lp_s1_close.iloc[-1]
+                    for bt, yt in zip(s1_raw_tickers, s1_yf_syms):
+                        if yt in last_s1.index and pd.notna(last_s1[yt]):
+                            s1_live_map[bt] = round(float(last_s1[yt]), 2)
 
-            init_holdings_with_live = init_holdings.copy()
+            init_holdings_with_live = base_s1_df.copy()
             init_holdings_with_live["Live Price"] = [
                 s1_live_map.get(str(t).strip().upper(), np.nan) for t in init_holdings_with_live["Ticker"]
             ]
 
             sc_col1, sc_col2 = st.columns([3, 1.3])
             with sc_col1:
-                st.caption(f"Edit client holdings (Ticker, Quantity, Cost Price) directly below — Live Price ({currency}) shown alongside:")
+                st.caption(f"Edit or add existing client holdings (Ticker, Quantity, Cost Price) directly below — Live Price ({currency}) updates automatically:")
                 client_holdings_df = st.data_editor(
                     init_holdings_with_live,
                     num_rows="dynamic",
                     use_container_width=True,
                     hide_index=True,
                     disabled=["Live Price"],
+                    column_config={
+                        "Ticker": st.column_config.TextColumn("Ticker", help="Enter NSE/BSE symbol e.g. TCS, INFY"),
+                        "Quantity": st.column_config.NumberColumn("Quantity", min_value=0, step=1, default=10),
+                        "Cost Price": st.column_config.NumberColumn("Cost Price", min_value=0.0, step=1.0, default=0.0),
+                        "Live Price": st.column_config.NumberColumn(f"Live Price ({currency})"),
+                    },
                     key="single_client_holdings_editor",
                 )
+                # Persist edits cleanly back into session_state so added rows never vanish on rerun
+                cleaned_editor_df = client_holdings_df[["Ticker", "Quantity", "Cost Price"]].copy()
+                cleaned_editor_df["Ticker"] = cleaned_editor_df["Ticker"].fillna("").astype(str).str.strip().str.upper()
+                cleaned_editor_df["Quantity"] = pd.to_numeric(cleaned_editor_df["Quantity"], errors="coerce").fillna(0).astype(int)
+                cleaned_editor_df["Cost Price"] = pd.to_numeric(cleaned_editor_df["Cost Price"], errors="coerce")
+                st.session_state["sc_holdings_df_state"] = cleaned_editor_df
+
             with sc_col2:
                 client_cash = st.number_input(f"Client Cash Balance ({currency})", min_value=0.0, value=float(initial_capital) * 0.10, step=50000.0 if currency == "INR" else 1000.0, key="single_client_cash")
                 client_profile_tag = st.selectbox("Client Risk Profile", ["Conservative", "Moderate", "Aggressive"], index=1, key="single_client_profile")
@@ -1631,23 +2105,27 @@ elif st.session_state["page"] == "analytics":
             with r2_c2:
                 friction_bps = st.slider("Est. Friction Cost (bps on traded notional)", min_value=0, max_value=100, value=15, step=5, key="sc_friction_bps")
 
-            st.markdown("#### ➕ Add New Stock(s) to Rebalance")
-            if "sc_added_tickers_list" not in st.session_state:
-                st.session_state["sc_added_tickers_list"] = []
+            st.markdown("#### ➕ Add New Stock(s) to Pre-Trade Rebalance")
+            if "sc_pick_universe" not in st.session_state:
+                st.session_state["sc_pick_universe"] = []
+            if "sc_added_stocks" not in st.session_state:
+                st.session_state["sc_added_stocks"] = ""
+
+            def _clear_sc_added():
+                st.session_state["sc_pick_universe"] = []
+                st.session_state["sc_added_stocks"] = ""
 
             add_c1, add_c2, add_c3, add_c4 = st.columns([2.0, 2.0, 1.3, 1.0])
             with add_c1:
                 picked_from_list = st.multiselect(
                     "Pick from Exchange Universe",
                     options=exchange_suggestions,
-                    default=[t for t in st.session_state["sc_added_tickers_list"] if t in exchange_suggestions],
                     placeholder="Select stocks (e.g. TCS, INFY)...",
                     key="sc_pick_universe",
                 )
             with add_c2:
                 custom_tickers_raw = st.text_input(
                     "Or Type Custom Ticker(s) (comma-separated)",
-                    value="",
                     placeholder="e.g. ZOMATO, TRENT, BEL",
                     key="sc_added_stocks",
                 ).strip().upper()
@@ -1662,25 +2140,22 @@ elif st.session_state["page"] == "analytics":
                 )
             with add_c4:
                 st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                if st.button("Clear Added", key="sc_clear_added_btn"):
-                    st.session_state["sc_added_tickers_list"] = []
-                    st.rerun()
+                st.button("Clear Added", key="sc_clear_added_btn", on_click=_clear_sc_added)
 
             custom_list = [p.strip().upper() for p in custom_tickers_raw.split(",") if p.strip()]
             combined_added = []
             for item in picked_from_list + custom_list:
                 if item and item != "NAN" and item not in combined_added:
                     combined_added.append(item)
-            st.session_state["sc_added_tickers_list"] = combined_added
 
             existing_tickers = []
-            for t in client_holdings_df["Ticker"]:
+            for t in cleaned_editor_df["Ticker"]:
                 tu = str(t).strip().upper()
                 if tu and tu != "NAN" and tu not in existing_tickers:
                     existing_tickers.append(tu)
 
             added_tickers = [
-                pu for pu in st.session_state.get("sc_added_tickers_list", [])
+                pu for pu in combined_added
                 if pu and pu != "NAN" and pu not in existing_tickers
             ]
 
@@ -1691,17 +2166,7 @@ elif st.session_state["page"] == "analytics":
                 st.stop()
 
             yf_syms = resolve_yf_tickers(clean_tickers, current_cfg)
-            with st.spinner("Fetching market prices & return histories..."):
-                end_dt = datetime.datetime.now()
-                start_dt = end_dt - datetime.timedelta(days=365 * 3)
-                p_raw = yf.download(yf_syms, start=start_dt, end=end_dt, progress=False)
-                if isinstance(p_raw, pd.DataFrame) and "Close" in p_raw:
-                    p_df = p_raw["Close"]
-                else:
-                    p_df = p_raw
-                if isinstance(p_df, pd.Series):
-                    p_df = p_df.to_frame(name=yf_syms[0])
-                p_df = p_df.dropna(how="all", axis=1).ffill().bfill()
+            p_df = cached_yf_download_period(tuple(yf_syms), period="3y")
 
             valid_pairs = [(base_t, yf_t) for base_t, yf_t in zip(clean_tickers, yf_syms) if yf_t in p_df.columns]
             if not valid_pairs:
@@ -1748,8 +2213,8 @@ elif st.session_state["page"] == "analytics":
             qty_map = {}
             cost_val_sum_map = {}
             days_map = {}
-            has_holding_days_col = "Holding_Days" in client_holdings_df.columns
-            for _, r in client_holdings_df.iterrows():
+            has_holding_days_col = "Holding_Days" in cleaned_editor_df.columns
+            for _, r in cleaned_editor_df.iterrows():
                 bt = str(r.get("Ticker", "")).strip().upper()
                 if bt:
                     q_row = float(r.get("Quantity", 0.0) or 0.0)
@@ -1786,7 +2251,6 @@ elif st.session_state["page"] == "analytics":
                     val_pct = st.number_input(lbl, min_value=0.0, max_value=100.0, value=init_val, step=1.0, key=f"sc_tw_{bt}")
                     raw_target_pcts.append(val_pct)
 
-            # Display which Portfolio Optimizer Preset is currently active
             active_opt_code = st.session_state.get("sc_active_optimizer")
             if active_opt_code:
                 last_opt_w = st.session_state.get("sc_last_opt_weights", {})
@@ -1824,6 +2288,8 @@ elif st.session_state["page"] == "analytics":
             else:
                 prop_wts = np.zeros(len(valid_pairs), dtype=float)
 
+            post_cash_wt_pct = max(0.0, (1.0 - float(prop_wts.sum())) * 100.0)
+
             diff_wts = prop_wts - curr_wts
             curr_val_per_asset = curr_wts * total_curr_nav
             prop_val_per_asset = prop_wts * post_nav
@@ -1854,9 +2320,8 @@ elif st.session_state["page"] == "analytics":
                         key="sc_whatif_tax_regime",
                     )
                 with tx_tog_c2:
-                    st.caption("Use the radio button to switch all sellable stocks at once, or change the **Tax Regime** dropdown on individual SELL rows in the table below.")
+                    st.caption("Switch all sellable stocks at once, or override the **Tax Regime** dropdown on individual SELL rows below.")
 
-                # If user toggled the bulk radio button, apply that choice to all sellable stocks at once
                 if sc_bulk_tax_regime != st.session_state["sc_last_bulk_tax_regime"]:
                     st.session_state["sc_last_bulk_tax_regime"] = sc_bulk_tax_regime
                     for i_s, (bt_s, _) in enumerate(valid_pairs):
@@ -1865,7 +2330,6 @@ elif st.session_state["page"] == "analytics":
             else:
                 sc_bulk_tax_regime = st.session_state["sc_last_bulk_tax_regime"]
 
-            # Initialize default regime for each sellable stock if not yet set
             for i, (bt, _) in enumerate(valid_pairs):
                 if "SELL" in actions_list[i]:
                     if bt not in st.session_state["sc_per_stock_tax_map"] or st.session_state["sc_per_stock_tax_map"][bt] not in ["LTCG (12.5%)", "STCG (20%)"]:
@@ -1915,7 +2379,7 @@ elif st.session_state["page"] == "analytics":
                 "What-If Tax": row_tax_strs,
             })
 
-            st.write("**Pre-Trade vs. Post-Trade Allocation, Order Diff & What-If Tax Table** *(use Tax Regime dropdown on SELL rows)*")
+            st.write("**Pre-Trade vs. Post-Trade Allocation, Order Diff & What-If Tax Table**")
             read_only_cols = [c for c in unified_blotter_df.columns if c != "Tax Regime"]
             edited_blotter_df = st.data_editor(
                 unified_blotter_df,
@@ -1933,7 +2397,6 @@ elif st.session_state["page"] == "analytics":
                 key="sc_unified_blotter_editor",
             )
 
-            # Sync any per-row dropdown overrides and recompute What-If Tax immediately
             updated_regimes = []
             regime_changed = False
             for idx_e, bt_e in enumerate(valid_bt_ordered):
@@ -1961,7 +2424,6 @@ elif st.session_state["page"] == "analytics":
             else:
                 sc_tax_summary_label = sc_bulk_tax_regime
 
-            # Broker Trade Execution CSV Export (Single Client)
             clean_cid_sc = client_id_tag.split("(")[0].strip() or "CLIENT-001"
             sc_exec_csv_df = build_broker_execution_csv_df(
                 client_id=clean_cid_sc,
@@ -1977,7 +2439,7 @@ elif st.session_state["page"] == "analytics":
             st.download_button(
                 label="📥 Export Broker Trade Execution CSV",
                 data=sc_exec_csv_df.to_csv(index=False).encode("utf-8"),
-                file_name=f"FolioLyn_Trade_Execution_{clean_cid_sc}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"FolioLink_Trade_Execution_{clean_cid_sc}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
                 key="sc_download_exec_csv",
             )
@@ -1986,7 +2448,7 @@ elif st.session_state["page"] == "analytics":
             # STAGE 3: PRE-TRADE DIFF, BENCHMARK GRAPH, QUANT METRICS & MONTE CARLO
             # ------------------------------------------------------------------
             st.markdown("---")
-            st.markdown("## Stage 3: Pre-Trade Diff, Benchmark Comparison & Risk / Monte Carlo")
+            st.markdown("## Stage 3: Pre-Trade Diff, Alpha & Benchmark Comparison, Risk / Monte Carlo")
 
             pre_port_ret = ret_matrix.dot(curr_wts) if curr_wts.sum() > 0 else ret_matrix.iloc[:, 0] * 0.0
             post_port_ret = ret_matrix.dot(prop_wts) if prop_wts.sum() > 0 else ret_matrix.iloc[:, 0] * 0.0
@@ -2003,33 +2465,16 @@ elif st.session_state["page"] == "analytics":
             pre_div = compute_risk_and_diversification(ret_matrix, curr_wts, valid_bt_ordered)
             post_div = compute_risk_and_diversification(ret_matrix, prop_wts, valid_bt_ordered)
 
-            beta_val = 1.0
-            b_cum_pct = None
-            try:
-                b_raw = yf.download(current_cfg["symbol"], start=ret_matrix.index[0], end=ret_matrix.index[-1], progress=False)
-                b_ser = b_raw["Close"].squeeze() if isinstance(b_raw, pd.DataFrame) and "Close" in b_raw else pd.Series(dtype=float)
-                b_ret = b_ser.pct_change().dropna()
-                aligned = pd.DataFrame({"pre": pre_port_ret, "post": post_port_ret, "m": b_ret}).dropna()
-                if len(aligned) > 10 and np.var(aligned["m"]) > 0:
-                    beta_val = float(np.cov(aligned["post"], aligned["m"])[0, 1] / np.var(aligned["m"]))
-                if not aligned.empty:
-                    pre_cum_pct = ((1.0 + aligned["pre"]).cumprod() - 1.0) * 100.0
-                    post_cum_pct = ((1.0 + aligned["post"]).cumprod() - 1.0) * 100.0
-                    b_cum_pct = ((1.0 + aligned["m"]).cumprod() - 1.0) * 100.0
-                else:
-                    pre_cum_pct = ((1.0 + pre_port_ret).cumprod() - 1.0) * 100.0
-                    post_cum_pct = ((1.0 + post_port_ret).cumprod() - 1.0) * 100.0
-            except Exception:
-                pre_cum_pct = ((1.0 + pre_port_ret).cumprod() - 1.0) * 100.0
-                post_cum_pct = ((1.0 + post_port_ret).cumprod() - 1.0) * 100.0
-
             pre_max_stock = float(curr_wts.max() * 100.0) if len(curr_wts) else 0.0
             post_max_stock = float(prop_wts.max() * 100.0) if len(prop_wts) else 0.0
+            post_max_stock_name = valid_bt_ordered[int(np.argmax(prop_wts))] if len(prop_wts) else "N/A"
 
             sec_series_curr = pd.Series(curr_wts, index=[ticker_to_sector.get(bt, "Other") for bt in valid_bt_ordered])
             sec_series_prop = pd.Series(prop_wts, index=[ticker_to_sector.get(bt, "Other") for bt in valid_bt_ordered])
             pre_max_sec = float(sec_series_curr.groupby(level=0).sum().max() * 100.0) if not sec_series_curr.empty else 0.0
-            post_max_sec = float(sec_series_prop.groupby(level=0).sum().max() * 100.0) if not sec_series_prop.empty else 0.0
+            sec_prop_grouped = sec_series_prop.groupby(level=0).sum()
+            post_max_sec = float(sec_prop_grouped.max() * 100.0) if not sec_prop_grouped.empty else 0.0
+            post_max_sec_name = str(sec_prop_grouped.idxmax()) if not sec_prop_grouped.empty else "N/A"
 
             total_turnover_amt = float(np.abs(trade_notional_per_asset).sum())
             turnover_pct = (total_turnover_amt / post_nav * 100.0) if post_nav > 0 else 0.0
@@ -2040,20 +2485,20 @@ elif st.session_state["page"] == "analytics":
                 currency=currency,
                 time_horizon_days=time_horizon_days,
                 confidence_level=confidence_level,
+                rfr_annual=rfr_annual,
+                pre_port_ret=pre_port_ret,
+                post_port_ret=post_port_ret,
                 pre_metrics=pre_metrics,
                 post_metrics=post_metrics,
                 pre_div=pre_div,
                 post_div=post_div,
-                pre_cum_pct=pre_cum_pct,
-                post_cum_pct=post_cum_pct,
-                b_cum_pct=b_cum_pct,
-                benchmark_name=current_cfg["name"],
+                default_benchmark_label=current_cfg["name"],
+                default_benchmark_symbol=current_cfg["symbol"],
                 price_matrix_valid=price_matrix_valid,
                 prop_wts=prop_wts,
                 post_nav=post_nav,
                 turnover_pct=turnover_pct,
                 total_friction_amt=total_friction_amt,
-                beta_val=beta_val,
                 pre_max_stock=pre_max_stock,
                 post_max_stock=post_max_stock,
                 pre_max_sec=pre_max_sec,
@@ -2063,10 +2508,10 @@ elif st.session_state["page"] == "analytics":
             )
 
             # ------------------------------------------------------------------
-            # STAGE 4: LOG RATIONALE & EXPORT AUDIT PACKET (SINGLE CLIENT)
+            # STAGE 4: COMPLIANCE ENGINE SCORECARD, RATIONALE & AUDIT EXPORT
             # ------------------------------------------------------------------
             st.markdown("---")
-            st.markdown("## Stage 4: Rationale & Audit Export")
+            st.markdown("## Stage 4: Compliance Engine Scorecard, Rationale & Audit Export")
 
             rationale_input = st.text_area(
                 "Investment & Suitability Rationale (why this stock/weight change fits the client mandate, horizon & risk profile)",
@@ -2085,20 +2530,15 @@ elif st.session_state["page"] == "analytics":
                 stock_cap_pct=stock_cap_pct,
                 sector_cap_pct=sector_cap_pct,
                 rationale_text=rationale_input,
+                cash_wt_pct=post_cash_wt_pct,
+                min_cash_pct=min_cash_pct,
+                turnover_pct=turnover_pct,
+                max_turnover_pct=max_turnover_pct,
+                max_stock_name=post_max_stock_name,
+                max_sector_name=post_max_sec_name,
             )
 
-            strip_cls = "gate-pass" if gate_res["status"] == "Pass" else ("gate-warn" if gate_res["status"] == "Warning" else "gate-breach")
-            badge_icon = "🟢 PASS" if gate_res["status"] == "Pass" else ("🟡 WARNING" if gate_res["status"] == "Warning" else "🔴 BREACH")
-            issues_txt = " | ".join(gate_res["breaches"] + gate_res["warnings"]) if (gate_res["breaches"] or gate_res["warnings"]) else "All volatility, CVaR, single-stock & sector limits within mandate."
-            rat_flag = "Logged" if not gate_res["missing_rationale"] else "Missing Rationale"
-
-            st.markdown(
-                f"""<div class="gate-strip {strip_cls}">
-                    <b>Mandate Gate Status: {badge_icon}</b> &nbsp;•&nbsp; <b>Suitability Log:</b> {rat_flag}<br/>
-                    <span>{issues_txt}</span>
-                </div>""",
-                unsafe_allow_html=True,
-            )
+            render_compliance_gate_scorecard(gate_res)
 
             audit_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             diff_summary_payload = {
@@ -2131,7 +2571,7 @@ elif st.session_state["page"] == "analytics":
             st.download_button(
                 label="📥 Export Timestamped Audit & Suitability Report (PDF)",
                 data=pdf_packet,
-                file_name=f"FolioLyn_Audit_{client_id_tag.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                file_name=f"FolioLink_Audit_{client_id_tag.replace(' ', '_')}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                 mime="application/pdf",
                 type="primary",
             )
@@ -2187,22 +2627,26 @@ elif st.session_state["page"] == "analytics":
                 override_limits_per_client = st.checkbox("Use Per-Client Mandate Caps if Provided", value=True, key="batch_per_client_caps")
 
             st.markdown("#### ➕ Add New Stock(s) to Batch Model Rebalance")
-            if "batch_added_tickers_list" not in st.session_state:
-                st.session_state["batch_added_tickers_list"] = []
+            if "batch_pick_universe" not in st.session_state:
+                st.session_state["batch_pick_universe"] = []
+            if "batch_custom_stocks" not in st.session_state:
+                st.session_state["batch_custom_stocks"] = ""
+
+            def _clear_batch_added():
+                st.session_state["batch_pick_universe"] = []
+                st.session_state["batch_custom_stocks"] = ""
 
             b_add1, b_add2, b_add3, b_add4 = st.columns([2.0, 2.0, 1.3, 1.0])
             with b_add1:
                 b_picked_universe = st.multiselect(
                     "Pick from Exchange Universe",
                     options=exchange_suggestions,
-                    default=[t for t in st.session_state["batch_added_tickers_list"] if t in exchange_suggestions],
                     placeholder="Select stocks to add...",
                     key="batch_pick_universe",
                 )
             with b_add2:
                 b_custom_raw = st.text_input(
                     "Or Type Custom Ticker(s) (comma-separated)",
-                    value="",
                     placeholder="e.g. TCS, AXISBANK, BEL",
                     key="batch_custom_stocks",
                 ).strip().upper()
@@ -2217,16 +2661,13 @@ elif st.session_state["page"] == "analytics":
                 )
             with b_add4:
                 st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                if st.button("Clear Added", key="batch_clear_added_btn"):
-                    st.session_state["batch_added_tickers_list"] = []
-                    st.rerun()
+                st.button("Clear Added", key="batch_clear_added_btn", on_click=_clear_batch_added)
 
             b_custom_list = [p.strip().upper() for p in b_custom_raw.split(",") if p.strip()]
             b_combined_added = []
             for item in b_picked_universe + b_custom_list:
                 if item and item != "NAN" and item not in b_combined_added:
                     b_combined_added.append(item)
-            st.session_state["batch_added_tickers_list"] = b_combined_added
 
             m_clean = model_target_df[model_target_df["Ticker"].astype(str).str.strip() != ""].copy()
             if m_clean.empty and not b_combined_added:
@@ -2295,14 +2736,7 @@ elif st.session_state["page"] == "analytics":
 
             all_t_list = sorted(all_batch_tickers)
             yf_b_syms = resolve_yf_tickers(all_t_list, current_cfg)
-            with st.spinner("Fetching market prices & return histories for batch universe..."):
-                end_dt_b = datetime.datetime.now()
-                start_dt_b = end_dt_b - datetime.timedelta(days=365 * 3)
-                p_b_raw = yf.download(yf_b_syms, start=start_dt_b, end=end_dt_b, progress=False)
-                p_b_df = p_b_raw["Close"] if isinstance(p_b_raw, pd.DataFrame) and "Close" in p_b_raw else p_b_raw
-                if isinstance(p_b_df, pd.Series):
-                    p_b_df = p_b_df.to_frame(name=yf_b_syms[0])
-                p_b_df = p_b_df.dropna(how="all", axis=1).ffill().bfill()
+            p_b_df = cached_yf_download_period(tuple(yf_b_syms), period="3y")
 
             valid_b_pairs = [(bt, yt) for bt, yt in zip(all_t_list, yf_b_syms) if yt in p_b_df.columns]
             if not valid_b_pairs:
@@ -2314,7 +2748,6 @@ elif st.session_state["page"] == "analytics":
             price_b_valid = p_b_df[valid_b_yt]
             ret_b_df = price_b_valid.pct_change().dropna()
 
-            # Portfolio Optimizer Presets for Batch Model Weights (erk.weight_ew, erk.weight_gmv, erk.msr, erk.weight_erc)
             st.markdown("#### ⚙️ Model Portfolio Optimizer Presets (Auto-Fill Model Target Weights)")
             if "batch_active_optimizer" not in st.session_state:
                 st.session_state["batch_active_optimizer"] = None
@@ -2366,14 +2799,6 @@ elif st.session_state["page"] == "analytics":
 
             latest_px_map = {bt: float(p_b_df[yt].iloc[-1]) for bt, yt in valid_b_pairs}
 
-            b_ret_bench = pd.Series(dtype=float)
-            try:
-                bm_b_raw = yf.download(current_cfg["symbol"], start=ret_b_df.index[0], end=ret_b_df.index[-1], progress=False)
-                bm_b_ser = bm_b_raw["Close"].squeeze() if isinstance(bm_b_raw, pd.DataFrame) and "Close" in bm_b_raw else pd.Series(dtype=float)
-                b_ret_bench = bm_b_ser.pct_change().dropna()
-            except Exception:
-                pass
-
             if "batch_last_bulk_tax" not in st.session_state:
                 st.session_state["batch_last_bulk_tax"] = "LTCG (12.5%)"
             if "batch_per_stock_tax" not in st.session_state:
@@ -2415,6 +2840,7 @@ elif st.session_state["page"] == "analytics":
                 target_equity_base = tot_val if deploy_cash else eq_val
                 prop_wts = np.array([(model_wt_map.get(t, 0.0) * target_equity_base / tot_val) if tot_val > 0 else 0.0 for t in valid_b_bt], dtype=float)
                 prop_pos_vals = prop_wts * tot_val
+                b_post_cash_pct = max(0.0, (1.0 - float(prop_wts.sum())) * 100.0)
 
                 c_actions = []
                 c_regimes = []
@@ -2476,11 +2902,14 @@ elif st.session_state["page"] == "analytics":
                 c_post_div = compute_risk_and_diversification(ret_b_df, prop_wts, valid_b_bt)
 
                 post_max_s = float(prop_wts.max() * 100.0) if len(prop_wts) else 0.0
+                post_max_s_name = valid_b_bt[int(np.argmax(prop_wts))] if len(prop_wts) else "N/A"
                 pre_max_s = float(c_wts.max() * 100.0) if len(c_wts) else 0.0
                 sec_map_c = pd.Series(c_wts, index=[ticker_to_sector.get(t, "Other") for t in valid_b_bt])
                 sec_map_p = pd.Series(prop_wts, index=[ticker_to_sector.get(t, "Other") for t in valid_b_bt])
                 pre_max_sec = float(sec_map_c.groupby(level=0).sum().max() * 100.0) if not sec_map_c.empty else 0.0
-                post_max_sec = float(sec_map_p.groupby(level=0).sum().max() * 100.0) if not sec_map_p.empty else 0.0
+                sec_p_grp = sec_map_p.groupby(level=0).sum()
+                post_max_sec = float(sec_p_grp.max() * 100.0) if not sec_p_grp.empty else 0.0
+                post_max_sec_name = str(sec_p_grp.idxmax()) if not sec_p_grp.empty else "N/A"
 
                 turn_pct = float(np.abs(prop_wts - c_wts).sum() * 0.5 * 100.0)
                 fric_amt = float(np.abs(prop_wts - c_wts).sum() * 0.5 * tot_val * batch_fric_rate)
@@ -2495,6 +2924,12 @@ elif st.session_state["page"] == "analytics":
                     stock_cap_pct=c_stk_cap,
                     sector_cap_pct=sector_cap_pct,
                     rationale_text=rat_str,
+                    cash_wt_pct=b_post_cash_pct,
+                    min_cash_pct=min_cash_pct,
+                    turnover_pct=turn_pct,
+                    max_turnover_pct=max_turnover_pct,
+                    max_stock_name=post_max_s_name,
+                    max_sector_name=post_max_sec_name,
                 )
 
                 tax_roll_disp = f"{currency} {c_tot_tax:,.2f}" if (pd.notna(c_tot_tax) and c_tot_tax > 0) else "N/A"
@@ -2537,7 +2972,11 @@ elif st.session_state["page"] == "analytics":
                     "pre_metrics": c_pre_metrics, "post_metrics": c_post_metrics,
                     "pre_div": c_pre_div, "post_div": c_post_div,
                     "pre_max_s": pre_max_s, "post_max_s": post_max_s,
+                    "post_max_s_name": post_max_s_name,
                     "pre_max_sec": pre_max_sec, "post_max_sec": post_max_sec,
+                    "post_max_sec_name": post_max_sec_name,
+                    "post_cash_pct": b_post_cash_pct,
+                    "c_vol_cap": c_vol_cap, "c_stk_cap": c_stk_cap,
                     "turn_pct": turn_pct, "fric_amt": fric_amt,
                     "tax_amt": c_tot_tax, "has_sell": c_has_sell,
                     "exec_df": c_exec_df,
@@ -2560,7 +2999,7 @@ elif st.session_state["page"] == "analytics":
             # STAGE 3 (BATCH): ROLL-UP SUMMARY TABLE + FULL DRILL-DOWN ANALYTICS
             # ------------------------------------------------------------------
             st.markdown("---")
-            st.markdown("## Stage 3: Pre-Trade Diff, Benchmark Comparison & Risk / Monte Carlo (Batch)")
+            st.markdown("## Stage 3: Pre-Trade Diff, Alpha & Benchmark Comparison, Risk / Monte Carlo (Batch)")
 
             sum_df = pd.DataFrame(summary_records)
             pass_cnt = int((sum_df["Gate_Status"] == "Pass").sum())
@@ -2573,6 +3012,15 @@ elif st.session_state["page"] == "analytics":
             bk2.metric("Pass / Warning", f"{pass_cnt} Pass / {warn_cnt} Warn")
             bk3.metric("Mandate / Conc. Breach", f"{breach_cnt}")
             bk4.metric("Missing Rationale", f"{miss_rat_cnt}")
+
+            def _highlight_batch_gate(val):
+                if val == "Breach":
+                    return "background-color: #7F1D1D; color: #FEF2F2; font-weight: 700;"
+                if val == "Warning":
+                    return "background-color: #78350F; color: #FFFBEB; font-weight: 600;"
+                if val == "Pass":
+                    return "background-color: #14532D; color: #F0FDF4; font-weight: 600;"
+                return ""
 
             st.dataframe(
                 sum_df.style.format({
@@ -2587,7 +3035,7 @@ elif st.session_state["page"] == "analytics":
                     "Wt_ENC (%)": "{:.1f}%",
                     "Risk_ENC (%)": "{:.1f}%",
                     "Max_Stock (%)": "{:.2f}%",
-                }),
+                }).map(_highlight_batch_gate, subset=["Gate_Status"]),
                 use_container_width=True,
                 hide_index=True,
             )
@@ -2637,7 +3085,7 @@ elif st.session_state["page"] == "analytics":
                 st.download_button(
                     label=f"📥 Export Broker Execution CSV ({selected_cid})",
                     data=d_item["exec_df"].to_csv(index=False).encode("utf-8"),
-                    file_name=f"FolioLyn_Trade_Execution_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"FolioLink_Trade_Execution_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
                     key=f"batch_dl_exec_{selected_cid}",
                 )
@@ -2645,47 +3093,30 @@ elif st.session_state["page"] == "analytics":
                 st.download_button(
                     label="📥 Export All Clients Broker Execution CSV",
                     data=full_batch_exec_df.to_csv(index=False).encode("utf-8"),
-                    file_name=f"FolioLyn_Batch_Trade_Execution_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"FolioLink_Batch_Trade_Execution_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
                     key="batch_dl_exec_all",
                 )
-
-            b_beta_val = 1.0
-            b_cum_curve = None
-            if not b_ret_bench.empty:
-                aligned_b = pd.DataFrame({"pre": d_item["r_pre"], "post": d_item["r_post"], "m": b_ret_bench}).dropna()
-                if len(aligned_b) > 10 and np.var(aligned_b["m"]) > 0:
-                    b_beta_val = float(np.cov(aligned_b["post"], aligned_b["m"])[0, 1] / np.var(aligned_b["m"]))
-                if not aligned_b.empty:
-                    b_pre_cum = ((1.0 + aligned_b["pre"]).cumprod() - 1.0) * 100.0
-                    b_post_cum = ((1.0 + aligned_b["post"]).cumprod() - 1.0) * 100.0
-                    b_cum_curve = ((1.0 + aligned_b["m"]).cumprod() - 1.0) * 100.0
-                else:
-                    b_pre_cum = ((1.0 + d_item["r_pre"]).cumprod() - 1.0) * 100.0
-                    b_post_cum = ((1.0 + d_item["r_post"]).cumprod() - 1.0) * 100.0
-            else:
-                b_pre_cum = ((1.0 + d_item["r_pre"]).cumprod() - 1.0) * 100.0
-                b_post_cum = ((1.0 + d_item["r_post"]).cumprod() - 1.0) * 100.0
 
             render_risk_diversification_and_mc_section(
                 prefix_key=f"batch_{selected_cid}",
                 currency=currency,
                 time_horizon_days=time_horizon_days,
                 confidence_level=confidence_level,
+                rfr_annual=rfr_annual,
+                pre_port_ret=d_item["r_pre"],
+                post_port_ret=d_item["r_post"],
                 pre_metrics=d_item["pre_metrics"],
                 post_metrics=d_item["post_metrics"],
                 pre_div=d_item["pre_div"],
                 post_div=d_item["post_div"],
-                pre_cum_pct=b_pre_cum,
-                post_cum_pct=b_post_cum,
-                b_cum_pct=b_cum_curve,
-                benchmark_name=current_cfg["name"],
+                default_benchmark_label=current_cfg["name"],
+                default_benchmark_symbol=current_cfg["symbol"],
                 price_matrix_valid=price_b_valid,
                 prop_wts=d_item["prop_wts"],
                 post_nav=d_item["tot_val"],
                 turnover_pct=d_item["turn_pct"],
                 total_friction_amt=d_item["fric_amt"],
-                beta_val=b_beta_val,
                 pre_max_stock=d_item["pre_max_s"],
                 post_max_stock=d_item["post_max_s"],
                 pre_max_sec=d_item["pre_max_sec"],
@@ -2695,10 +3126,10 @@ elif st.session_state["page"] == "analytics":
             )
 
             # ------------------------------------------------------------------
-            # STAGE 4 (BATCH): LOG RATIONALE & EXPORT BATCH AUDIT PACKET
+            # STAGE 4 (BATCH): COMPLIANCE SCORECARD, RATIONALE & EXPORT
             # ------------------------------------------------------------------
             st.markdown("---")
-            st.markdown("## Stage 4: Rationale & Audit Export (Batch)")
+            st.markdown("## Stage 4: Compliance Engine Scorecard, Rationale & Audit Export (Batch)")
             batch_rationale_val = st.text_area(
                 f"Suitability & Model Rebalance Rationale for {selected_cid}",
                 value=d_item["rationale"],
@@ -2714,12 +3145,21 @@ elif st.session_state["page"] == "analytics":
                 post_cvar_pct=d_item["post_metrics"]["hist_cvar"],
                 max_stock_wt_pct=d_item["post_max_s"],
                 max_sector_wt_pct=d_item["post_max_sec"],
-                vol_cap_pct=vol_cap_pct,
+                vol_cap_pct=d_item["c_vol_cap"],
                 cvar_cap_pct=cvar_cap_pct,
-                stock_cap_pct=stock_cap_pct,
+                stock_cap_pct=d_item["c_stk_cap"],
                 sector_cap_pct=sector_cap_pct,
                 rationale_text=batch_rationale_val,
+                cash_wt_pct=d_item["post_cash_pct"],
+                min_cash_pct=min_cash_pct,
+                turnover_pct=d_item["turn_pct"],
+                max_turnover_pct=max_turnover_pct,
+                max_stock_name=d_item["post_max_s_name"],
+                max_sector_name=d_item["post_max_sec_name"],
             )
+
+            render_compliance_gate_scorecard(b_gate)
+
             b_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             b_pdf = build_audit_packet_pdf(
                 entity_type=entity_type,
@@ -2752,14 +3192,14 @@ elif st.session_state["page"] == "analytics":
                 st.download_button(
                     label="📥 Export Batch Summary Roll-Up (CSV)",
                     data=sum_df.to_csv(index=False).encode("utf-8"),
-                    file_name=f"FolioLyn_Batch_Summary_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    file_name=f"FolioLink_Batch_Summary_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
                 )
             with dl_c2:
                 st.download_button(
                     label="📄 Export Timestamped Audit Report (PDF)",
                     data=b_pdf,
-                    file_name=f"FolioLyn_Batch_Audit_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    file_name=f"FolioLink_Batch_Audit_{selected_cid}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                     mime="application/pdf",
                     type="primary",
                 )
@@ -2780,7 +3220,7 @@ elif st.session_state["page"] == "analytics":
                     creds_dict = dict(st.secrets["gcp_service_account"])
                     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
                     client = gspread.authorize(creds)
-                    sheet = client.open("FolioLyn User Feedback").sheet1
+                    sheet = client.open("FolioLink User Feedback").sheet1
                     sheet.append_row([
                         pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
                         user_email if user_email else "Anonymous",
